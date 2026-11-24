@@ -84,6 +84,33 @@ async function settle(page, inflight) {
   throw new Error("The Feed did not settle within 15 s");
 }
 
+// Cards re-render once a minute for their relative times. A window that
+// counts card renders starts at least 20 s before the page's next minute,
+// and the caller checks the minute did not change during it.
+const pageMinute = (page) =>
+  page.evaluate(() => Math.floor(Date.now() / 60000));
+async function awayFromMinuteBoundary(page) {
+  const left = await page.evaluate(() => 60000 - (Date.now() % 60000));
+  if (left < 20000) await page.waitForTimeout(left + 250);
+  return pageMinute(page);
+}
+// Feed may last have rendered in an earlier minute; its next render would
+// then re-render every card for their times. Start a counting window clear
+// of the minute boundary, with Feed rendered in the current minute.
+async function minuteWindow(page, inflight) {
+  const minute = await awayFromMinuteBoundary(page);
+  for (const name of ["Working", "Done"])
+    await page.getByRole("tab", { name: new RegExp("^" + name) }).click();
+  await settle(page, inflight);
+  return minute;
+}
+const sameMinute = async (page, minute, name) => {
+  if ((await pageMinute(page)) !== minute)
+    throw new Error(
+      `The ${name} window crossed a minute boundary; its card renders are not comparable`,
+    );
+};
+
 // Time from pointerdown to the first frame whose computed style differs from
 // rest. Resolves to null when nothing changes within 250 ms, well before a
 // Done card's 500 ms long press would open its menu.
@@ -197,7 +224,13 @@ async function tabSwitch(page, name) {
 }
 
 // Frame intervals and React commits while a touch drag runs, before release.
+// Counts from after touchStart: the budget is no commit per move, and a
+// card may commit once as the finger lands (it prefetches its full answer).
 async function dragProbe(page, client, from, to, steps, durationMs) {
+  await client.send("Input.dispatchTouchEvent", {
+    type: "touchStart",
+    touchPoints: [{ x: from.x, y: from.y, id: 1 }],
+  });
   await page.evaluate(() => {
     const probe = window.__loopCommitProbe;
     window.__loopDrag = { commits: probe.commits, frames: [], run: true };
@@ -209,10 +242,6 @@ async function dragProbe(page, client, from, to, steps, durationMs) {
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
-  });
-  await client.send("Input.dispatchTouchEvent", {
-    type: "touchStart",
-    touchPoints: [{ x: from.x, y: from.y, id: 1 }],
   });
   for (let step = 1; step <= steps; step++) {
     const t = step / steps;
@@ -356,6 +385,9 @@ export async function responsivenessSmoke(page, fixture, engine) {
 
     if (client) {
       console.log("responsiveness: swipe", JSON.stringify(report.tabs));
+      // Waits here, before the drags, so no idle wait sits right before a
+      // measured gesture; the refresh below must finish in the same minute.
+      const refreshMinute = await minuteWindow(page, inflight);
       // 3. A card swipe that does not cross the archive threshold.
       const card = page.locator(".feed-results .feed-item-card").first();
       await card.evaluate((element) =>
@@ -418,6 +450,7 @@ export async function responsivenessSmoke(page, fixture, engine) {
       const after = await page.evaluate(() => ({
         ...window.__loopCommitProbe,
       }));
+      await sameMinute(page, refreshMinute, "unchanged refresh");
       report.refresh = {
         // Refreshes the pull started, and the API reads that followed.
         started: after.refreshes - before.refreshes,
@@ -446,6 +479,7 @@ export async function responsivenessSmoke(page, fixture, engine) {
       const renamedTo = renamedFrom + " (renamed)";
       // Count from before the change: a background read may pick it up
       // before the pull finishes.
+      const changeMinute = await minuteWindow(page, inflight);
       const beforeChange = await page.evaluate(() => ({
         ...window.__loopCommitProbe,
       }));
@@ -462,6 +496,7 @@ export async function responsivenessSmoke(page, fixture, engine) {
       const afterChange = await page.evaluate(() => ({
         ...window.__loopCommitProbe,
       }));
+      await sameMinute(page, changeMinute, "changed refresh");
       await expect(
         page.getByRole("button", { name: renamedTo, exact: true }),
       ).toBeVisible();
@@ -635,7 +670,7 @@ export async function responsivenessSmoke(page, fixture, engine) {
           () =>
             page.evaluate(() =>
               Object.keys(localStorage).find((key) =>
-                key.startsWith("loop-draft-text:"),
+                /^loop-draft-text:[^:]*:\[/.test(key),
               ),
             ),
           { timeout: 5000 },
@@ -644,7 +679,7 @@ export async function responsivenessSmoke(page, fixture, engine) {
         .then(() =>
           page.evaluate(() =>
             Object.keys(localStorage).find((key) =>
-              key.startsWith("loop-draft-text:"),
+              /^loop-draft-text:[^:]*:\[/.test(key),
             ),
           ),
         );

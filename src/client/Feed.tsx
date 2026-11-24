@@ -288,7 +288,6 @@ function FeedCard({
   groupCount,
   selected,
   onSelect,
-  draftText,
 }: {
   sourceCapabilities?: import("../shared/capabilities").Capabilities;
   item: FeedItem;
@@ -316,7 +315,10 @@ function FeedCard({
   groupCount?: number;
   selected?: boolean;
   onSelect?: () => void;
-  /** The thread's unsent draft, read by Feed so a memoised card sees it. */
+  /**
+   * The thread's unsent draft as Feed last read it. The card reads the draft
+   * itself too; this prop re-renders a memoised card when Feed sees a change.
+   */
   draftText: string;
   /**
    * The current minute. The card's relative times read the clock while it
@@ -349,7 +351,11 @@ function FeedCard({
   });
   const taskStatus = runStatus(item.run?.state, item.pending_approvals);
   const status = item.reply ? { label: "Reply", tone: "done" } : taskStatus;
-  const draft = draftText;
+  // Read on every card render, as before memoisation; `draftText` only
+  // ensures a Feed render that sees a new draft also renders this card.
+  const draft = threadDraft(
+    sourceDraftId(item.conversation_id, item.sourceId ?? scopedSource),
+  ).text;
   const next = feedNextAction(item.next_action, draft);
   const detail =
     item.reply && item.run
