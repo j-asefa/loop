@@ -24,7 +24,7 @@ import {
 } from "../shared/run-state";
 import { lastVisit, recordVisit } from "./deviceHistory";
 import { proseEntry } from "./textEntry";
-import { isExecutionRefused, UnavailableResponse } from "./api";
+import { isExecutionRefused } from "./api";
 import { writeOutcome } from "./writeOutcome";
 import { operationBlockReason } from "./sourceAvailability";
 import {
@@ -3770,6 +3770,10 @@ export function Feed({
     // again from another surface (dismissing).
     let settled: Promise<unknown> = Promise.resolve();
     let refusal: string | undefined;
+    // Decisions about this archive belong to the session it started in.
+    const generation = viewGeneration();
+    const sameSession = () =>
+      owner === viewOwner() && generation === viewGeneration();
     const archived = () => {
       // Keep the card filtered until the follow-up read has replaced any
       // read that started before the server applied the archive.
@@ -3783,10 +3787,16 @@ export function Feed({
     const hide = (): Promise<void> =>
       setHidden(true)
         .then(archived, (e) => {
-          if (owner !== viewOwner() || e instanceof UnavailableResponse) {
+          // After a sign-out (even back to the same owner) nothing from the
+          // old session is shown or offered for Retry.
+          if (!sameSession()) {
             pendingArchives.current.delete(itemKey);
             return;
           }
+          // An UnavailableResponse can come after the server has answered
+          // (a reply that failed its schema, or a session change while it
+          // was read), so it is not a refusal: it falls through to the
+          // outcome below and, without an explicit one, is uncertain.
           const outcome = writeOutcome(e);
           if (outcome === "applied") return archived();
           if (outcome === "refused") {
@@ -3805,12 +3815,20 @@ export function Feed({
           // again: the server may not have archived it.
           let retried = false;
           notify({
-            text: "Not saved. Removed here only.",
+            // True whether or not the card is shown again (see onExpire).
+            text: "Archive not saved.",
             tone: "error",
             link: {
               label: "Retry",
               onSelect: () => {
-                if (owner !== viewOwner()) return;
+                if (!sameSession()) {
+                  pendingArchives.current.delete(itemKey);
+                  return;
+                }
+                // An Undo in flight decides; resending now could race it.
+                // (The toast has already run onExpire, which showed the card
+                // again; it stays shown.)
+                if (dismissingRef.current.has(dismissKey)) return;
                 retried = true;
                 pendingArchives.current.add(itemKey);
                 remove();
@@ -3818,10 +3836,12 @@ export function Feed({
                 settled = hide().catch(() => {});
               },
             },
+            // The toast runs this before a Retry's onSelect too, so a Retry
+            // shows the card again here and onSelect hides it once more.
             onExpire: () => {
-              if (retried || owner !== viewOwner()) return;
+              if (retried) return;
               pendingArchives.current.delete(itemKey);
-              restore();
+              if (sameSession()) restore();
             },
           });
         })

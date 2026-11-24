@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { UnavailableResponse } from "../src/client/api";
 import { writeOutcome } from "../src/client/writeOutcome";
 
 const failure = (status?: number, executionOutcome?: string) =>
@@ -29,5 +30,18 @@ describe("writeOutcome", () => {
     // And 409 for a write whose outcome it does not know.
     expect(writeOutcome(failure(409, "unknown"))).toBe("uncertain");
     expect(writeOutcome(failure(503, "refused"))).toBe("refused");
+  });
+
+  it("treats an unavailable response as uncertain, never as a refusal", () => {
+    // Thrown also after the server answered (a reply that failed its schema),
+    // so a change shown before it must not be undone.
+    expect(writeOutcome(new UnavailableResponse())).toBe("uncertain");
+    expect(
+      writeOutcome(
+        Object.assign(new UnavailableResponse(), {
+          executionOutcome: "completed",
+        }),
+      ),
+    ).toBe("applied");
   });
 });
