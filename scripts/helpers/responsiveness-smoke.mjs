@@ -16,6 +16,10 @@ const { activityRecordKey } = await tsImport(
   "../../src/shared/agent-activities.ts",
   import.meta.url,
 );
+const { WORKING_RUN_DISPLAY_STATES } = await tsImport(
+  "../../src/shared/run-state.ts",
+  import.meta.url,
+);
 
 // Measures how quickly the Feed responds to touch, tab switches, drags and
 // local writes, on the production bundle with a 4x CPU slowdown in Chromium.
@@ -891,9 +895,12 @@ export async function responsivenessSmoke(page, fixture, engine) {
       console.log("responsiveness: activity line");
       // A working card shows its run's latest activity in the harness's own
       // words (B1): seed one running tool step and open the Working tab.
-      const working = await page.evaluate(async () => {
+      // A card whose run state shows a line (WORKING_RUN_DISPLAY_STATES).
+      const working = await page.evaluate(async (states) => {
         const body = await (await fetch("/api/feed?filter=working")).json();
-        const item = (body.items || body).find((entry) => entry.run);
+        const item = (body.items || body).find(
+          (entry) => entry.run && states.includes(entry.run.state),
+        );
         return (
           item && {
             conversation: item.conversation_id,
@@ -901,8 +908,8 @@ export async function responsivenessSmoke(page, fixture, engine) {
             title: item.title,
           }
         );
-      });
-      if (!working) throw new Error("No working card with a run");
+      }, WORKING_RUN_DISPLAY_STATES);
+      if (!working) throw new Error("No working card with a running run");
       const step = {
         v: 1,
         kind: "tool",

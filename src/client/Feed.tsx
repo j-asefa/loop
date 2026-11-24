@@ -1451,7 +1451,10 @@ function ActivityLineView({
   conversation: string;
   run: string;
 }) {
-  const { items } = useConversationActivities(conversation, [run]);
+  // No runs: the recent snapshot already holds the newest steps, and naming
+  // the run would also page through its file changes, which the line never
+  // needs. activityLine filters by run.
+  const { items } = useConversationActivities(conversation);
   const line = activityLine(items, run);
   if (!line) return null;
   return (

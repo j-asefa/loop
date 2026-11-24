@@ -21,24 +21,25 @@ const basename = (path: string) => path.split(/[\\/]/).filter(Boolean).at(-1);
 /**
  * The latest step a run reported, in the harness's own words: a tool's title
  * (or its category and first path), a command, an edited file or the plan
- * step in progress. Nothing is invented: a run with no activity has no line.
+ * step in progress. Nothing is invented: a run with no activity, or whose
+ * newest step names nothing, has no line.
  */
 export function activityLine(items: Item[], run: string): ActivityLine | null {
-  const latest = items
+  // Only the newest step counts: an older one shown instead would read as
+  // what the agent is doing now.
+  const newest = items
     .filter(
       (item) =>
         item.run === run &&
-        item.record.kind !== "capabilities" &&
+        STEP_KINDS.includes(item.record.kind) &&
         // Records of another version may have another shape.
         item.record.v === 1,
     )
-    .sort((a, b) => b.sequence - a.sequence);
-  for (const { record } of latest) {
-    const line = lineFor(record as ActivityRecord);
-    if (line) return line;
-  }
-  return null;
+    .sort((a, b) => b.sequence - a.sequence)[0];
+  return newest ? lineFor(newest.record as ActivityRecord) : null;
 }
+
+const STEP_KINDS: string[] = ["tool", "output", "file_change", "plan"];
 
 const toolState = (status: string): ActivityState =>
   ["proposed", "waiting", "running"].includes(status)

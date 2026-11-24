@@ -48,6 +48,16 @@ describe("activityLine", () => {
       ),
     ).toEqual({ text: "read Feed.tsx", state: "done" });
     expect(activityLine([item(1, tool({}))], "r1")).toBeNull();
+    // A newest step that names nothing does not fall back to an older one.
+    expect(
+      activityLine(
+        [
+          item(1, tool({ title: "Read Feed.tsx", status: "completed" })),
+          item(2, tool({ status: "running" })),
+        ],
+        "r1",
+      ),
+    ).toBeNull();
   });
 
   it("shows commands, edited files and the plan step in progress", () => {
