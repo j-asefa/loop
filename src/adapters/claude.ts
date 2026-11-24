@@ -388,6 +388,8 @@ export class Claude extends DirectAdapter implements Adapter {
     beforeDispatch?.();
     const uuid = randomUUID();
     const read = this.steering.expect(uuid);
+    // abandon() can reject it while the write is in flight, before it is awaited.
+    read.catch(() => {});
     try {
       await this.send(text, uuid);
     } catch (error) {
@@ -448,7 +450,10 @@ export class Claude extends DirectAdapter implements Adapter {
       if (m.type === "result" && !foreignResult(m, true, this.session))
         this.orphanTurn = false;
       // Nobody can answer its permission requests; refuse them.
-      if (m.type === "control_request")
+      if (
+        m.type === "control_request" &&
+        ["can_use_tool", "elicitation"].includes(m.request?.subtype)
+      )
         void this.native
           .write({
             type: "control_response",

@@ -264,14 +264,39 @@ test("Claude ends a held run at once when the only unread follow-up's write fail
     });
   const steer = adapter.steer("Side question");
   await new Promise((done) => setImmediate(done));
-  result();
+  result(["held turn failed"]);
   assert.equal(statuses().length, 0);
   fail(new Error("pipe closed"));
   await assert.rejects(steer, /pipe closed/);
   assert.deepEqual(
-    statuses().map((e) => e.status),
-    ["completed"],
+    statuses().map((e) => [e.status, e.detail]),
+    [["failed", "held turn failed"]],
   );
+});
+
+test("Claude leaves no unhandled rejection when a follow-up is abandoned mid-write", async () => {
+  const { adapter, statuses } = liveClaude();
+  const unhandled: unknown[] = [];
+  const record = (reason: unknown) => unhandled.push(reason);
+  process.on("unhandledRejection", record);
+  try {
+    let fail!: (error: Error) => void;
+    adapter.native.write = () =>
+      new Promise((_, reject) => {
+        fail = reject;
+      });
+    const steer = adapter.steer("Side question");
+    await new Promise((done) => setImmediate(done));
+    await adapter.dispose();
+    await new Promise((done) => setTimeout(done, 10));
+    fail(new Error("pipe closed"));
+    await assert.rejects(steer, /pipe closed/);
+    await new Promise((done) => setTimeout(done, 10));
+    assert.deepEqual(unhandled, []);
+    assert.equal(statuses().length, 0);
+  } finally {
+    process.off("unhandledRejection", record);
+  }
 });
 
 test("Claude leaves an unread follow-up unconfirmed after dispose", async () => {

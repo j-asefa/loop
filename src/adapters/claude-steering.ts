@@ -44,10 +44,8 @@ export class ClaudeSteering {
   drop(uuid: string) {
     this.unread.delete(uuid);
     const fallback = this.fallback;
-    if (!this.pending && this.timer && fallback) {
-      this.release();
-      fallback();
-    }
+    // The fallback's finish() releases the hold and keeps its errors.
+    if (!this.pending && this.timer && fallback) fallback();
   }
   get pending() {
     return this.unread.size > 0;
