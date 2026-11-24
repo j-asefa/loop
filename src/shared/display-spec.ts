@@ -107,6 +107,10 @@ const replyText = z
   .refine(
     (value) => !/[\r\n\u0085\u2028\u2029]/.test(value),
     "Reply prompts must be a single line",
+  )
+  .refine(
+    (value) => !/\p{C}/u.test(value),
+    "Reply text cannot contain control or invisible characters",
   );
 
 // Props of each catalog component. Unknown props are ignored.

@@ -554,6 +554,34 @@ it("checks and draws ReplyButton elements and pre-fills the reply handler only w
       "This part of the display could not be shown",
     );
   }
+  for (const hiddenControl of [
+    "Run tests\u{E0061}\u{E0062}",
+    "Run \u202Etests",
+    "Run \u2066tests\u2069",
+    "Run\u200Btests",
+    "Run\u0000tests",
+    "Run\u001Btests",
+  ]) {
+    const hiddenSource = fence(
+      patch(
+        { op: "add", path: "/root", value: "btn" },
+        {
+          op: "add",
+          path: "/elements/btn",
+          value: {
+            type: "ReplyButton",
+            props: { label: "Run", prompt: hiddenControl },
+          },
+        },
+      ),
+    );
+    expect(checkDisplay(hiddenSource)).toContain(
+      "Reply text cannot contain control or invisible characters",
+    );
+    expect(render(hiddenSource)).toContain(
+      "This part of the display could not be shown",
+    );
+  }
 
   // seedReplyDraftText preserves existing drafts without duplicating repeated clicks or keeping a leading @/command prefix at the start.
   expect(seedReplyDraftText("", "Run benchmark")).toBe("Run benchmark");
@@ -569,6 +597,9 @@ it("checks and draws ReplyButton elements and pre-fills the reply handler only w
   expect(seedReplyDraftText("@ops check this", "Run benchmark")).toBe(
     "Run benchmark\n\n@ops check this",
   );
+  expect(
+    seedReplyDraftText("@ops check this\n\nRun benchmark", "Run benchmark"),
+  ).toBe("Run benchmark\n\n@ops check this");
   expect(
     seedReplyDraftText("Run benchmark\n\n@ops check this", "Run benchmark"),
   ).toBe("Run benchmark\n\n@ops check this");

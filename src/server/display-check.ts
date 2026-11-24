@@ -39,7 +39,7 @@ const forms: Record<(typeof DISPLAY_COMPONENTS)[number], string> = {
     "no props; children allowed, typically LinkButton or ReplyButton elements",
   LinkButton: "nonempty label and an HTTP(S) url",
   ReplyButton:
-    "nonempty single-line label (up to 200 chars); optional single-line prompt string (up to 200 chars) to pre-fill a reply (neither may be blank or start with @, /, !, or $)",
+    "nonempty single-line label (up to 200 chars); optional single-line prompt string (up to 200 chars) to pre-fill a reply (neither may be blank, contain control/invisible characters, or start with @, /, !, or $)",
 };
 const patchForm =
   "One JSON object per line with op add or replace. Use path /root with a string key, or /elements/<key> with an element object.";

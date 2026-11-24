@@ -10,14 +10,18 @@ export function seedReplyDraftText(current: string, prompt: string): string {
   const trimmed = current.trimEnd();
   if (!trimmed.trim()) return prompt;
   const target = prompt.trimEnd();
+  if (/^[\s\p{C}]*[@/!$]/u.test(trimmed)) {
+    const body = trimmed.endsWith(`\n\n${target}`)
+      ? trimmed.slice(0, -`\n\n${target}`.length).trim()
+      : trimmed.trimStart();
+    return body ? `${target}\n\n${body}` : target;
+  }
   if (
     trimmed === target ||
     trimmed.endsWith(`\n\n${target}`) ||
     trimmed.startsWith(`${target}\n\n`)
   )
     return current;
-  if (/^[\s\p{C}]*[@/!$]/u.test(trimmed))
-    return `${target}\n\n${trimmed.trimStart()}`;
   return `${trimmed}\n\n${prompt}`;
 }
 
