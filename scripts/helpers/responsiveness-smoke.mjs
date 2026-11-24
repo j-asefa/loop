@@ -82,7 +82,8 @@ async function settle(page, inflight) {
 }
 
 // Time from pointerdown to the first frame whose computed style differs from
-// rest. Resolves to null when nothing changes within 20 frames.
+// rest. Resolves to null when nothing changes within 250 ms, well before a
+// Done card's 500 ms long press would open its menu.
 async function pressLatency(page, locator) {
   // Press a point that hit-tests to the target itself, not an overlapping
   // control, floating button or navigation bar.
@@ -123,10 +124,9 @@ async function pressLatency(page, locator) {
         "pointerdown",
         () => {
           const start = performance.now();
-          let frames = 0;
           const check = () => {
             if (signature() !== rest) return resolve(performance.now() - start);
-            if (++frames > 20) return resolve(null);
+            if (performance.now() - start > 250) return resolve(null);
             requestAnimationFrame(check);
           };
           requestAnimationFrame(check);
@@ -141,6 +141,12 @@ async function pressLatency(page, locator) {
   await page.mouse.move(2, 2);
   await page.mouse.up();
   await page.waitForTimeout(150);
+  // A release that came too late lets the long press open the card menu,
+  // which would put every later step on a modal page.
+  if (await page.locator("dialog[open]").count()) {
+    await page.keyboard.press("Escape");
+    throw new Error("The held press opened a dialog before it was released");
+  }
   return latency;
 }
 
@@ -246,9 +252,14 @@ export async function responsivenessSmoke(page, fixture, engine) {
   const tabs = [];
   // API requests in flight, so waits end when the app's own work does.
   const inflight = new Set();
+  let apiRequests = 0;
   const isApi = (request) =>
     new URL(request.url()).pathname.startsWith("/api/");
-  page.on("request", (request) => isApi(request) && inflight.add(request));
+  page.on("request", (request) => {
+    if (!isApi(request)) return;
+    inflight.add(request);
+    apiRequests++;
+  });
   for (const event of ["requestfinished", "requestfailed"])
     page.on(event, (request) => inflight.delete(request));
   try {
@@ -340,6 +351,7 @@ export async function responsivenessSmoke(page, fixture, engine) {
       const before = await page.evaluate(() => ({
         ...window.__loopCommitProbe,
       }));
+      const requestsBefore = apiRequests;
       await client.send("Input.dispatchTouchEvent", {
         type: "touchEnd",
         touchPoints: [],
@@ -349,6 +361,8 @@ export async function responsivenessSmoke(page, fixture, engine) {
         ...window.__loopCommitProbe,
       }));
       report.refresh = {
+        // API requests the pull started: proof that a refresh ran.
+        requests: apiRequests - requestsBefore,
         commits: after.commits - before.commits,
         cardRenders: after.cardRenders - before.cardRenders,
         visibleCards: await page
@@ -428,15 +442,14 @@ export async function responsivenessSmoke(page, fixture, engine) {
   const ran = (ok, name) => {
     if (!ok) throw new Error(`Responsiveness measurement did not run: ${name}`);
   };
-  for (const [name, value] of Object.entries(report.press))
-    ran(/^[0-5]\/5$/.test(value.visibleChange), `press ${name}`);
+  // Press samples are checked as they are taken (no pointerdown throws).
   ran(
     tabs.every((entry) => Number.isFinite(entry.ms)),
     `tab switches ${JSON.stringify(tabs)}`,
   );
   ran(report.swipe?.frames > 0, "swipe");
   ran(report.pull?.frames > 0, "pull");
-  ran(report.refresh?.commits > 0, "refresh");
+  ran(report.refresh?.requests > 0, "refresh request");
   ran(Number.isFinite(report.archive?.visibleMs), "archive");
   return report;
 }
