@@ -705,6 +705,161 @@ it("lets a working agent request a review of its own worktree, waits for the lea
       .get(cancelled.id),
   ).toEqual({ state: "cancelled" });
 }, 30000);
+it("lets any team review an agent's worktree, with its manager leading and members reviewing, using the project that holds the checkout", async () => {
+  const { createTeam } = await import("../src/server/teams");
+  const { reviewLeadInstructions, TEAM_PRESETS } =
+    await import("../src/shared/team-presets");
+  const agent = (name: string) => {
+    const agentId = id();
+    seedAgent(db, {
+      id: agentId,
+      owner_id: "alice",
+      name,
+      normalized_name: name.toLowerCase(),
+      provider: "openai",
+      connection_id: c,
+      model: "fixture-model",
+      created_at: now(),
+    });
+    return agentId;
+  };
+  const lean = createTeam("alice", {
+    name: "Lean review",
+    managerId: agent("LeanLead"),
+    members: [agent("LeanReviewer")],
+  }) as { id: string; manager_id: string };
+  // A custom team has no project; the requester's run has none either.
+  expect(
+    (db.prepare("SELECT folder_id FROM teams WHERE id=?").get(lean.id) as any)
+      .folder_id,
+  ).toBeNull();
+  const requester = agent("LeanBuilder");
+  const worktree = join(dir, "lean-worktree");
+  git("worktree", "add", "-b", "lean-feature", worktree, "HEAD");
+  writeFileSync(join(worktree, "lean.ts"), "export const lean = 1;\n");
+  execFileSync("git", ["add", "lean.ts"], { cwd: worktree });
+  execFileSync("git", ["commit", "-m", "lean"], { cwd: worktree });
+  const run = submit("alice", {
+    agentId: requester,
+    input: "Ask the lean team for a review",
+    idempotencyKey: id(),
+  });
+  expect(run.payload.folderId).toBeFalsy();
+  db.prepare(
+    "INSERT INTO companion_sessions(worktree_agent_id,conversation_id,harness,project,updated_at) VALUES('fixture-agent',?,'claude',?,?)",
+  ).run(run.conversation_id, worktree, now());
+  db.prepare(
+    "UPDATE runs SET state='running',worker_id='fixture' WHERE id=?",
+  ).run(run.id);
+  const running = { ...run, state: "running" } as any;
+  const binding = nativeBindings(running).find(
+    (b) => b.tool === "loop_request_review",
+  )!;
+  expect(binding.description).toContain(lean.id);
+  const accepted = (await invokeNative(running, binding, "lean", {
+    teamId: lean.id,
+    scope: "branch",
+    base: "main",
+  })) as any;
+  const receipt = JSON.parse(accepted.result.content[0].text);
+  expect(receipt.error).toBeUndefined();
+  const review = db
+    .prepare("SELECT * FROM code_reviews WHERE id=?")
+    .get(receipt.reviewId) as any;
+  expect(review.folder_id).toBe(folder);
+  expect(JSON.parse(review.snapshot).changed).toEqual(["lean.ts"]);
+  const leadRun = db
+    .prepare("SELECT agent_id,input FROM runs WHERE id=?")
+    .get(review.run_id) as { agent_id: string; input: string };
+  expect(leadRun.agent_id).toBe(lean.manager_id);
+  expect(leadRun.input.startsWith(reviewLeadInstructions(1))).toBe(true);
+  const reviewers = db
+    .prepare(
+      "SELECT r.input FROM delegations d JOIN runs r ON r.id=d.child_run_id WHERE d.parent_run_id=?",
+    )
+    .all(review.run_id) as { input: string }[];
+  expect(reviewers).toHaveLength(1);
+  const correctness = TEAM_PRESETS.find(
+    (p) => p.id === "code-review",
+  )!.roles.find((r) => r.id === "correctness")!;
+  expect(reviewers[0].input.startsWith(correctness.instructions)).toBe(true);
+  expect(reviewers[0].input).toContain("as the correctness reviewer");
+
+  // Polling the same call keeps the review's project even after another
+  // project is bound to the same repository.
+  const second = id();
+  db.prepare(
+    "INSERT INTO folders VALUES(?, 'alice', NULL, 'project', 'Second', ?)",
+  ).run(second, now());
+  db.prepare("INSERT INTO project_paths VALUES(?,?)").run(second, worktree);
+  const polled = (await invokeNative(running, binding, "lean", {
+    teamId: lean.id,
+    scope: "branch",
+    base: "main",
+  })) as any;
+  expect(JSON.parse(polled.result.content[0].text).reviewId).toBe(
+    receipt.reviewId,
+  );
+  // A new request is now ambiguous and is refused.
+  const ambiguous = (await invokeNative(running, binding, "lean-again", {
+    teamId: lean.id,
+    scope: "branch",
+    base: "main",
+  })) as any;
+  expect(JSON.parse(ambiguous.result.content[0].text).error).toContain(
+    "Several projects use this repository",
+  );
+  db.prepare("DELETE FROM project_paths WHERE folder_id=?").run(second);
+
+  // Snapshot access follows the agents the review started with.
+  const { assertReviewIdentity } = await import("../src/server/review-access");
+  const reviewer = (
+    db
+      .prepare("SELECT agent_id FROM team_members WHERE team_id=?")
+      .get(lean.id) as { agent_id: string }
+  ).agent_id;
+  const late = agent("LeanLate");
+  db.prepare("INSERT INTO team_members VALUES(?,?)").run(lean.id, late);
+  db.prepare("DELETE FROM team_members WHERE team_id=? AND agent_id=?").run(
+    lean.id,
+    reviewer,
+  );
+  expect(() =>
+    assertReviewIdentity("alice", receipt.reviewId, lean.id, reviewer),
+  ).not.toThrow();
+  expect(() =>
+    assertReviewIdentity("alice", receipt.reviewId, lean.id, lean.manager_id),
+  ).not.toThrow();
+  expect(() =>
+    assertReviewIdentity("alice", receipt.reviewId, lean.id, late),
+  ).toThrow(/not assigned/);
+
+  // A larger team reviews with at most three active members.
+  const { reviewAssignments } = await import("../src/server/review-access");
+  const members = ["A", "B", "C", "D"].map((name) => agent(`Wide${name}`));
+  const retired = agent("WideRetired");
+  db.prepare("UPDATE agents SET retired_at=? WHERE id=?").run(now(), retired);
+  const wide = createTeam("alice", {
+    name: "Wide review",
+    managerId: agent("WideLead"),
+    members,
+  }) as { id: string };
+  db.prepare("INSERT INTO team_members VALUES(?,?)").run(wide.id, retired);
+  const assignments = reviewAssignments(
+    db.prepare("SELECT * FROM teams WHERE id=?").get(wide.id) as any,
+  );
+  expect(assignments.map((a) => a.role)).toEqual([
+    "lead",
+    "correctness",
+    "security",
+    "regressions",
+  ]);
+  expect(assignments.slice(1).map((a) => a.agentId)).toEqual(
+    [...members].sort().slice(0, 3),
+  );
+  expect(assignments[0].instructions).toBe(reviewLeadInstructions(3));
+});
+
 it("reviews a repeat request as a lead-only follow-up only while a completed full review covers most of the change", async () => {
   const { reviewContext } = await import("../src/server/review-access");
   const { ownedRun } = await import("../src/server/domain");

@@ -22,7 +22,9 @@ import { submit } from "./agent-runtime.js";
 import { captureSnapshot, snapshotFingerprint } from "./review-snapshot.js";
 import {
   MAX_REVIEW_REPORT_CHARS,
+  reviewAssignments,
   reviewSnapshot,
+  type ReviewAssignment as Assignment,
   type requestReviewSchema,
 } from "./review-access.js";
 import { changedLines, snapshotDelta } from "./review-delta.js";
@@ -57,24 +59,30 @@ function directory(owner: string, folderId: string) {
 }
 // The requester's checkout is either the project itself or an agent worktree
 // that shares its Git repository.
+function gitCommonDir(path: string) {
+  try {
+    return realpathSync(
+      execFileSync(
+        "git",
+        ["-C", path, "rev-parse", "--path-format=absolute", "--git-common-dir"],
+        {
+          encoding: "utf8",
+          timeout: 10000,
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      ).trim(),
+    );
+  } catch {
+    return undefined;
+  }
+}
 function reviewable(owner: string, folderId: string, path: string) {
   const project = directory(owner, folderId);
   const common = (p: string) => {
-    try {
-      return realpathSync(
-        execFileSync(
-          "git",
-          ["-C", p, "rev-parse", "--path-format=absolute", "--git-common-dir"],
-          {
-            encoding: "utf8",
-            timeout: 10000,
-            stdio: ["ignore", "pipe", "pipe"],
-          },
-        ).trim(),
-      );
-    } catch {
+    const dir = gitCommonDir(p);
+    if (!dir)
       throw new Problem(409, "The agent's checkout is not a Git repository");
-    }
+    return dir;
   };
   if (common(path) !== common(project))
     throw new Problem(
@@ -159,6 +167,25 @@ function followUpOf(
   if (Buffer.byteLength(leadDelta.hunks) > 24_000) return;
   return previous.id;
 }
+const withInstructions = (assignment: Assignment, input: string) =>
+  assignment.instructions ? `${assignment.instructions}\n\n${input}` : input;
+/**
+ * The owner's project whose repository holds this checkout, when exactly
+ * one does. Lets a team without a project review an agent's worktree.
+ */
+function projectOf(owner: string, checkout: string) {
+  const repository = gitCommonDir(checkout);
+  if (!repository) return undefined;
+  const matches = projectPathsQueries
+    .owned(db, owner)
+    .filter((p) => gitCommonDir(p.path) === repository);
+  if (matches.length > 1)
+    throw new Problem(
+      409,
+      "Several projects use this repository. Set the review team's project first.",
+    );
+  return matches[0]?.folder_id;
+}
 export function startCodeReview(...args: Parameters<typeof ensureCodeReview>) {
   return reviewStatus(args[0], ensureCodeReview(...args));
 }
@@ -200,18 +227,8 @@ function ensureCodeReview(
   const prior = receipt();
   if (prior) return prior.id as string;
   const team = ownedTeam(teamId, owner);
-  if (team.deleted_at || team.preset_id !== "code-review")
-    throw new Problem(409, "Choose a code review team");
-  const config = z
-    .object({
-      assignments: z.array(
-        z.object({ role: z.string(), agentId: z.string().min(1) }),
-      ),
-    })
-    .parse(JSON.parse(team.preset_config || "null"));
-  const assignments = config.assignments;
-  if (assignments.length !== 4 || assignments[0].agentId !== team.manager_id)
-    throw new Problem(409, "Review team configuration is incomplete");
+  if (team.deleted_at) throw new Problem(409, "Choose a code review team");
+  const assignments = reviewAssignments(team);
   const requesterAgent = requester && ownedRun(requester.runId, owner).agent_id;
   for (const a of assignments) {
     if (a.agentId === requesterAgent)
@@ -278,9 +295,14 @@ function ensureCodeReview(
         teamId,
         folderId: d.folderId,
         reviewId,
-        input: followUp
-          ? `Another agent requested this follow-up review before opening a pull request. Review ${previousReview} covered an earlier snapshot of the same ${d.scope} changes. Review snapshot ${reviewId} yourself: check whether each earlier finding is fixed and review the lines changed since. No independent reviewers run this time.`
-          : `${requester ? "Another agent requested this review before opening a pull request. " : ""}Review ${d.scope} changes. Consolidate the independent reviews of snapshot ${reviewId}.`,
+        input: withInstructions(
+          assignments[0],
+          followUp
+            ? `Another agent requested this follow-up review before opening a pull request. Review ${previousReview} covered an earlier snapshot of the same ${d.scope} changes. Review snapshot ${reviewId} yourself: check whether each earlier finding is fixed and review the lines changed since. No independent reviewers run this time.`
+            : assignments.length === 1
+              ? `${requester ? "Another agent requested this review before opening a pull request. " : ""}Review ${d.scope} changes in snapshot ${reviewId} yourself.`
+              : `${requester ? "Another agent requested this review before opening a pull request. " : ""}Review ${d.scope} changes. Consolidate the independent reviews of snapshot ${reviewId}.`,
+        ),
         idempotencyKey: `review:${reviewId}:lead`,
         personal: !requester,
       });
@@ -305,7 +327,10 @@ function ensureCodeReview(
           teamId,
           folderId: d.folderId,
           reviewId,
-          input: `Independently review snapshot ${reviewId} as the ${a.role} reviewer. Read the captured files as needed and report evidence-backed findings.`,
+          input: withInstructions(
+            a,
+            `Independently review snapshot ${reviewId} as the ${a.role} reviewer. Read the captured files as needed and report evidence-backed findings.`,
+          ),
           idempotencyKey: `review:${reviewId}:${a.role}`,
         });
         inheritEffect(owner, "run", manager.id, child.id);
@@ -430,11 +455,22 @@ export function requestReview(
 ): { pending: string } | { report: object; failed: boolean } {
   const payload = run.payload;
   const team = ownedTeam(args.teamId, run.owner_id);
-  const folderId = payload.folderId || team.folder_id;
-  if (!folderId)
-    throw new Problem(409, "This conversation has no project to review");
   // A native session's project is its verified agent worktree.
   const session = companionSessionsQueries.project(db, run.conversation_id);
+  const idempotencyKey =
+    "agent:" +
+    createHash("sha256")
+      .update(run.id + ":" + callId)
+      .digest("hex");
+  // A repeated or polling call keeps the project its review started with;
+  // only a new request looks for the project that holds the checkout.
+  const folderId =
+    codeReviewsQueries.request(db, run.owner_id, idempotencyKey)?.folder_id ||
+    payload.folderId ||
+    team.folder_id ||
+    (session?.project && projectOf(run.owner_id, session.project));
+  if (!folderId)
+    throw new Problem(409, "This conversation has no project to review");
   const reviewId = ensureCodeReview(
     run.owner_id,
     team.id,
@@ -442,11 +478,7 @@ export function requestReview(
       folderId,
       scope: args.scope,
       base: args.base,
-      idempotencyKey:
-        "agent:" +
-        createHash("sha256")
-          .update(run.id + ":" + callId)
-          .digest("hex"),
+      idempotencyKey,
     },
     {
       path: session?.project ?? directory(run.owner_id, folderId),

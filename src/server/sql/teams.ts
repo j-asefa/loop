@@ -204,7 +204,7 @@ export function activeOwned(
 }
 
 const reviewCandidatesStatement = statement(
-  "SELECT id,name FROM teams WHERE owner_id=@owner AND deleted_at IS NULL AND preset_id='code-review' AND manager_id<>@agent AND NOT EXISTS(SELECT 1 FROM team_members m WHERE m.team_id=teams.id AND m.agent_id=@agent) ORDER BY name",
+  "SELECT id,name FROM teams WHERE owner_id=@owner AND deleted_at IS NULL AND manager_id<>@agent AND NOT EXISTS(SELECT 1 FROM team_members m WHERE m.team_id=teams.id AND m.agent_id=@agent) ORDER BY name",
 );
 const reviewCandidatesRow = QueryRecords.teams.pick({ id: true, name: true });
 export function reviewCandidates(
