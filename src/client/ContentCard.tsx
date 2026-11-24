@@ -297,13 +297,7 @@ export function ContentCard({
       : []),
   ];
   return (
-    <div
-      className={
-        "card-swipe" +
-        (swipe.armed ? " armed-" + swipe.armed : "") +
-        (swipe.offset ? " swiping" : "")
-      }
-    >
+    <div ref={swipe.ref} className="card-swipe">
       {onSave && (
         <span className="swipe-under left" aria-hidden="true">
           <Bookmark size={20} /> {card.saved ? "Unsave" : "Save"}
@@ -316,15 +310,10 @@ export function ContentCard({
       )}
       <article
         className={
-          "feed-card" +
+          "feed-card swipe-track" +
           (card.type === "message" ? " personal-message-card" : "")
         }
         data-card-id={card.id}
-        style={
-          swipe.offset
-            ? { transform: `translateX(${swipe.offset}px)` }
-            : undefined
-        }
         onPointerDown={merged("onPointerDown")}
         onPointerMove={merged("onPointerMove")}
         onPointerUp={merged("onPointerUp")}

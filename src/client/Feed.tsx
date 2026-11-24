@@ -485,11 +485,8 @@ function FeedCard({
   };
   return (
     <li
-      className={
-        "card-swipe feed-item-wrap" +
-        (swipe.armed ? " armed-" + swipe.armed : "") +
-        (swipe.offset ? " swiping" : "")
-      }
+      ref={swipe.ref}
+      className="card-swipe feed-item-wrap"
       onPointerEnter={readAsCard ? markReadIntent : undefined}
       onTouchStart={readAsCard ? markReadIntent : undefined}
       onFocus={readAsCard ? markReadIntent : undefined}
@@ -501,15 +498,10 @@ function FeedCard({
       )}
       <article
         className={
-          "feed-card feed-item-card" +
+          "feed-card feed-item-card swipe-track" +
           (aggregationId ? " done-card-interactive" : "") +
           (selected ? " card-selected" : "") +
           (swipe.lifted || swipe.dragging ? " card-dragging" : "")
-        }
-        style={
-          swipe.offset
-            ? { transform: `translateX(${swipe.offset}px)` }
-            : undefined
         }
         {...swipe.handlers}
       >

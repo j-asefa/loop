@@ -157,26 +157,16 @@ function MessageShell({
   const swipe = useSwipe({ onRight: onReply });
   return (
     <article
+      ref={swipe.ref}
       id={"message-" + id}
       tabIndex={-1}
-      className={className + (anchored ? " anchored" : "")}
+      className={className + " swipe-track" + (anchored ? " anchored" : "")}
       data-message-id={id}
-      style={
-        swipe.offset
-          ? { transform: `translateX(${swipe.offset}px)` }
-          : undefined
-      }
       {...swipe.handlers}
     >
-      {swipe.offset > 0 && (
-        <span
-          className={"swipe-reply-hint" + (swipe.armed ? " armed" : "")}
-          aria-hidden="true"
-          style={{ left: -swipe.offset }}
-        >
-          <Reply size={18} />
-        </span>
-      )}
+      <span className="swipe-reply-hint" aria-hidden="true">
+        <Reply size={18} />
+      </span>
       {children}
     </article>
   );

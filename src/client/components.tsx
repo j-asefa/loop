@@ -905,13 +905,7 @@ export function ArtifactCard({
     (press as any)[name]?.(e);
   };
   return (
-    <div
-      className={
-        "card-swipe" +
-        (swipe.armed ? " armed-" + swipe.armed : "") +
-        (swipe.offset ? " swiping" : "")
-      }
-    >
+    <div ref={swipe.ref} className="card-swipe">
       {onPin && (
         <span className="swipe-under left" aria-hidden="true">
           <Bookmark size={20} /> {item.pinned ? "Unsave" : "Save"}
@@ -923,12 +917,9 @@ export function ArtifactCard({
         </span>
       )}
       <article
-        className={["feed-card", className].filter(Boolean).join(" ")}
-        style={
-          swipe.offset
-            ? { transform: `translateX(${swipe.offset}px)` }
-            : undefined
-        }
+        className={["feed-card swipe-track", className]
+          .filter(Boolean)
+          .join(" ")}
         onPointerDown={merged("onPointerDown")}
         onPointerMove={merged("onPointerMove")}
         onPointerUp={merged("onPointerUp")}

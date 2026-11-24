@@ -463,7 +463,7 @@ export async function doneCardActionsSmoke(page, fixture, engine, capture) {
         clientY: swipeAt.y,
       });
     }
-    await expect(card(2).locator("..")).toHaveClass(/armed-left/);
+    await expect(card(2).locator("..")).toHaveAttribute("data-armed", "left");
     if (client)
       await client.send("Input.dispatchTouchEvent", {
         type: "touchEnd",
