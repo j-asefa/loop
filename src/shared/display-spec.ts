@@ -92,15 +92,21 @@ const seriesChart = z.object({
 export const DisplayChartSchema = z.union([pieChart, seriesChart]);
 export type DisplayChart = z.infer<typeof DisplayChartSchema>;
 
-const replyText = text
+const replyText = z
+  .string()
   .min(1)
+  .max(200)
   .refine(
-    (value) => value.replace(/^[\s\uFEFF]+/u, "").length > 0,
+    (value) => value.replace(/[\s\p{C}]+/gu, "").length > 0,
     "Reply text cannot be blank",
   )
   .refine(
-    (value) => !/^[\s\uFEFF]*[@/!$]/u.test(value),
+    (value) => !/^[\s\p{C}]*[@/!$]/u.test(value),
     "Reply prompts cannot start with @, /, !, or $",
+  )
+  .refine(
+    (value) => !/[\r\n\u0085\u2028\u2029]/.test(value),
+    "Reply prompts must be a single line",
   );
 
 // Props of each catalog component. Unknown props are ignored.

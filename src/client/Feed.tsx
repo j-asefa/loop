@@ -4160,9 +4160,7 @@ export function Feed({
             ? onReply(
                 item.conversation_id,
                 source,
-                feedReplyQuote(item) ??
-                  (prompt !== undefined ? feedDisplayReplyQuote(item) : null) ??
-                  undefined,
+                feedReplyQuote(item) ?? undefined,
                 prompt,
               )
             : onOpen(item.conversation_id, undefined, source)

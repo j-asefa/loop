@@ -3,7 +3,6 @@ import { expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { RichText } from "../src/client/components";
 import { DisplayReplyContext, DisplaySpec } from "../src/client/DisplaySpec";
-import { seedReplyDraftText } from "../src/client/drafts";
 import { compactMarkdown } from "../src/client/preview";
 import {
   canReplyFromMessageDisplay,
@@ -472,15 +471,18 @@ it("checks and draws ReplyButton elements and pre-fills the reply handler only w
     "Compare these metrics with staging.",
   );
 
-  // Leading @, /, !, or $ (including after Unicode whitespace/BOM) or blank strings are rejected.
+  // Leading @, /, !, or $ (including after Unicode whitespace, NEL, control or zero-width chars), multi-line prompts, or blank strings are rejected.
   for (const badPrompt of [
     "@other-agent run",
     "  /compact",
-    "\n!rm -rf",
+    "\t!rm -rf",
     "$skill-name",
     "\u00A0@other-agent",
     "\uFEFF/compact",
-    "\u2028!cmd",
+    "\u0085/compact",
+    "\u200B@other-agent",
+    "\u2060!cmd",
+    "\u0007$skill",
   ]) {
     const invalidSource = fence(
       patch(
@@ -502,7 +504,40 @@ it("checks and draws ReplyButton elements and pre-fills the reply handler only w
       "This part of the display could not be shown",
     );
   }
-  for (const blank of ["   ", "\u00A0\t\n", "\uFEFF"]) {
+  for (const multiLine of [
+    "First line\nSecond line",
+    "First line\rSecond line",
+    "First line\u0085Second line",
+    "First line\u2028Second line",
+  ]) {
+    const multiLineSource = fence(
+      patch(
+        { op: "add", path: "/root", value: "btn" },
+        {
+          op: "add",
+          path: "/elements/btn",
+          value: {
+            type: "ReplyButton",
+            props: { label: "Run", prompt: multiLine },
+          },
+        },
+      ),
+    );
+    expect(checkDisplay(multiLineSource)).toContain(
+      "Reply prompts must be a single line",
+    );
+    expect(render(multiLineSource)).toContain(
+      "This part of the display could not be shown",
+    );
+  }
+  for (const blank of [
+    "   ",
+    "\u00A0\t\n",
+    "\uFEFF",
+    "\u200B",
+    "\u2060",
+    "\u0085",
+  ]) {
     const blankSource = fence(
       patch(
         { op: "add", path: "/root", value: "btn" },
@@ -521,18 +556,6 @@ it("checks and draws ReplyButton elements and pre-fills the reply handler only w
       "This part of the display could not be shown",
     );
   }
-
-  // seedReplyDraftText appends to existing drafts without duplicating repeated clicks of the same ReplyButton.
-  expect(seedReplyDraftText("", "Run benchmark")).toBe("Run benchmark");
-  expect(seedReplyDraftText("Run benchmark", "Run benchmark")).toBe(
-    "Run benchmark",
-  );
-  expect(
-    seedReplyDraftText("Already typed\n\nRun benchmark", "Run benchmark"),
-  ).toBe("Already typed\n\nRun benchmark");
-  expect(
-    seedReplyDraftText("Already typed", "Compare these metrics with staging."),
-  ).toBe("Already typed\n\nCompare these metrics with staging.");
 
   // Conversation and Feed reading view enable ReplyButton only on finished, non-imported assistant answers.
   expect(
@@ -577,9 +600,11 @@ it("checks and draws ReplyButton elements and pre-fills the reply handler only w
   ).toBe(false);
 
   const baseFeedItem = {
+    done_card_key: "done-1",
     agent_id: "11111111-1111-4111-8111-111111111111",
     origin: "loop",
     live_preview: null as string | null,
+    run: { state: "completed" } as { state: string } | null,
     last_message: {
       id: "33333333-3333-4333-8333-333333333333",
       role: "assistant",
@@ -592,6 +617,18 @@ it("checks and draws ReplyButton elements and pre-fills the reply handler only w
     messageId: baseFeedItem.last_message.id,
     content: source,
   });
+  expect(
+    feedDisplayReplyQuote({
+      ...baseFeedItem,
+      done_card_key: undefined,
+    }),
+  ).toBeNull();
+  expect(
+    feedDisplayReplyQuote({
+      ...baseFeedItem,
+      run: { state: "running" },
+    }),
+  ).toBeNull();
   expect(
     feedDisplayReplyQuote({
       ...baseFeedItem,
