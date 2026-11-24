@@ -21,6 +21,7 @@ type Context = {
   compact: boolean;
   // Pre-fills the reply composer when a finished display's ReplyButton is clicked.
   onReply: ((prompt: string) => void) | null;
+  disabledReplyTitle: string;
 };
 
 // Remark plugin: marks a `spec` fence that has not closed (an answer still
@@ -159,6 +160,10 @@ export function DisplaySpec({
   const live = open && canGrow && writing;
   const incomplete = live || omitSource;
   const onReply = !compact && !writing && !open && !omitSource ? reply : null;
+  const disabledReplyTitle =
+    writing || open
+      ? "Wait for the answer to finish to reply"
+      : "Open the conversation to reply";
   const read = useMemo(
     () =>
       readDisplaySpec(source, {
@@ -209,7 +214,7 @@ export function DisplaySpec({
       )}
       <DisplayNodeView
         node={read.root}
-        context={{ markdown, compact, onReply }}
+        context={{ markdown, compact, onReply, disabledReplyTitle }}
         level={0}
       />
     </div>
@@ -380,7 +385,7 @@ function DisplayNodeView({
               ? node.prompt && node.prompt !== node.label
                 ? node.prompt
                 : undefined
-              : "Open the conversation to reply"
+              : context.disabledReplyTitle
           }
           onClick={onReply ? () => onReply(prompt) : undefined}
         >

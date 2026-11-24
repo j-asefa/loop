@@ -422,7 +422,40 @@ it("checks and draws ReplyButton elements and pre-fills the reply handler only w
       <RichText content={source} writing />
     </DisplayReplyContext.Provider>,
   );
-  expect(writingHtml).toContain('class="display-reply-button" disabled=""');
+  expect(writingHtml).toContain(
+    'class="display-reply-button" disabled="" title="Wait for the answer to finish to reply"',
+  );
+
+  // Legitimate ZWJ emoji sequences and ZWNJ non-Latin words are accepted in ReplyButton labels and prompts.
+  const joinerSource = fence(
+    patch(
+      { op: "add", path: "/root", value: "actions" },
+      {
+        op: "add",
+        path: "/elements/actions",
+        value: { type: "Actions", children: ["emoji", "zwnj"] },
+      },
+      {
+        op: "add",
+        path: "/elements/emoji",
+        value: {
+          type: "ReplyButton",
+          props: { label: "👩‍💻 Review code" },
+        },
+      },
+      {
+        op: "add",
+        path: "/elements/zwnj",
+        value: {
+          type: "ReplyButton",
+          props: { label: "می\u200Cخواهم ادامه دهم" },
+        },
+      },
+    ),
+  );
+  expect(checkDisplay(joinerSource)).toContain("Display valid. Elements: 3.");
+  expect(render(joinerSource)).toContain("👩‍💻 Review code");
+  expect(render(joinerSource)).toContain("می\u200Cخواهم ادامه دهم");
 
   // Clicking an active ReplyButton invokes the context callback with prompt ?? label.
   let capturedTree: ReactNode = null;
@@ -533,8 +566,12 @@ it("checks and draws ReplyButton elements and pre-fills the reply handler only w
     "\u00A0\t\n",
     "\uFEFF",
     "\u200B",
+    "\u200C\u200D",
     "\u2060",
     "\u0085",
+    "\u3164",
+    "\u2800",
+    "\u034F",
   ]) {
     const blankSource = fence(
       patch(
@@ -556,9 +593,13 @@ it("checks and draws ReplyButton elements and pre-fills the reply handler only w
   }
   for (const hiddenControl of [
     "Run tests\u{E0061}\u{E0062}",
+    "Run tests\u{E0100}",
     "Run \u202Etests",
     "Run \u2066tests\u2069",
     "Run\u200Btests",
+    "Run\u3164tests",
+    "Run\u2800tests",
+    "Run\u034Ftests",
     "Run\u0000tests",
     "Run\u001Btests",
   ]) {

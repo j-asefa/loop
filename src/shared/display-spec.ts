@@ -92,16 +92,24 @@ const seriesChart = z.object({
 export const DisplayChartSchema = z.union([pieChart, seriesChart]);
 export type DisplayChart = z.infer<typeof DisplayChartSchema>;
 
+const INVISIBLE_OR_SPACE =
+  /[\s\p{C}\u034F\u115F\u1160\u17B4\u17B5\u180B-\u180F\u2800\u3164\uFE00-\uFE0F\uFFA0\u{E0100}-\u{E01EF}]/u;
+const LEADING_REPLY_PREFIX =
+  /^[\s\p{C}\u034F\u115F\u1160\u17B4\u17B5\u180B-\u180F\u2800\u3164\uFE00-\uFE0F\uFFA0\u{E0100}-\u{E01EF}]*[@/!$]/u;
+const DISALLOWED_REPLY_CHARS =
+  /[\p{Cc}\p{Cs}\p{Co}\p{Cn}\u034F\u115F\u1160\u17B4\u17B5\u180B-\u180F\u2800\u3164\uFE00-\uFE0E\uFFA0\u{E0100}-\u{E01EF}]|(?![\u200C\u200D])\p{Cf}/u;
+
 const replyText = z
   .string()
   .min(1)
   .max(200)
   .refine(
-    (value) => value.replace(/[\s\p{C}]+/gu, "").length > 0,
+    (value) =>
+      value.replace(new RegExp(INVISIBLE_OR_SPACE.source, "gu"), "").length > 0,
     "Reply text cannot be blank",
   )
   .refine(
-    (value) => !/^[\s\p{C}]*[@/!$]/u.test(value),
+    (value) => !LEADING_REPLY_PREFIX.test(value),
     "Reply prompts cannot start with @, /, !, or $",
   )
   .refine(
@@ -109,7 +117,7 @@ const replyText = z
     "Reply prompts must be a single line",
   )
   .refine(
-    (value) => !/\p{C}/u.test(value),
+    (value) => !DISALLOWED_REPLY_CHARS.test(value),
     "Reply text cannot contain control or invisible characters",
   );
 

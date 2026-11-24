@@ -541,7 +541,14 @@ export function useAppController(seed?: AppNavigationInitial) {
       setConversation(context.conversationId, context.messageId, source);
     setActiveArtifact(null);
     setContextArtifact(null);
-    setReplyContext(context);
+    const keepExistingQuote =
+      text !== undefined &&
+      !switching &&
+      Boolean(draftRef.current.trim()) &&
+      replyContext?.conversationId === context.conversationId &&
+      replyContext?.agentId === context.agentId &&
+      Boolean(replyContext?.messageId);
+    if (!keepExistingQuote) setReplyContext(context);
     setSelected(context.agentId);
     setFolderChoice(undefined);
     setComposerError("");
