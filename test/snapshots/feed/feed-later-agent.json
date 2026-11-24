@@ -45,7 +45,8 @@
           "id": "later-snoozed",
           "due_at": 1800086400000,
           "condition": "time",
-          "surfaced_at": null
+          "surfaced_at": null,
+          "created_at": 1799644680000
         },
         "next_action": {
           "kind": "result",

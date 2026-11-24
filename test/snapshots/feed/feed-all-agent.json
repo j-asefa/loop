@@ -260,7 +260,8 @@
           "id": "later-surfaced",
           "due_at": 1799996400000,
           "condition": "time",
-          "surfaced_at": 1799996400000
+          "surfaced_at": 1799996400000,
+          "created_at": 1799644740000
         },
         "next_action": {
           "kind": "result",
