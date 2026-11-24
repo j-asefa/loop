@@ -548,10 +548,63 @@ export async function responsivenessSmoke(page, fixture, engine) {
       const isArchive = (request) =>
         request.method() === "PATCH" &&
         /^\/api\/feed\/[^/]+$/.test(new URL(request.url()).pathname);
+      // Swipe a Done card left past the threshold, which archives it.
+      const swipeArchive = async (target) => {
+        await target.evaluate((element) =>
+          element.scrollIntoView({ block: "center" }),
+        );
+        const cardBox = await target.boundingBox();
+        const ay = cardBox.y + Math.min(40, cardBox.height / 2);
+        const ax = Math.min(350, cardBox.x + cardBox.width - 30);
+        await client.send("Input.dispatchTouchEvent", {
+          type: "touchStart",
+          touchPoints: [{ x: ax, y: ay, id: 1 }],
+        });
+        for (let step = 1; step <= 8; step++) {
+          await client.send("Input.dispatchTouchEvent", {
+            type: "touchMove",
+            touchPoints: [{ x: ax - (170 * step) / 8, y: ay, id: 1 }],
+          });
+          await page.waitForTimeout(16);
+        }
+        await client.send("Input.dispatchTouchEvent", {
+          type: "touchEnd",
+          touchPoints: [],
+        });
+      };
       const title = await page
         .locator(".feed-results .feed-item-card .feed-row")
         .first()
         .getAttribute("aria-label");
+      const row = page
+        .locator(".feed-results")
+        .getByRole("button", { name: title, exact: true });
+
+      // Refused (D5): the card leaves at once, comes back when the server
+      // refuses, and the server's message replaces the Undo toast.
+      const refusal = "This result changed. Refresh and try again.";
+      const refuse = async (route) => {
+        if (!isArchive(route.request())) return route.fallback();
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        await route.fulfill({
+          status: 409,
+          contentType: "application/json",
+          body: JSON.stringify({ error: refusal }),
+        });
+      };
+      await page.route("**/api/feed/*", refuse);
+      try {
+        await swipeArchive(
+          page.locator(".feed-results .feed-item-card").first(),
+        );
+        await expect(row).toHaveCount(0, { timeout: 300 });
+        await expect(row).toHaveCount(1, { timeout: 5000 });
+        await expect(page.getByText(refusal)).toBeVisible();
+      } finally {
+        await page.unroute("**/api/feed/*", refuse);
+      }
+      report.archiveRefused = { restored: true, message: true };
+
       const hold = async (route) => {
         if (!isArchive(route.request())) return route.fallback();
         await new Promise((resolve) => setTimeout(resolve, 800));
@@ -562,8 +615,10 @@ export async function responsivenessSmoke(page, fixture, engine) {
         await page.evaluate((label) => {
           window.__loopArchive = new Promise((resolve) => {
             let released = null;
+            // pointerup, not touchend: the card can leave the page during
+            // pointerup, and a touchend on a removed card never reaches window.
             addEventListener(
-              "touchend",
+              "pointerup",
               () => (released ??= performance.now()),
               { capture: true, once: true },
             );
@@ -593,28 +648,9 @@ export async function responsivenessSmoke(page, fixture, engine) {
         // Handled now, so a timeout on a run that is already failing cannot
         // end the process before the cleanup below runs.
         response.catch(() => {});
-        const target = page.locator(".feed-results .feed-item-card").first();
-        await target.evaluate((element) =>
-          element.scrollIntoView({ block: "center" }),
+        await swipeArchive(
+          page.locator(".feed-results .feed-item-card").first(),
         );
-        const cardBox = await target.boundingBox();
-        const ay = cardBox.y + Math.min(40, cardBox.height / 2);
-        const ax = Math.min(350, cardBox.x + cardBox.width - 30);
-        await client.send("Input.dispatchTouchEvent", {
-          type: "touchStart",
-          touchPoints: [{ x: ax, y: ay, id: 1 }],
-        });
-        for (let step = 1; step <= 8; step++) {
-          await client.send("Input.dispatchTouchEvent", {
-            type: "touchMove",
-            touchPoints: [{ x: ax - (170 * step) / 8, y: ay, id: 1 }],
-          });
-          await page.waitForTimeout(16);
-        }
-        await client.send("Input.dispatchTouchEvent", {
-          type: "touchEnd",
-          touchPoints: [],
-        });
         const shown = await page.evaluate(() => window.__loopArchive);
         const { answer, receivedAt } = await response;
         const timing = answer.request().timing();
@@ -630,6 +666,45 @@ export async function responsivenessSmoke(page, fixture, engine) {
       } finally {
         await page.unroute("**/api/feed/*", hold);
       }
+
+      // Undo waits for the archive it reverses, then brings the card back.
+      await page.getByRole("button", { name: "Undo", exact: true }).click();
+      await expect(row).toHaveCount(1, { timeout: 5000 });
+      report.archiveUndone = true;
+
+      // Uncertain (D5): with no answer the card stays archived here and the
+      // owner is told it was not saved. Only their Retry resends the write.
+      let attempts = 0;
+      const drop = async (route) => {
+        if (!isArchive(route.request())) return route.fallback();
+        attempts++;
+        await route.abort("failed");
+      };
+      await page.route("**/api/feed/*", drop);
+      try {
+        await swipeArchive(
+          page.locator(".feed-results .feed-item-card").first(),
+        );
+        await expect(row).toHaveCount(0, { timeout: 300 });
+        await expect(
+          page.getByText("Not saved. Removed here only."),
+        ).toBeVisible();
+        await page.waitForTimeout(1500);
+        if (attempts !== 1)
+          throw new Error(
+            `An uncertain archive was resent ${attempts - 1} times without Retry`,
+          );
+      } finally {
+        await page.unroute("**/api/feed/*", drop);
+      }
+      const retried = page.waitForResponse(
+        (candidate) => isArchive(candidate.request()) && candidate.ok(),
+        { timeout: 10000 },
+      );
+      await page.getByRole("button", { name: "Retry", exact: true }).click();
+      await retried;
+      await expect(row).toHaveCount(0);
+      report.archiveUncertain = { keptRemoved: true, resentOnlyOnRetry: true };
 
       console.log("responsiveness: swipe to reply");
       // 6. Swipe an agent message right in a conversation. The message and
@@ -813,6 +888,11 @@ export async function responsivenessSmoke(page, fixture, engine) {
   if (!(report.tabs.cached?.p95 < 100) || report.tabs.cachedShowedLoading)
     throw new Error(
       `A cached tab switch missed its budget (p95 < 100 ms, no placeholder): ${JSON.stringify(report.tabs)}`,
+    );
+  // Local writes (D5): an archived card leaves before the server answers.
+  if (!report.archive?.beforeResponse)
+    throw new Error(
+      `The archived card waited for the server: ${JSON.stringify(report.archive)}`,
     );
   for (const [name, kept] of Object.entries(report.pressHitArea))
     if (!kept)

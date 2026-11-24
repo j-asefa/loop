@@ -24,7 +24,8 @@ import {
 } from "../shared/run-state";
 import { lastVisit, recordVisit } from "./deviceHistory";
 import { proseEntry } from "./textEntry";
-import { isExecutionRefused } from "./api";
+import { isExecutionRefused, UnavailableResponse } from "./api";
+import { refusedWrite } from "./writeOutcome";
 import { operationBlockReason } from "./sourceAvailability";
 import {
   doneReadVersion,
@@ -105,6 +106,7 @@ import { createPortal } from "react-dom";
 import {
   useEffect,
   memo,
+  startTransition,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -1635,6 +1637,9 @@ export function Feed({
       !!doneAgent ||
       (showSocialStream && selection.stream !== "all"));
   const dismissingRef = useRef(new Set<string>());
+  // Cards archived here whose write has not been answered yet. A read that
+  // still returns one must not bring it back (see dismissFeedCard).
+  const pendingArchives = useRef(new Set<string>());
   const [dismissingCards, setDismissingCards] = useState<Set<string>>(
     () => new Set(),
   );
@@ -1923,6 +1928,7 @@ export function Feed({
       : shownItems;
   const visibleCards: VisibleCard[] = readerItems.flatMap((item) => {
     const source = item.sourceId ?? scopedSource;
+    if (pendingArchives.current.has(feedItemKey(item, source))) return [];
     const thread =
       filter === "done"
         ? grouping.threads.find(
@@ -3734,49 +3740,87 @@ export function Feed({
         setItems(change);
       }
     };
-    try {
-      await setHidden(true);
-      if (owner !== viewOwner()) return;
+    const itemKey = feedItemKey(item, source);
+    const remove = () => {
       updateCard(true);
       update((old) =>
         old.filter(
-          (row) =>
-            feedItemKey(row, row.sourceId ?? scopedSource) !==
-            feedItemKey(item, source),
+          (row) => feedItemKey(row, row.sourceId ?? scopedSource) !== itemKey,
         ),
       );
-      notify({
-        text: item.reply ? "Reply archived." : "Removed from Done.",
-        undo: async () => {
-          if (owner !== viewOwner() || dismissingRef.current.has(dismissKey))
-            return;
-          markDismissing(dismissKey, true);
-          try {
-            await setHidden(false);
-            if (owner !== viewOwner()) return;
-            updateCard(false);
-            update((old) =>
-              [
-                ...old.filter(
-                  (row) =>
-                    feedItemKey(row, row.sourceId ?? scopedSource) !==
-                    feedItemKey(item, source),
-                ),
-                item,
-              ].sort(feedItemOrder),
-            );
-            if (current()) await load();
-          } finally {
-            markDismissing(dismissKey, false);
-          }
+    };
+    const restore = () => {
+      updateCard(false);
+      update((old) =>
+        [
+          ...old.filter(
+            (row) => feedItemKey(row, row.sourceId ?? scopedSource) !== itemKey,
+          ),
+          item,
+        ].sort(feedItemOrder),
+      );
+    };
+    // Archiving is a local, reversible owner-state write (D5): the card
+    // leaves at once, before the server answers. Until it does, a read that
+    // still returns the card must not bring it back.
+    pendingArchives.current.add(itemKey);
+    remove();
+    // Resolves once the server has answered, applied or not, so Undo never
+    // overtakes the hide it reverses.
+    let settled: Promise<unknown> = Promise.resolve();
+    const hide = (): Promise<void> => {
+      const attempt = setHidden(true).then(
+        () => {
+          pendingArchives.current.delete(itemKey);
+          if (current()) startTransition(() => void load());
         },
-      });
-      if (current()) void load();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      markDismissing(dismissKey, false);
-    }
+        (e) => {
+          pendingArchives.current.delete(itemKey);
+          if (owner !== viewOwner() || e instanceof UnavailableResponse) return;
+          if (refusedWrite(e)) {
+            // The server did not archive it: show the card again and why.
+            // This replaces the Undo toast, which has nothing left to undo.
+            restore();
+            notify({ text: (e as Error).message, tone: "error" });
+            return;
+          }
+          // The outcome is uncertain. Keep the local change and let the
+          // owner resend the same write; never resend it automatically.
+          notify({
+            text: "Not saved. Removed here only.",
+            tone: "error",
+            link: {
+              label: "Retry",
+              onSelect: () => {
+                pendingArchives.current.add(itemKey);
+                settled = hide().catch(() => {});
+              },
+            },
+          });
+        },
+      );
+      return attempt;
+    };
+    settled = hide().catch(() => {});
+    notify({
+      text: item.reply ? "Reply archived." : "Removed from Done.",
+      undo: async () => {
+        if (owner !== viewOwner()) return;
+        await settled;
+        if (owner !== viewOwner() || dismissingRef.current.has(dismissKey))
+          return;
+        markDismissing(dismissKey, true);
+        try {
+          await setHidden(false);
+          if (owner !== viewOwner()) return;
+          restore();
+          if (current()) await load();
+        } finally {
+          markDismissing(dismissKey, false);
+        }
+      },
+    });
+    markDismissing(dismissKey, false);
   }
   async function markReplyRead(item: FeedItem) {
     if (!item.reply || item.reply.read_at !== null || !item.last_message)
