@@ -1,4 +1,12 @@
 import { expect } from "@playwright/test";
+import { tsImport } from "tsx/esm/api";
+
+// The changed-refresh step moves a result to another project through the
+// existing conversation writer, not direct SQL.
+const conversations = await tsImport(
+  "../../src/server/sql/conversations.ts",
+  import.meta.url,
+);
 
 // Measures how quickly the Feed responds to touch, tab switches, drags and
 // local writes, on the production bundle with a 4x CPU slowdown in Chromium.
@@ -112,24 +120,15 @@ const sameMinute = async (page, minute, name) => {
 };
 
 // Done results as the Feed API returns them: the title a card shows and its
-// conversation. A run-backed card is titled by its run's prompt, so only a
-// result whose shown title is its conversation's title changes when the
-// conversation is renamed.
-async function doneResults(page, fixture) {
-  const items = await page.evaluate(async () => {
+// conversation.
+async function doneResults(page) {
+  return page.evaluate(async () => {
     const body = await (await fetch("/api/feed?filter=done")).json();
     return (body.items || body).map((item) => ({
       title: item.title,
       conversation: item.conversation_id,
     }));
   });
-  return items.map((item) => ({
-    ...item,
-    titledByConversation:
-      fixture.db
-        .prepare("SELECT title FROM conversations WHERE id=?")
-        .get(item.conversation)?.title === item.title,
-  }));
 }
 const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 // A card's row is labelled with its title, then any status (", Done").
@@ -494,28 +493,32 @@ export async function responsivenessSmoke(page, fixture, engine) {
       };
 
       console.log("responsiveness: changed refresh");
-      // A memoised card still re-renders when its content changes. Rename one
-      // Done result's conversation, pull to refresh, and the card shows the
-      // new title while the unchanged cards keep their render.
-      const renamable = (await doneResults(page, fixture)).find(
-        (item) => item.titledByConversation,
+      // A memoised card still re-renders when its content changes. Move one
+      // Done result to another project through the conversation writer, pull
+      // to refresh, and the card shows the new project while the unchanged
+      // cards keep their render.
+      const [changedResult] = await doneResults(page);
+      if (!changedResult) throw new Error("No Done result to change");
+      const changedCard = rowNamed(page, changedResult.title);
+      await expect(changedCard).toHaveCount(1);
+      const shownProject = await changedCard
+        .locator(".card-project")
+        .innerText();
+      const otherProject = (await fixture.api("/bootstrap")).folders.find(
+        (folder) => folder.name && !shownProject.includes(folder.name),
       );
-      if (!renamable)
-        throw new Error(
-          "No Done result shows its conversation's title, so renaming cannot change a card",
-        );
-      await expect(rowNamed(page, renamable.title)).toHaveCount(1);
-      const renamed = { id: renamable.conversation };
-      const renamedTo = renamable.title + " (renamed)";
+      if (!otherProject) throw new Error("No other project to move it to");
       // Count from before the change: a background read may pick it up
       // before the pull finishes.
       const changeMinute = await minuteWindow(page, inflight);
       const beforeChange = await page.evaluate(() => ({
         ...window.__loopCommitProbe,
       }));
-      fixture.db
-        .prepare("UPDATE conversations SET title=? WHERE id=?")
-        .run(renamedTo, renamed.id);
+      conversations.setProject(
+        fixture.db,
+        otherProject.id,
+        changedResult.conversation,
+      );
       await page.evaluate(() => window.scrollTo(0, 0));
       await dragProbe(page, client, top, { x: 195, y: 420 }, 36, 600);
       await client.send("Input.dispatchTouchEvent", {
@@ -527,7 +530,9 @@ export async function responsivenessSmoke(page, fixture, engine) {
         ...window.__loopCommitProbe,
       }));
       await sameMinute(page, changeMinute, "changed refresh");
-      await expect(rowNamed(page, renamedTo)).toHaveCount(1);
+      await expect(changedCard.locator(".card-project")).toContainText(
+        otherProject.name,
+      );
       report.changedRefresh = {
         cardRenders: afterChange.cardRenders - beforeChange.cardRenders,
         cardWrappers: await page.locator(".feed-item-wrap").count(),
@@ -713,7 +718,7 @@ export async function responsivenessSmoke(page, fixture, engine) {
         );
       await page.keyboard.press("Escape");
       await expect(page.locator("dialog[open]")).toHaveCount(0);
-      const [draftedResult] = await doneResults(page, fixture);
+      const [draftedResult] = await doneResults(page);
       if (!draftedResult) throw new Error("No Done result to draft a reply to");
       const drafted = rowNamed(page, draftedResult.title);
       await expect(drafted).toHaveCount(1);
