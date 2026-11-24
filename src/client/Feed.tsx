@@ -48,6 +48,7 @@ import {
 } from "./DoneFeedFilters";
 import {
   interleaveFeed,
+  selectFeedStreamSource,
   type FeedSourceFilter,
 } from "../shared/feed-interleave";
 import type { StreamItem } from "../shared/stream-item";
@@ -1837,6 +1838,7 @@ export function Feed({
         socialStream.items,
         effectiveStreamSource,
         doneRead,
+        { keepReadIds: socialStream.sessionReadIds },
       )
     : {
         rows: feedRows.map((row) => ({
@@ -4545,11 +4547,7 @@ export function Feed({
               showSocialStream
                 ? (stream) => {
                     if (stream === "feeds") setSelectedCards(null);
-                    setDoneSelection({
-                      ...selection,
-                      stream,
-                      agent: stream === "feeds" ? "" : selection.agent,
-                    });
+                    setDoneSelection(selectFeedStreamSource(selection, stream));
                   }
                 : undefined
             }

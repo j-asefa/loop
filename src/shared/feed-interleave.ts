@@ -22,7 +22,28 @@ export type InterleaveOptions = {
   maxPerSourcePerPass?: number;
   /** Maximum total external stream items placed into the mixed "all" view. */
   maxMixedStreams?: number;
+  /**
+   * Stream item IDs (rawId or namespaced id) marked read during the current visit.
+   * Kept in place under source="all" + readFilter="all" so tapping a card does not
+   * make it vanish from under the pointer until the next reload/refresh.
+   */
+  keepReadIds?: ReadonlySet<string>;
 };
+
+/**
+ * Pure filter-state transition when the user switches the Feed source chip.
+ * Switching to "all" or "feeds" clears any selected agent filter so the chip
+ * always takes effect instead of staying stuck on "agents".
+ */
+export function selectFeedStreamSource<
+  T extends { agent: string; stream: FeedSourceFilter },
+>(selection: T, stream: FeedSourceFilter): T {
+  return {
+    ...selection,
+    stream,
+    agent: stream === "agents" ? selection.agent : "",
+  };
+}
 
 export type InterleaveResult<TAgent> = {
   rows: InterleavedFeedRow<TAgent>[];
@@ -160,9 +181,15 @@ export function interleaveFeed<TAgent>(
   }
 
   // source === "all"
-  const eligibleStreams = streams.filter((item) =>
-    readFilter === "read" ? item.read : !item.read,
-  );
+  const keepReadIds = options.keepReadIds;
+  const eligibleStreams = streams.filter((item) => {
+    if (readFilter === "read") return item.read;
+    if (readFilter === "unread") return !item.read;
+    return (
+      !item.read ||
+      Boolean(keepReadIds?.has(item.id) || keepReadIds?.has(item.rawId))
+    );
+  });
   if (!eligibleStreams.length) {
     return {
       rows: agents.map((entry) => ({

@@ -43,14 +43,20 @@ export function useSocialStream(enabled: boolean) {
     scope: string;
     snapshot: SocialStreamSnapshot | null;
     read: ReadState;
+    sessionReadIds: string[];
   }>(() => ({
     scope: scopeKey,
     snapshot: cachedView<SocialStreamSnapshot>(CACHE_KEY) ?? null,
     read: EMPTY_READ,
+    sessionReadIds: [],
   }));
 
   const snapshot = state.scope === scopeKey ? state.snapshot : null;
   const readState = state.scope === scopeKey ? state.read : EMPTY_READ;
+  const sessionReadIds = useMemo(
+    () => new Set(state.scope === scopeKey ? state.sessionReadIds : []),
+    [state.scope, state.sessionReadIds, scopeKey],
+  );
 
   const loadRef = useRef<
     (options?: { force?: boolean; manual?: boolean }) => void
@@ -70,6 +76,7 @@ export function useSocialStream(enabled: boolean) {
           scope: scopeKey,
           snapshot: prev.scope === scopeKey ? prev.snapshot : null,
           read,
+          sessionReadIds: prev.scope === scopeKey ? prev.sessionReadIds : [],
         })),
     });
 
@@ -116,6 +123,11 @@ export function useSocialStream(enabled: boolean) {
             scope: scopeKey,
             snapshot: next,
             read: prev.scope === scopeKey ? prev.read : EMPTY_READ,
+            sessionReadIds: options.force
+              ? []
+              : prev.scope === scopeKey
+                ? prev.sessionReadIds
+                : [],
           }));
         },
         options.manual,
@@ -172,8 +184,17 @@ export function useSocialStream(enabled: boolean) {
             story.id === rawId ? { ...story, read } : story,
           ),
         };
+        const nextSessionRead = read
+          ? prev.sessionReadIds.includes(rawId)
+            ? prev.sessionReadIds
+            : [...prev.sessionReadIds, rawId]
+          : prev.sessionReadIds.filter((id) => id !== rawId);
         cacheView(CACHE_KEY, nextSnapshot, targetOwner);
-        return { ...prev, snapshot: nextSnapshot };
+        return {
+          ...prev,
+          snapshot: nextSnapshot,
+          sessionReadIds: nextSessionRead,
+        };
       });
       try {
         const { unread } = await callRoute(
@@ -271,6 +292,7 @@ export function useSocialStream(enabled: boolean) {
 
   return {
     items,
+    sessionReadIds,
     loading: enabled && !snapshot && readState.busy,
     busy: readState.busy,
     error: readState.error,

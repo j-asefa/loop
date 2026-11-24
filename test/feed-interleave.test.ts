@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   interleaveFeed,
   paceStreamItems,
+  selectFeedStreamSource,
   type AgentFeedEntry,
 } from "../src/shared/feed-interleave.js";
 import {
@@ -304,5 +305,67 @@ describe("interleaveFeed", () => {
     );
     const res = interleaveFeed([], [a, b], "feeds", "all");
     expect(res.rows.map((r) => r.key)).toEqual(["rss:a:1", "rss:b:2"]);
+  });
+
+  it("keeps stories read during the current visit in All+all without leaking old read items or Unread", () => {
+    const agents = [makeAgent("a1")];
+    const streams = [
+      makeStream({
+        id: "rss:just-read",
+        rawId: "just-read",
+        timestamp: 500,
+        read: true,
+      }),
+      makeStream({
+        id: "rss:old-read",
+        rawId: "old-read",
+        timestamp: 400,
+        read: true,
+      }),
+      makeStream({
+        id: "rss:fresh",
+        rawId: "fresh",
+        timestamp: 300,
+        read: false,
+      }),
+    ];
+    const keepReadIds = new Set(["just-read"]);
+
+    const mixedAll = interleaveFeed(agents, streams, "all", "all", {
+      keepReadIds,
+    });
+    expect(mixedAll.rows.map((r) => r.key)).toEqual([
+      "done:a1",
+      "rss:just-read",
+      "rss:fresh",
+    ]);
+
+    const mixedUnread = interleaveFeed(agents, streams, "all", "unread", {
+      keepReadIds,
+    });
+    expect(mixedUnread.rows.map((r) => r.key)).toEqual([
+      "done:a1",
+      "rss:fresh",
+    ]);
+  });
+
+  it("clears a selected agent filter when switching source chip to All or Feeds", () => {
+    const selected = {
+      scope: "s",
+      read: "all" as const,
+      agent: '["","agent-1"]',
+      stream: "agents" as const,
+    };
+    expect(selectFeedStreamSource(selected, "all")).toEqual({
+      ...selected,
+      stream: "all",
+      agent: "",
+    });
+    expect(selectFeedStreamSource(selected, "feeds")).toEqual({
+      ...selected,
+      stream: "feeds",
+      agent: "",
+    });
+    expect(selectFeedStreamSource(selected, "agents")).toEqual(selected);
   });
 });
