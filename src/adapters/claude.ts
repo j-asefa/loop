@@ -6,7 +6,7 @@ import { DirectAdapter } from "./direct-adapter.js";
 import type { Setting, SettingValue } from "../shared/agent-activities.js";
 import { claudeActivities, directUpdates } from "./direct-activities.js";
 import { modelOptions } from "../shared/model-options.js";
-import { ClaudeSteering } from "./claude-steering.js";
+import { CANCEL_HOLD_MS, ClaudeSteering, HOLD_MS } from "./claude-steering.js";
 import { randomUUID } from "node:crypto";
 import { Native } from "../native.js";
 import { NativeMemoryError, nativeFailureDetail } from "../native-memory.js";
@@ -445,7 +445,8 @@ export class Claude extends DirectAdapter implements Adapter {
       return;
     }
     if (this.orphanTurn) {
-      if (m.type === "result" && !m.parent_tool_use_id) this.orphanTurn = false;
+      if (m.type === "result" && !foreignResult(m, true, this.session))
+        this.orphanTurn = false;
       // Nobody can answer its permission requests; refuse them.
       if (m.type === "control_request")
         void this.native
@@ -773,7 +774,9 @@ export class Claude extends DirectAdapter implements Adapter {
       // Claude answers an unread follow-up in a further turn, even after an
       // interrupt, so the run stays open until it reads it (see echo()).
       if (this.steering.pending) {
-        this.steering.hold(m, () => this.finish({ ...m, errors: [] }));
+        this.steering.hold(m, this.interrupted ? CANCEL_HOLD_MS : HOLD_MS, () =>
+          this.finish({ ...m, errors: [] }),
+        );
         return;
       }
       this.finish(m);
@@ -781,15 +784,22 @@ export class Claude extends DirectAdapter implements Adapter {
   }
   /** Claude read the message with this uuid; its turn starts now. */
   private echo(uuid: unknown) {
+    if (this.steering.abandoned(uuid)) {
+      // A follow-up Loop gave up on started a turn no Loop run owns: drop its
+      // output and result, and stop it so it runs no unrecorded tools. If
+      // Claude finishes it before the interrupt lands, the interrupt can stop
+      // the next prompt's turn instead; that run then ends visibly.
+      this.orphanTurn = true;
+      this.control({ subtype: "interrupt" }).catch(() => {});
+      return;
+    }
+    // Claude reads stdin in order: any other echo means a later message joined
+    // or started the current turn, so that turn is no longer the orphan's.
+    this.orphanTurn = false;
     if (this.steering.read(uuid)) {
       // A cancelled run also stops the turn that answers its follow-up.
       if (this.interrupted)
         this.control({ subtype: "interrupt" }).catch(() => {});
-    } else if (this.steering.abandoned(uuid)) {
-      // A follow-up Loop gave up on started a turn no Loop run owns: drop its
-      // output and result, and stop it if no newer prompt has been written.
-      this.orphanTurn = true;
-      if (!this.active) this.control({ subtype: "interrupt" }).catch(() => {});
     }
   }
   private finish(m: any) {

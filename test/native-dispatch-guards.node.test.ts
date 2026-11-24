@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { Codex } from "../src/adapters/codex.js";
 import { Claude } from "../src/adapters/claude.js";
-import { HOLD_MS } from "../src/adapters/claude-steering.js";
+import { CANCEL_HOLD_MS, HOLD_MS } from "../src/adapters/claude-steering.js";
 import { Pi } from "../src/adapters/pi.js";
 import { OpenCode } from "../src/adapters/opencode.js";
 import { Muse } from "../src/adapters/muse.js";
@@ -171,10 +171,16 @@ test("Claude keeps a cancelled run open for the turn that answers its follow-up,
   assert.equal(writes.length, 1, "the follow-up is never written again");
 });
 
-test("Claude ends a held run when no echo follows, and ignores that follow-up's late turn", async (t) => {
+function heldPastFallback(t: any) {
   t.mock.timers.enable({ apis: ["setTimeout"] });
-  const { adapter, writes, controls, echo, result, statuses } = liveClaude();
-  const steer = adapter.steer("Side question");
+  const live = liveClaude();
+  const steer = live.adapter.steer("Side question");
+  return { ...live, steer };
+}
+
+test("Claude ends a held run when no echo follows, and stops that follow-up's late turn", async (t) => {
+  const { adapter, writes, controls, echo, result, statuses, steer } =
+    heldPastFallback(t);
   await new Promise((done) => setImmediate(done));
   result(["first turn failed"]);
   assert.equal(statuses().length, 0);
@@ -184,27 +190,87 @@ test("Claude ends a held run when no echo follows, and ignores that follow-up's 
     statuses().map((e) => [e.status, e.detail]),
     [["failed", "first turn failed"]],
   );
-  // A late echo starts a turn no run owns: it is stopped and nothing of it
-  // reaches the next run, whose prompt Claude reads after it.
+  // The next prompt is written before Claude reads the abandoned follow-up.
+  await adapter.prompt("Next prompt");
+  const next = writes.at(-1);
   echo(writes[0]);
   await new Promise((done) => setImmediate(done));
   assert.equal(
     controls.filter((c: any) => c.subtype === "interrupt").length,
     1,
+    "the orphan turn is stopped even with a newer prompt written",
   );
-  adapter.active = true;
   adapter.message({
     type: "control_request",
     request_id: "orphan-permission",
     request: { subtype: "can_use_tool", tool_name: "Bash", input: {} },
   });
   assert.equal(writes.at(-1).response.response.behavior, "deny");
+  // A background task's result does not end the orphan turn.
+  adapter.message({
+    type: "result",
+    is_error: false,
+    session_id: "session-1",
+    origin: { kind: "task-notification" },
+  });
   result();
   assert.equal(statuses().length, 1, "the orphan turn's result is ignored");
+  echo(next);
   result();
   assert.deepEqual(
     statuses().map((e) => e.status),
     ["failed", "completed"],
+  );
+});
+
+test("Claude gives a prompt read inside an orphan turn the rest of that turn", async (t) => {
+  const { adapter, writes, echo, result, statuses, steer } =
+    heldPastFallback(t);
+  await new Promise((done) => setImmediate(done));
+  result();
+  t.mock.timers.tick(HOLD_MS);
+  await assert.rejects(steer);
+  await adapter.prompt("Next prompt");
+  const next = writes.at(-1);
+  echo(writes[0]);
+  echo(next); // Claude reads the prompt at a tool boundary of the orphan turn.
+  result();
+  assert.deepEqual(
+    statuses().map((e) => e.status),
+    ["completed", "completed"],
+  );
+});
+
+test("Claude holds a cancelled run for less than the supervisor's interrupt deadline", async (t) => {
+  const { adapter, result, statuses, steer } = heldPastFallback(t);
+  await new Promise((done) => setImmediate(done));
+  await adapter.cancel();
+  result();
+  t.mock.timers.tick(CANCEL_HOLD_MS);
+  assert.deepEqual(
+    statuses().map((e) => e.status),
+    ["interrupted"],
+  );
+  await assert.rejects(steer);
+  assert(CANCEL_HOLD_MS < 10_000);
+});
+
+test("Claude ends a held run at once when the only unread follow-up's write fails", async () => {
+  const { adapter, result, statuses } = liveClaude();
+  let fail!: (error: Error) => void;
+  adapter.native.write = () =>
+    new Promise((_, reject) => {
+      fail = reject;
+    });
+  const steer = adapter.steer("Side question");
+  await new Promise((done) => setImmediate(done));
+  result();
+  assert.equal(statuses().length, 0);
+  fail(new Error("pipe closed"));
+  await assert.rejects(steer, /pipe closed/);
+  assert.deepEqual(
+    statuses().map((e) => e.status),
+    ["completed"],
   );
 });
 

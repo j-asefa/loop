@@ -6,17 +6,21 @@
 // result, then the echo, then answers in a further turn. It does this after an
 // interrupt too. A result that arrives while a follow-up is unread is held, so
 // the Loop run stays open for that further turn; if no echo follows within
-// HOLD_MS, the run ends with the held result and the follow-up is unconfirmed.
+// HOLD_MS (CANCEL_HOLD_MS after a cancel, shorter than the supervisor's 10 s
+// interrupt deadline), the run ends with the held result and the follow-up is
+// unconfirmed.
 // Both behaviours were observed on Claude Code 2.1.237 and 2.1.325.
 type Waiter = { resolve: () => void; reject: (error: Error) => void };
 
 export const HOLD_MS = 10_000;
+export const CANCEL_HOLD_MS = 3_000;
 
 export class ClaudeSteering {
   private unread = new Map<string, Waiter>();
   private given = new Set<string>();
   private errors: string[] = [];
   private timer?: ReturnType<typeof setTimeout>;
+  private fallback?: () => void;
   /** Resolves when Claude echoes the message with this uuid. */
   expect(uuid: string) {
     return new Promise<void>((resolve, reject) => {
@@ -31,26 +35,35 @@ export class ClaudeSteering {
     this.unread.delete(uuid);
     clearTimeout(this.timer);
     this.timer = undefined;
+    this.fallback = undefined;
     waiter.resolve();
     return true;
   }
-  /** Forgets a follow-up whose write failed; it settles nothing. */
+  /** Forgets a follow-up whose write failed; it settles nothing. A held
+   * result with nothing left unread ends its run now. */
   drop(uuid: string) {
     this.unread.delete(uuid);
+    const fallback = this.fallback;
+    if (!this.pending && this.timer && fallback) {
+      this.release();
+      fallback();
+    }
   }
   get pending() {
     return this.unread.size > 0;
   }
   /** Holds a turn's result while a follow-up is unread. */
-  hold(result: { errors?: string[] }, fallback: () => void) {
+  hold(result: { errors?: string[] }, ms: number, fallback: () => void) {
     this.errors.push(...(result.errors ?? []));
     clearTimeout(this.timer);
-    this.timer = setTimeout(fallback, HOLD_MS);
+    this.fallback = fallback;
+    this.timer = setTimeout(fallback, ms);
   }
   /** Ends holding; returns the errors of the turns that were held. */
   release() {
     clearTimeout(this.timer);
     this.timer = undefined;
+    this.fallback = undefined;
     const errors = this.errors;
     this.errors = [];
     return errors;
