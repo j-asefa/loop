@@ -88,7 +88,7 @@ export function useSocialStream(enabled: boolean) {
   const pendingMutations = useRef(0);
   const deferredReload = useRef(false);
   const deferredForce = useRef(false);
-  const forceInFlight = useRef(false);
+  const forceToken = useRef(0);
 
   useEffect(() => {
     if (!enabled) return;
@@ -112,9 +112,11 @@ export function useSocialStream(enabled: boolean) {
         deferredReload.current = true;
         return;
       }
+      let token = 0;
       if (options.force) {
         executor.cancel();
-        forceInFlight.current = true;
+        token = forceToken.current + 1;
+        forceToken.current = token;
       }
       void executor
         .load(
@@ -153,7 +155,7 @@ export function useSocialStream(enabled: boolean) {
             };
           },
           (next) => {
-            if (options.force) forceInFlight.current = false;
+            if (token && forceToken.current === token) forceToken.current = 0;
             cacheView(CACHE_KEY, next, owner);
             setState((prev) => ({
               scope: scopeKey,
@@ -169,16 +171,16 @@ export function useSocialStream(enabled: boolean) {
           options.manual,
         )
         .finally(() => {
-          if (options.force) forceInFlight.current = false;
+          if (token && forceToken.current === token) forceToken.current = 0;
         });
     };
 
     loadRef.current = load;
     cancelRef.current = () => {
-      if (forceInFlight.current) {
+      if (forceToken.current > 0) {
         deferredForce.current = true;
         deferredReload.current = true;
-        forceInFlight.current = false;
+        forceToken.current = 0;
       }
       executor.cancel();
     };
@@ -197,7 +199,7 @@ export function useSocialStream(enabled: boolean) {
 
     return () => {
       active = false;
-      forceInFlight.current = false;
+      forceToken.current = 0;
       executor.dispose();
       loadRef.current = () => {};
       cancelRef.current = () => {};

@@ -1857,7 +1857,7 @@ export function Feed({
         hasMoreStreams: false,
       };
   const activeReadingStream =
-    readingStream?.generation === generation
+    showSocialStream && readingStream?.generation === generation
       ? (socialStream.items.find((item) => item.id === readingStream.id) ??
         readingStream.item)
       : null;
@@ -4806,7 +4806,7 @@ export function Feed({
           onAsk={onAsk ? (text) => onAsk(text) : undefined}
         />
       )}
-      {savingStream?.generation === generation && (
+      {showSocialStream && savingStream?.generation === generation && (
         <LaterSheet
           kind="story"
           targetId={savingStream.item.rawId}
