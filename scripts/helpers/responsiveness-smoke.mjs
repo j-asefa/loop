@@ -688,7 +688,7 @@ export async function responsivenessSmoke(page, fixture, engine) {
           page.locator(".feed-results .feed-item-card").first(),
         );
         await expect(row).toHaveCount(0, { timeout: 300 });
-        const notSaved = page.getByText("Not saved. Removed here only.");
+        const notSaved = page.getByText("Archive not saved.");
         await expect(notSaved).toBeVisible();
         await expect(notSaved).toHaveCount(0, { timeout: 8000 });
         await expect(row).toHaveCount(1);

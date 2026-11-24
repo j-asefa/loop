@@ -3783,8 +3783,15 @@ export function Feed({
     const hide = (): Promise<void> =>
       setHidden(true)
         .then(archived, (e) => {
-          if (owner !== viewOwner() || e instanceof UnavailableResponse) {
+          if (owner !== viewOwner()) {
             pendingArchives.current.delete(itemKey);
+            return;
+          }
+          if (e instanceof UnavailableResponse) {
+            // The session changed before the write could be sent or read:
+            // nothing says it was archived, so show the card again.
+            pendingArchives.current.delete(itemKey);
+            restore();
             return;
           }
           const outcome = writeOutcome(e);
@@ -3805,12 +3812,18 @@ export function Feed({
           // again: the server may not have archived it.
           let retried = false;
           notify({
-            text: "Not saved. Removed here only.",
+            // True whether or not the card is shown again (see onExpire).
+            text: "Archive not saved.",
             tone: "error",
             link: {
               label: "Retry",
               onSelect: () => {
-                if (owner !== viewOwner()) return;
+                if (owner !== viewOwner()) {
+                  pendingArchives.current.delete(itemKey);
+                  return;
+                }
+                // An Undo in flight decides; resending now could race it.
+                if (dismissingRef.current.has(dismissKey)) return;
                 retried = true;
                 pendingArchives.current.add(itemKey);
                 remove();
@@ -3819,9 +3832,9 @@ export function Feed({
               },
             },
             onExpire: () => {
-              if (retried || owner !== viewOwner()) return;
+              if (retried) return;
               pendingArchives.current.delete(itemKey);
-              restore();
+              if (owner === viewOwner()) restore();
             },
           });
         })
