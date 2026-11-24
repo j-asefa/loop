@@ -547,8 +547,10 @@ export async function responsivenessSmoke(page, fixture, engine) {
         .click();
       const sheet = page.locator("dialog.sheet[open]");
       await expect(sheet).toHaveCount(1);
-      const entering = await sheet.evaluate((element) =>
-        element.getAnimations().map((animation) => animation.animationName),
+      // The computed animation name, not getAnimations(): a finished
+      // animation drops out of that list.
+      const entering = await sheet.evaluate(
+        (element) => getComputedStyle(element).animationName,
       );
       await page.waitForTimeout(300);
       const closeStarted = Date.now();
@@ -558,7 +560,7 @@ export async function responsivenessSmoke(page, fixture, engine) {
         .click();
       await expect(page.locator("dialog[open]")).toHaveCount(0);
       report.sheet = {
-        enterAnimation: entering.includes("sheet-enter"),
+        enterAnimation: entering === "sheet-enter",
         closedMs: Date.now() - closeStarted,
       };
 

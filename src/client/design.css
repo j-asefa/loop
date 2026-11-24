@@ -1464,12 +1464,13 @@ button:not(:disabled):active,
   }
 }
 
-/* Responsiveness: sheet motion (D6). A sheet rises and fades in. Closing
-   stays instant: Sheet's parent closes it at once (closing also updates the
-   page history), and an exit needs the element kept mounted after that,
-   which comes with Motion in track B. Animations only: a sheet at rest has
-   no transform (Safari can displace a transformed modal when its keyboard
-   opens). Reduced motion disables them. */
+/* Responsiveness: sheet motion (D6). A sheet and its backdrop fade in.
+   Opacity only: some sheets focus a field as they open, and a transformed
+   modal can be displaced by Safari's keyboard and mismeasured by
+   useSheetViewport. Closing stays instant: Sheet's parent closes it at once
+   (closing also updates the page history), and an exit needs the element
+   kept mounted after that, which comes with Motion in track B. Reduced
+   motion disables both. */
 .sheet[open]:not(.side-panel) {
   animation: sheet-enter var(--motion-base) var(--ease-out);
 }
@@ -1482,7 +1483,6 @@ button:not(:disabled):active,
 @keyframes sheet-enter {
   from {
     opacity: 0;
-    transform: translateY(24px);
   }
 }
 @keyframes sheet-backdrop-enter {
