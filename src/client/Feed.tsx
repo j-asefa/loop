@@ -1454,7 +1454,13 @@ function ActivityLineView({
 }) {
   const sourceId = useSourceId();
   const generation = viewGeneration();
-  const [line, setLine] = useState<ActivityLine | null>(null);
+  // The line is kept with the read it answers, so a card whose run (or
+  // source or view) changed never shows the previous run's step.
+  const readKey = JSON.stringify([conversation, run, sourceId, generation]);
+  const [shown, setShown] = useState<{
+    key: string;
+    line: ActivityLine | null;
+  } | null>(null);
   useEffect(() => {
     let active = true;
     const aborted = new AbortController();
@@ -1476,9 +1482,10 @@ function ActivityLineView({
           sourceId,
           aborted.signal,
         );
-        if (active && generation === viewGeneration()) setLine(page.line);
+        if (active && generation === viewGeneration())
+          setShown({ key: readKey, line: page.line });
       } catch {
-        // The line is optional; keep the last one until the next change.
+        // The line is optional; keep this run's last one until the next change.
       } finally {
         reading = false;
         if (again && active) {
@@ -1499,7 +1506,8 @@ function ActivityLineView({
       aborted.abort();
       stop();
     };
-  }, [conversation, run, sourceId, generation]);
+  }, [conversation, run, sourceId, generation, readKey]);
+  const line = shown?.key === readKey ? shown.line : null;
   if (!line) return null;
   return (
     <p className={"feed-activity-line " + line.state}>

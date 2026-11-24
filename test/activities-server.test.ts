@@ -265,6 +265,19 @@ it("serves a running card's activity line without output or diffs", async () => 
   // Once the command exits, the newest step leads.
   write({ kind: "output", id: "o1", patch: { status: "exited", exitCode: 0 } });
   expect((await get(path)).body.line).toMatchObject({ state: "done" });
+  // Many newer finished steps do not hide a step still running.
+  write({
+    kind: "tool",
+    id: "t-live",
+    patch: { title: "Build", status: "running" },
+  });
+  for (let i = 0; i < 60; i++)
+    write({
+      kind: "tool",
+      id: "t" + i,
+      patch: { title: "Read " + i, status: "completed" },
+    });
+  expect((await get(path)).body.line).toEqual({ text: "Build", state: "live" });
   // Another run of the conversation has no line.
   expect(
     (await get(`/conversations/${conversation}/activity-line?run=${id()}`))
