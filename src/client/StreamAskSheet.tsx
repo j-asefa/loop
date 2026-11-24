@@ -36,30 +36,26 @@ export function StreamAskSheet({
     () => activeAgents.find((agent) => /council/i.test(agent.name)),
     [activeAgents],
   );
-  const [selectedAgent, setSelectedAgent] = useState<string>(
-    () => activeAgents[0]?.id ?? "",
-  );
-  const [agentTouched, setAgentTouched] = useState(false);
+  const [selectedAgent, setSelectedAgent] = useState<string>("");
   const resolvedAgent = activeAgents.some((agent) => agent.id === selectedAgent)
     ? selectedAgent
-    : (activeAgents[0]?.id ?? "");
+    : "";
   const { snippets } = useSnippets(true);
 
   const choose = (instruction: string, preferCouncil = false) => {
+    // Only override the composer's current recipient when the user explicitly
+    // picked an agent here, or chose "Ask LLM council" and a council agent exists.
     const target =
-      (preferCouncil && !agentTouched && councilAgent?.id) ||
-      resolvedAgent ||
-      undefined;
+      resolvedAgent || (preferCouncil ? councilAgent?.id : undefined);
     const prompt = buildStreamActionPrompt(item, instruction);
     onClose();
     onAsk(prompt, target);
   };
 
   const custom = () => {
-    const target = resolvedAgent || undefined;
     const prompt = defaultStreamAskPrompt(item);
     onClose();
-    onAsk(prompt, target);
+    onAsk(prompt, resolvedAgent || undefined);
   };
 
   return (
@@ -79,10 +75,8 @@ export function StreamAskSheet({
             label="Choose agent"
             title="Send to agent"
             value={resolvedAgent}
-            onChange={(value) => {
-              setSelectedAgent(value);
-              setAgentTouched(true);
-            }}
+            extras={[{ value: "", label: "Current composer agent" }]}
+            onChange={setSelectedAgent}
             agents={activeAgents.map((agent) => ({
               value: agent.id,
               name: agent.name,

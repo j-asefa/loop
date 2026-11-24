@@ -80,10 +80,13 @@ export function useSnippets(enabled: boolean) {
   };
 }
 
+const inFlightSnippetSaves = new Set<string>();
+
 /**
  * Saves arbitrary prompt text as a reusable `/` snippet using Loop's canonical
  * artifact creation endpoint and notifies listeners so autocomplete and
- * quick-action sheets refresh immediately.
+ * quick-action sheets refresh immediately. Guards against duplicate concurrent
+ * saves from double taps.
  */
 export async function saveTextAsSnippet(
   content: string,
@@ -91,6 +94,9 @@ export async function saveTextAsSnippet(
 ): Promise<boolean> {
   const text = content.trim();
   if (!text) return false;
+  const dedupeKey = JSON.stringify([viewOwner(), source, text]);
+  if (inFlightSnippetSaves.has(dedupeKey)) return false;
+  inFlightSnippetSaves.add(dedupeKey);
   try {
     await callRoute(
       workspaceApi.artifactCreate,
@@ -115,5 +121,7 @@ export async function saveTextAsSnippet(
       tone: "error",
     });
     return false;
+  } finally {
+    inFlightSnippetSaves.delete(dedupeKey);
   }
 }

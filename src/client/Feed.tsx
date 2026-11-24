@@ -1007,16 +1007,6 @@ function FeedCard({
                   title="Quick reply"
                   onClose={() => setQuickReplyOpen(false)}
                   actions={[
-                    ...quickReplySnippets.map((snippet) => ({
-                      id: `snippet:${snippet.id}`,
-                      label: snippetLabel(snippet.title, snippet.content),
-                      hint: snippet.content.slice(0, 90),
-                      icon: <Sparkles size={18} />,
-                      onSelect: () => {
-                        setQuickReplyOpen(false);
-                        leaveReading(() => onReply(snippet.content));
-                      },
-                    })),
                     ...DEFAULT_DONE_QUICK_REPLIES.map((action) => ({
                       id: action.id,
                       label: action.label,
@@ -1025,6 +1015,16 @@ function FeedCard({
                       onSelect: () => {
                         setQuickReplyOpen(false);
                         leaveReading(() => onReply(action.instruction));
+                      },
+                    })),
+                    ...quickReplySnippets.map((snippet) => ({
+                      id: `snippet:${snippet.id}`,
+                      label: snippetLabel(snippet.title, snippet.content),
+                      hint: snippet.content.slice(0, 90),
+                      icon: <Sparkles size={18} />,
+                      onSelect: () => {
+                        setQuickReplyOpen(false);
+                        leaveReading(() => onReply(snippet.content));
                       },
                     })),
                   ]}
