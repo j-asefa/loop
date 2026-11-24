@@ -1,4 +1,12 @@
 import { expect } from "@playwright/test";
+import { tsImport } from "tsx/esm/api";
+
+// The changed-refresh step moves a result to another project through the
+// existing conversation writer, not direct SQL.
+const conversations = await tsImport(
+  "../../src/server/sql/conversations.ts",
+  import.meta.url,
+);
 
 // Measures how quickly the Feed responds to touch, tab switches, drags and
 // local writes, on the production bundle with a 4x CPU slowdown in Chromium.
@@ -83,6 +91,53 @@ async function settle(page, inflight) {
   }
   throw new Error("The Feed did not settle within 15 s");
 }
+
+// Cards re-render once a minute for their relative times. A window that
+// counts card renders starts at least 20 s before the page's next minute,
+// and the caller checks the minute did not change during it.
+const pageMinute = (page) =>
+  page.evaluate(() => Math.floor(Date.now() / 60000));
+async function awayFromMinuteBoundary(page) {
+  const left = await page.evaluate(() => 60000 - (Date.now() % 60000));
+  if (left < 20000) await page.waitForTimeout(left + 250);
+  return pageMinute(page);
+}
+// Feed may last have rendered in an earlier minute; its next render would
+// then re-render every card for their times. Start a counting window clear
+// of the minute boundary, with Feed rendered in the current minute.
+async function minuteWindow(page, inflight) {
+  const minute = await awayFromMinuteBoundary(page);
+  for (const name of ["Working", "Done"])
+    await page.getByRole("tab", { name: new RegExp("^" + name) }).click();
+  await settle(page, inflight);
+  return minute;
+}
+const sameMinute = async (page, minute, name) => {
+  if ((await pageMinute(page)) !== minute)
+    throw new Error(
+      `The ${name} window crossed a minute boundary; its card renders are not comparable`,
+    );
+};
+
+// Done results as the Feed API returns them: the title a card shows and its
+// conversation.
+async function doneResults(page) {
+  return page.evaluate(async () => {
+    const body = await (await fetch("/api/feed?filter=done")).json();
+    return (body.items || body).map((item) => ({
+      title: item.title,
+      conversation: item.conversation_id,
+    }));
+  });
+}
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// A card's row is labelled with its title, then any status (", Done").
+const rowNamed = (page, title) =>
+  page.locator(".feed-results .feed-item-card").filter({
+    has: page.getByRole("button", {
+      name: new RegExp("^" + escapeRegExp(title) + "(, .*)?$"),
+    }),
+  });
 
 // Time from pointerdown to the first frame whose computed style differs from
 // rest. Resolves to null when nothing changes within 250 ms, well before a
@@ -197,7 +252,13 @@ async function tabSwitch(page, name) {
 }
 
 // Frame intervals and React commits while a touch drag runs, before release.
+// Counts from after touchStart: the budget is no commit per move, and a
+// card may commit once as the finger lands (it prefetches its full answer).
 async function dragProbe(page, client, from, to, steps, durationMs) {
+  await client.send("Input.dispatchTouchEvent", {
+    type: "touchStart",
+    touchPoints: [{ x: from.x, y: from.y, id: 1 }],
+  });
   await page.evaluate(() => {
     const probe = window.__loopCommitProbe;
     window.__loopDrag = { commits: probe.commits, frames: [], run: true };
@@ -209,10 +270,6 @@ async function dragProbe(page, client, from, to, steps, durationMs) {
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
-  });
-  await client.send("Input.dispatchTouchEvent", {
-    type: "touchStart",
-    touchPoints: [{ x: from.x, y: from.y, id: 1 }],
   });
   for (let step = 1; step <= steps; step++) {
     const t = step / steps;
@@ -305,15 +362,12 @@ export async function responsivenessSmoke(page, fixture, engine) {
 
     console.log("responsiveness: tabs", JSON.stringify(report.press));
     // 2. Tab switches: cold first visit, then cached revisits.
-    for (const name of [
-      "Working",
-      "Done",
-      "Working",
-      "Done",
-      "Working",
-      "Done",
-    ])
+    // One cold switch, then 21 cached ones: with 21 samples the p95 is not
+    // just the single slowest switch, so one slow frame cannot decide it.
+    for (let i = 0; i < 22; i++) {
+      const name = i % 2 ? "Done" : "Working";
       tabs.push({ name, ...(await tabSwitch(page, name)) });
+    }
     report.tabs = {
       cold: tabs[0],
       cached: summary(tabs.slice(1).map((entry) => entry.ms)),
@@ -359,6 +413,9 @@ export async function responsivenessSmoke(page, fixture, engine) {
 
     if (client) {
       console.log("responsiveness: swipe", JSON.stringify(report.tabs));
+      // Waits here, before the drags, so no idle wait sits right before a
+      // measured gesture; the refresh below must finish in the same minute.
+      const refreshMinute = await minuteWindow(page, inflight);
       // 3. A card swipe that does not cross the archive threshold.
       const card = page.locator(".feed-results .feed-item-card").first();
       await card.evaluate((element) =>
@@ -421,6 +478,7 @@ export async function responsivenessSmoke(page, fixture, engine) {
       const after = await page.evaluate(() => ({
         ...window.__loopCommitProbe,
       }));
+      await sameMinute(page, refreshMinute, "unchanged refresh");
       report.refresh = {
         // Refreshes the pull started, and the API reads that followed.
         started: after.refreshes - before.refreshes,
@@ -431,6 +489,52 @@ export async function responsivenessSmoke(page, fixture, engine) {
           .locator(".feed-results .feed-item-card")
           .count(),
         // Every card wrapper in the page, including other Feed sections.
+        cardWrappers: await page.locator(".feed-item-wrap").count(),
+      };
+
+      console.log("responsiveness: changed refresh");
+      // A memoised card still re-renders when its content changes. Move one
+      // Done result to another project through the conversation writer, pull
+      // to refresh, and the card shows the new project while the unchanged
+      // cards keep their render.
+      const [changedResult] = await doneResults(page);
+      if (!changedResult) throw new Error("No Done result to change");
+      const changedCard = rowNamed(page, changedResult.title);
+      await expect(changedCard).toHaveCount(1);
+      const shownProject = await changedCard
+        .locator(".card-project")
+        .innerText();
+      const otherProject = (await fixture.api("/bootstrap")).folders.find(
+        (folder) => folder.name && !shownProject.includes(folder.name),
+      );
+      if (!otherProject) throw new Error("No other project to move it to");
+      // Count from before the change: a background read may pick it up
+      // before the pull finishes.
+      const changeMinute = await minuteWindow(page, inflight);
+      const beforeChange = await page.evaluate(() => ({
+        ...window.__loopCommitProbe,
+      }));
+      conversations.setProject(
+        fixture.db,
+        otherProject.id,
+        changedResult.conversation,
+      );
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await dragProbe(page, client, top, { x: 195, y: 420 }, 36, 600);
+      await client.send("Input.dispatchTouchEvent", {
+        type: "touchEnd",
+        touchPoints: [],
+      });
+      await settle(page, inflight);
+      const afterChange = await page.evaluate(() => ({
+        ...window.__loopCommitProbe,
+      }));
+      await sameMinute(page, changeMinute, "changed refresh");
+      await expect(changedCard.locator(".card-project")).toContainText(
+        otherProject.name,
+      );
+      report.changedRefresh = {
+        cardRenders: afterChange.cardRenders - beforeChange.cardRenders,
         cardWrappers: await page.locator(".feed-item-wrap").count(),
       };
 
@@ -587,6 +691,60 @@ export async function responsivenessSmoke(page, fixture, engine) {
       await expect(
         page.locator("dialog[open] .composer textarea"),
       ).toBeFocused();
+
+      console.log("responsiveness: draft");
+      // A memoised card still shows a draft saved elsewhere: Feed reads
+      // drafts and passes them to the card. Type in this thread's composer to
+      // learn the draft key, save a draft for a Done card's thread under the
+      // same owner and source, then refresh the Feed.
+      await page.keyboard.type("Keep this for later");
+      const draftKey = await expect
+        .poll(
+          () =>
+            page.evaluate(() =>
+              Object.keys(localStorage).find((key) =>
+                /^loop-draft-text:[^:]*:\[/.test(key),
+              ),
+            ),
+          { timeout: 5000 },
+        )
+        .toBeTruthy()
+        .then(() =>
+          page.evaluate(() =>
+            Object.keys(localStorage).find((key) =>
+              /^loop-draft-text:[^:]*:\[/.test(key),
+            ),
+          ),
+        );
+      await page.keyboard.press("Escape");
+      await expect(page.locator("dialog[open]")).toHaveCount(0);
+      const [draftedResult] = await doneResults(page);
+      if (!draftedResult) throw new Error("No Done result to draft a reply to");
+      const drafted = rowNamed(page, draftedResult.title);
+      await expect(drafted).toHaveCount(1);
+      const draftedConversation = { id: draftedResult.conversation };
+      // Key: loop-draft-text:<owner>:<JSON [source, conversation id]>.
+      const [, owner, threadId] = draftKey.match(
+        /^loop-draft-text:([^:]*):(.*)$/,
+      );
+      const [draftSource] = JSON.parse(threadId);
+      await page.evaluate(
+        ([key, text]) => localStorage.setItem(key, text),
+        [
+          `loop-draft-text:${owner}:${JSON.stringify([draftSource, draftedConversation.id])}`,
+          "Unsent reply from another view",
+        ],
+      );
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await dragProbe(page, client, top, { x: 195, y: 420 }, 36, 600);
+      await client.send("Input.dispatchTouchEvent", {
+        type: "touchEnd",
+        touchPoints: [],
+      });
+      await expect(drafted).toContainText("Unsent reply from another view", {
+        timeout: 10000,
+      });
+      report.draft = { shown: true };
     }
   } finally {
     await client?.send("Emulation.setCPUThrottlingRate", { rate: 1 });
@@ -641,6 +799,21 @@ export async function responsivenessSmoke(page, fixture, engine) {
         `The ${name} drag missed its budget (0 commits, <= 5 % dropped frames): ${JSON.stringify(drag)}`,
       );
   }
+  // Feed updates (D8): an unchanged refresh re-renders no card, and switching
+  // to a cached tab shows it within 100 ms (p95) with no loading placeholder.
+  const changed = report.changedRefresh;
+  if (!(changed.cardRenders >= 1 && changed.cardRenders < changed.cardWrappers))
+    throw new Error(
+      `A refresh with one changed card should re-render it and not every card: ${JSON.stringify(changed)}`,
+    );
+  if (report.refresh.cardRenders !== 0)
+    throw new Error(
+      `An unchanged refresh re-rendered cards: ${JSON.stringify(report.refresh)}`,
+    );
+  if (!(report.tabs.cached?.p95 < 100) || report.tabs.cachedShowedLoading)
+    throw new Error(
+      `A cached tab switch missed its budget (p95 < 100 ms, no placeholder): ${JSON.stringify(report.tabs)}`,
+    );
   for (const [name, kept] of Object.entries(report.pressHitArea))
     if (!kept)
       throw new Error(
