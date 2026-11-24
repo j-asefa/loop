@@ -6,6 +6,21 @@ export function appendDraftText(current: string, added: string): string {
   return current.trim() ? `${current.trimEnd()}\n\n${added}` : added;
 }
 
+export function seedReplyDraftText(current: string, prompt: string): string {
+  const trimmed = current.trimEnd();
+  if (!trimmed.trim()) return prompt;
+  const target = prompt.trimEnd();
+  if (
+    trimmed === target ||
+    trimmed.endsWith(`\n\n${target}`) ||
+    trimmed.startsWith(`${target}\n\n`)
+  )
+    return current;
+  if (/^[\s\p{C}]*[@/!$]/u.test(trimmed))
+    return `${target}\n\n${trimmed.trimStart()}`;
+  return `${trimmed}\n\n${prompt}`;
+}
+
 export const GLOBAL_DRAFT = "__global__";
 
 export function sourceDraftId(id: string, source: string) {
@@ -53,6 +68,17 @@ export function saveThreadDraft(
     },
     undefined,
   );
+}
+
+export function seedThreadReplyDraft(
+  id: string,
+  prompt: string,
+  owner = viewOwner(),
+): string {
+  const saved = threadDraft(id, owner);
+  const nextText = seedReplyDraftText(saved.text, prompt);
+  saveThreadDraft(id, nextText, saved.files, owner);
+  return nextText;
 }
 
 type DraftIdentity = { text: string; files: readonly { id: string }[] };

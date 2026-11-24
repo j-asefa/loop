@@ -3,11 +3,9 @@ import { expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { RichText } from "../src/client/components";
 import { DisplayReplyContext, DisplaySpec } from "../src/client/DisplaySpec";
+import { seedReplyDraftText } from "../src/client/drafts";
 import { compactMarkdown } from "../src/client/preview";
-import {
-  canReplyFromMessageDisplay,
-  feedDisplayReplyQuote,
-} from "../src/client/threadView";
+import { canReplyFromMessageDisplay } from "../src/client/threadView";
 import { checkDisplay } from "../src/server/display-check";
 import { displayFixtures } from "./display-spec-fixtures";
 
@@ -557,7 +555,25 @@ it("checks and draws ReplyButton elements and pre-fills the reply handler only w
     );
   }
 
-  // Conversation and Feed reading view enable ReplyButton only on finished, non-imported assistant answers.
+  // seedReplyDraftText preserves existing drafts without duplicating repeated clicks or keeping a leading @/command prefix at the start.
+  expect(seedReplyDraftText("", "Run benchmark")).toBe("Run benchmark");
+  expect(seedReplyDraftText("Run benchmark", "Run benchmark")).toBe(
+    "Run benchmark",
+  );
+  expect(
+    seedReplyDraftText("Already typed\n\nRun benchmark", "Run benchmark"),
+  ).toBe("Already typed\n\nRun benchmark");
+  expect(
+    seedReplyDraftText("Already typed", "Compare these metrics with staging."),
+  ).toBe("Already typed\n\nCompare these metrics with staging.");
+  expect(seedReplyDraftText("@ops check this", "Run benchmark")).toBe(
+    "Run benchmark\n\n@ops check this",
+  );
+  expect(
+    seedReplyDraftText("Run benchmark\n\n@ops check this", "Run benchmark"),
+  ).toBe("Run benchmark\n\n@ops check this");
+
+  // Conversation enables ReplyButton only on finished, non-imported, non-progress assistant answers.
   expect(
     canReplyFromMessageDisplay({
       role: "assistant",
@@ -598,56 +614,6 @@ it("checks and draws ReplyButton elements and pre-fills the reply handler only w
       writing: false,
     }),
   ).toBe(false);
-
-  const baseFeedItem = {
-    done_card_key: "done-1",
-    agent_id: "11111111-1111-4111-8111-111111111111",
-    origin: "loop",
-    live_preview: null as string | null,
-    run: { state: "completed" } as { state: string } | null,
-    last_message: {
-      id: "33333333-3333-4333-8333-333333333333",
-      role: "assistant",
-      content: source,
-      preview: "Run benchmark",
-    },
-  };
-  expect(feedDisplayReplyQuote(baseFeedItem)).toEqual({
-    agentId: baseFeedItem.agent_id,
-    messageId: baseFeedItem.last_message.id,
-    content: source,
-  });
-  expect(
-    feedDisplayReplyQuote({
-      ...baseFeedItem,
-      done_card_key: undefined,
-    }),
-  ).toBeNull();
-  expect(
-    feedDisplayReplyQuote({
-      ...baseFeedItem,
-      run: { state: "running" },
-    }),
-  ).toBeNull();
-  expect(
-    feedDisplayReplyQuote({
-      ...baseFeedItem,
-      last_message: { ...baseFeedItem.last_message, role: "user" },
-    }),
-  ).toBeNull();
-  expect(
-    feedDisplayReplyQuote({
-      ...baseFeedItem,
-      live_preview: source,
-    }),
-  ).toBeNull();
-  expect(feedDisplayReplyQuote(baseFeedItem, true)).toBeNull();
-  expect(
-    feedDisplayReplyQuote({
-      ...baseFeedItem,
-      origin: "chatgpt-import",
-    }),
-  ).toBeNull();
 });
 
 it("checks and draws a standalone display nested in a quote or list item", () => {

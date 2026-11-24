@@ -494,14 +494,14 @@ export function renderAppPages(
             sources={unified.feedSources}
             sourcesLoading={unified.loading}
             onOpen={openSourcedConversation}
-            onReply={(c, source, quote, prompt) => {
+            onReply={(c, source, quote) => {
               if (!quote) {
                 openSourcedConversation(c, undefined, source);
                 return focusThreadComposer(c);
               }
               beginReply(
                 { ...quote, conversationId: c },
-                prompt,
+                undefined,
                 source ?? executionSourceId(),
               );
             }}
@@ -576,16 +576,8 @@ export function renderAppPages(
             setSelected(profile.id);
             setConversation(c, m);
           }}
-          onReply={(c, source, quote, prompt) => {
+          onReply={(c) => {
             setSelected(profile.id);
-            if (quote && prompt !== undefined) {
-              beginReply(
-                { ...quote, conversationId: c },
-                prompt,
-                source ?? executionSourceId(),
-              );
-              return;
-            }
             setConversation(c);
             focusThreadComposer(c);
           }}
@@ -811,15 +803,7 @@ export function renderAppPages(
               revision={revisionFor("feed")}
               agents={data.agents}
               onOpen={(c, m) => setConversation(c, m)}
-              onReply={(c, source, quote, prompt) => {
-                if (quote && prompt !== undefined) {
-                  beginReply(
-                    { ...quote, conversationId: c },
-                    prompt,
-                    source ?? executionSourceId(),
-                  );
-                  return;
-                }
+              onReply={(c) => {
                 setConversation(c);
                 focusThreadComposer(c);
               }}
@@ -858,15 +842,7 @@ export function renderAppPages(
                 revision={revisionFor("feed")}
                 agents={data.agents}
                 onOpen={(c, m) => setConversation(c, m)}
-                onReply={(c, source, quote, prompt) => {
-                  if (quote && prompt !== undefined) {
-                    beginReply(
-                      { ...quote, conversationId: c },
-                      prompt,
-                      source ?? executionSourceId(),
-                    );
-                    return;
-                  }
+                onReply={(c) => {
                   setConversation(c);
                   focusThreadComposer(c);
                 }}

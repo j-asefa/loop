@@ -1,5 +1,4 @@
 import { ErrorNotice } from "./ErrorNotice";
-import { DisplayReplyContext } from "./DisplaySpec";
 import { listenClientEvent } from "./clientEvents";
 import { useProjectionRoute } from "./SourceContext";
 import { AgentSourceId } from "../shared/contract-ids";
@@ -142,7 +141,6 @@ import { LaterSheet, undoReminder } from "./LaterControls";
 import { shareLink } from "./Handoff";
 import { threadDraft, sourceDraftId } from "./drafts";
 import {
-  feedDisplayReplyQuote,
   feedNextAction,
   feedReplyQuote,
   type FeedReplyQuote,
@@ -266,7 +264,7 @@ function FeedCard({
   model?: string;
   environment?: { kind: ExecutionLocation | null; label: string } | null;
   onOpen: () => void;
-  onReply: (prompt?: string) => void;
+  onReply: () => void;
   onRead?: () => void;
   onReadingChange?: (open: boolean) => void;
   onQuestion?: () => void;
@@ -297,6 +295,9 @@ function FeedCard({
     content: string;
   } | null>(null);
   const [readError, setReadError] = useState("");
+  // Pointer, touch or focus on a card starts loading its full answer, so
+  // the reading sheet usually opens with the whole text already in memory.
+  const [readIntentFor, setReadIntentFor] = useState<string>();
   const swipe = useDoneCardGestures({
     id: aggregationId,
     session: dragSession,
@@ -334,55 +335,97 @@ function FeedCard({
     WORKING_RUN_DISPLAY_STATES.includes(item.run.state) &&
     item.last_message?.role !== "assistant";
   const messageId = item.last_message?.id;
-  useEffect(() => {
-    if (
-      !reading ||
-      !messageId ||
-      item.card ||
-      item.live_preview ||
-      awaitingUpdate
-    )
+  // Intent covers the message seen at the time, not later answers.
+  const readIntent = !!messageId && readIntentFor === messageId;
+  const markReadIntent = () => setReadIntentFor(messageId);
+  const messagePreviewCapped =
+    item.last_message?.content_truncated ??
+    Array.from(item.last_message?.content ?? item.last_message?.preview ?? "")
+      .length >= FEED_MESSAGE_PREFIX_LIMIT;
+  const loadedMessage = message?.id === messageId ? message : null;
+  const fetchSource = item.sourceId ?? scopedSource;
+  const fetchKey = messageId ? `${fetchSource ?? ""}:${messageId}` : "";
+  const canLoadFull =
+    !!messageId && !item.card && !item.live_preview && !awaitingUpdate;
+  // One request per message at a time: opening the sheet joins a prefetch
+  // that is already in flight instead of aborting and restarting it.
+  const fullRequest = useRef<{
+    key: string;
+    controller: AbortController;
+    showError: boolean;
+  } | null>(null);
+  const loadedId = useRef<string | undefined>(undefined);
+  loadedId.current = loadedMessage?.id;
+  const loadFull = (fromSheet: boolean) => {
+    if (!canLoadFull || !messageId) return;
+    if (fromSheet) setReadError("");
+    const pending = fullRequest.current;
+    if (pending?.key === fetchKey && !pending.controller.signal.aborted) {
+      if (fromSheet) pending.showError = true;
       return;
-    const controller = new AbortController();
-    setReadError("");
+    }
+    pending?.controller.abort();
+    const entry = {
+      key: fetchKey,
+      controller: new AbortController(),
+      showError: fromSheet,
+    };
+    fullRequest.current = entry;
     void readProjection(
       workspaceApi.messageDetail,
       { params: { id: MessageId.parse(messageId) } },
-      {
-        mode: "once",
-        source: item.sourceId ?? scopedSource,
-        signal: controller.signal,
-      },
+      { mode: "once", source: fetchSource, signal: entry.controller.signal },
     )
       .then((value) => {
-        if (!controller.signal.aborted) setMessage(value);
+        if (entry.controller.signal.aborted) return;
+        setMessage(value);
+        setReadError("");
       })
       .catch(() => {
-        if (!controller.signal.aborted)
+        // A failed refresh keeps a copy that already loaded.
+        if (
+          !entry.controller.signal.aborted &&
+          entry.showError &&
+          loadedId.current !== messageId
+        )
           setReadError(
             "Couldn’t load the full message. Open the conversation to read it.",
           );
+      })
+      .finally(() => {
+        if (fullRequest.current === entry) fullRequest.current = null;
       });
-    return () => controller.abort();
+  };
+  useEffect(
+    () => () => {
+      fullRequest.current?.controller.abort();
+      fullRequest.current = null;
+    },
+    [fetchKey, canLoadFull],
+  );
+  // Pointer, touch or focus on a long answer loads it before the tap.
+  useEffect(() => {
+    if (readAsCard && readIntent && messagePreviewCapped && !loadedMessage)
+      loadFull(false);
   }, [
-    reading,
-    item.card,
-    messageId,
-    item.sourceId,
-    scopedSource,
-    !!item.live_preview,
-    !!awaitingUpdate,
+    readAsCard,
+    readIntent,
+    messagePreviewCapped,
+    !!loadedMessage,
+    fetchKey,
+    canLoadFull,
   ]);
-  const messagePreviewCapped =
-    item.last_message?.content_truncated ??
-    Array.from(item.last_message?.content ?? "").length >=
-      FEED_MESSAGE_PREFIX_LIMIT;
+  // Opening the sheet always reads the current message, as before, so a
+  // revised answer replaces a prefetched copy.
+  useEffect(() => {
+    if (reading) loadFull(true);
+  }, [reading, fetchKey, canLoadFull]);
   const content =
     item.live_preview ||
     (awaitingUpdate
       ? ""
-      : message?.id === messageId
-        ? (message?.content ?? "")
+      : loadedMessage
+        ? loadedMessage.content
         : (item.last_message?.content ?? item.last_message?.preview ?? ""));
   const previewAtLimit =
     item.live_preview_truncated ??
@@ -412,6 +455,9 @@ function FeedCard({
         (swipe.armed ? " armed-" + swipe.armed : "") +
         (swipe.offset ? " swiping" : "")
       }
+      onPointerEnter={readAsCard ? markReadIntent : undefined}
+      onTouchStart={readAsCard ? markReadIntent : undefined}
+      onFocus={readAsCard ? markReadIntent : undefined}
     >
       {onDismiss && (
         <span className="swipe-under right" aria-hidden="true">
@@ -661,7 +707,7 @@ function FeedCard({
                 </button>
               )}
               {next?.kind !== "draft" && (
-                <button onClick={() => onReply()}>
+                <button onClick={onReply}>
                   <MessageSquare size={16} />
                   {groupCount ? "Reply to latest" : "Reply"}
                 </button>
@@ -766,38 +812,28 @@ function FeedCard({
                 )}
                 <div className="artifact-body">
                   {content ? (
-                    <DisplayReplyContext.Provider
-                      value={
-                        feedDisplayReplyQuote(item, awaitingUpdate)
-                          ? (prompt: string) =>
-                              leaveReading(() => onReply(prompt))
-                          : null
-                      }
-                    >
-                      {item.card ? (
-                        <CardBody card={item.card} />
-                      ) : (
-                        <RichText
-                          content={content}
-                          previewEndsAtLine={item.live_preview_ends_at_line}
-                          previewFenceIsSpec={item.live_preview_fence_spec}
-                          previewFenceCut={
-                            item.live_preview
-                              ? (item.live_preview_fence_cut ?? false)
-                              : undefined
-                          }
-                          cappedPreview={
-                            item.live_preview
-                              ? previewAtLimit
-                              : message?.id !== messageId &&
-                                messagePreviewCapped
-                          }
-                          writing={
-                            !!item.live_preview && content === item.live_preview
-                          }
-                        />
-                      )}
-                    </DisplayReplyContext.Provider>
+                    item.card ? (
+                      <CardBody card={item.card} />
+                    ) : (
+                      <RichText
+                        content={content}
+                        previewEndsAtLine={item.live_preview_ends_at_line}
+                        previewFenceIsSpec={item.live_preview_fence_spec}
+                        previewFenceCut={
+                          item.live_preview
+                            ? (item.live_preview_fence_cut ?? false)
+                            : undefined
+                        }
+                        cappedPreview={
+                          item.live_preview
+                            ? previewAtLimit
+                            : message?.id !== messageId && messagePreviewCapped
+                        }
+                        writing={
+                          !!item.live_preview && content === item.live_preview
+                        }
+                      />
+                    )
                   ) : (
                     <p className="field-hint">
                       {status.tone === "working"
@@ -848,7 +884,7 @@ function FeedCard({
                 )}
                 <button
                   className="primary"
-                  onClick={() => leaveReading(() => onReply())}
+                  onClick={() => leaveReading(onReply)}
                 >
                   {draft ? (
                     <PencilLine size={18} />
@@ -1276,7 +1312,6 @@ export function Feed({
     conversation: string,
     sourceId?: string,
     quote?: FeedReplyQuote,
-    prompt?: string,
   ) => void;
   agent?: string;
 
@@ -4155,13 +4190,12 @@ export function Feed({
                 source,
               )
         }
-        onReply={(prompt) =>
+        onReply={() =>
           onReply
             ? onReply(
                 item.conversation_id,
                 source,
                 feedReplyQuote(item) ?? undefined,
-                prompt,
               )
             : onOpen(item.conversation_id, undefined, source)
         }

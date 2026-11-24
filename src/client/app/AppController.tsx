@@ -54,6 +54,8 @@ import { type ScheduledSend } from "../LaterControls";
 import { notify } from "../toast";
 import {
   appendDraftText,
+  seedReplyDraftText,
+  seedThreadReplyDraft,
   sourceDraftId,
   saveThreadDraft as writeThreadDraft,
   threadDraft as readThreadDraft,
@@ -549,9 +551,13 @@ export function useAppController(seed?: AppNavigationInitial) {
     // Opening another thread loads that thread's own draft; seed it first.
     if (switching) {
       const key = draftId(context.conversationId, source);
-      if (text !== undefined && !readThreadDraft(key).text)
-        writeThreadDraft(key, text, [], session?.user?.id);
-    } else if (text !== undefined) setDraft(text);
+      if (text !== undefined)
+        seedThreadReplyDraft(key, text, session?.user?.id);
+    } else if (text !== undefined) {
+      const nextText = seedReplyDraftText(draftRef.current, text);
+      draftRef.current = nextText;
+      setDraft(nextText);
+    }
     setComposerExpanded(true);
     if (switching) focusThreadComposer(context.conversationId);
     else if (context.conversationId) focusComposer();
