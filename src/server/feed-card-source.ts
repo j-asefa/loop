@@ -114,7 +114,7 @@ SELECT k.*,
   COALESCE(json_extract(res.stimulus,'$.automationKind'),json_extract(t.metadata,'$.automation.kind')) trigger_automation,
   COALESCE(json_extract(res.stimulus,'$.automationFrom'),json_extract(t.metadata,'$.automation.fromName')) trigger_automation_from,
   d.run_id decision_run_id,d.request decision_request,
-  l.due_at later_due_at,l.condition later_condition,l.surfaced_at later_surfaced_at,
+  l.due_at later_due_at,l.condition later_condition,l.surfaced_at later_surfaced_at,l.created_at later_created_at,
   CASE WHEN res.sealed=1 THEN res.attachments ELSE NULL END result_attachments,
   CASE WHEN res.sealed=1 AND json_valid(res.provenance) AND json_extract(res.provenance,'$.placement.status')='recorded'
     THEN json_object('project_id',json_extract(res.provenance,'$.placement.projectId'),'project_name',json_extract(res.provenance,'$.placement.projectName')) END result_placement,
@@ -194,6 +194,7 @@ export function sourceCards(
       c.feed_last_activity_at last_activity_at,c.feed_queued queued,cp.position_message_id,
       (SELECT l.id FROM later_items l WHERE l.owner_id=c.owner_id AND l.kind='conversation' AND l.target_id=c.id AND l.done_at IS NULL) later_id,
       EXISTS(SELECT 1 FROM later_items l WHERE l.owner_id=c.owner_id AND l.kind='conversation' AND l.target_id=c.id AND l.done_at IS NULL AND l.surfaced_at IS NULL) snoozed,
+      (SELECT l.surfaced_at FROM later_items l WHERE l.owner_id=c.owner_id AND l.kind='conversation' AND l.target_id=c.id AND l.done_at IS NULL) reminded_at,
       c.feed_queued>0 has_queued,c.approval_until,
       COALESCE(${results ? "completed.card_key," : ""}'run:'||c.feed_done_run_id,'message:'||c.feed_last_message_id,'run:'||c.feed_run_id) done_card_key,
       COALESCE(c.run_state IN ('awaiting_approval','paused') OR (c.raw_state IN ('failed','interrupted') AND c.attention_dismissed_at IS NULL),0) needs_run,
@@ -203,7 +204,8 @@ export function sourceCards(
     FROM state c ${results ? "CROSS JOIN completed_results completed" : ""}
     LEFT JOIN conversation_positions cp ON cp.owner_id=c.owner_id AND cp.conversation_id=c.id WHERE c.feed_visible=1
   ), page AS MATERIALIZED (
-    SELECT *,${done ? "COALESCE(done_at,last_activity_at)" : "last_activity_at"} sort_at,
+    -- A reminder that has come due brings its card back to the top.
+    SELECT *,MAX(${done ? "COALESCE(done_at,last_activity_at)" : "last_activity_at"},COALESCE(reminded_at,0)) sort_at,
       EXISTS(SELECT 1 FROM done_card_dismissals d WHERE d.owner_id=@owner AND d.conversation_id=flagged.conversation_id AND d.card_key=flagged.done_card_key) hidden
     FROM flagged
   ),${cardSql(expanded)}`;

@@ -572,6 +572,15 @@ function FeedCard({
             }
           }}
         >
+          {item.later?.surfaced_at != null && (
+            // A reminder that came due brings the card back to the top.
+            <p className="feed-reminded">
+              <AlarmClock size={14} aria-hidden="true" />
+              Reminded
+              {item.later.created_at != null &&
+                ` · saved ${relativeTime(item.later.created_at).toLowerCase()}`}
+            </p>
+          )}
           <span className="eyebrow feed-eyebrow">
             {groupCount ? (
               <>

@@ -1406,3 +1406,12 @@ button.avatar {
   font-weight: 650;
   box-shadow: 0 4px 16px rgb(0 0 0 / 0.16);
 }
+.feed-reminded {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+  color: var(--brass);
+  font-size: 12px;
+  font-weight: 650;
+}

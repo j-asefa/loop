@@ -62,6 +62,7 @@ export type FeedRow = {
   later_due_at: number | null;
   later_condition: string | null;
   later_surfaced_at: number | null;
+  later_created_at?: number | null;
   queued: number;
   result_attachments?: string | null;
   result_findings?: string | null;
@@ -248,6 +249,9 @@ export function displayFeedCard(
           due_at: row.later_due_at,
           condition: row.later_condition,
           surfaced_at: row.later_surfaced_at,
+          ...(row.later_created_at != null
+            ? { created_at: row.later_created_at }
+            : {}),
         }
       : null,
     next_action: nextAction(row, run, mode === "done"),

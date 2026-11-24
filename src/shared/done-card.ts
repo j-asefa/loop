@@ -117,6 +117,8 @@ export const DoneDisplaySchema = z.object({
       due_at: time.nullable(),
       condition: z.string(),
       surfaced_at: time.nullable(),
+      // When the reminder was set; absent on cards stored before it was kept.
+      created_at: time.optional(),
     })
     .nullable(),
   // Recorded facts of this card's Result that retained evidence disputes.

@@ -63,6 +63,7 @@ function display(
     "later_due_at",
     "later_condition",
     "later_surfaced_at",
+    "later_created_at",
     "queued",
   ] as const)
     (row as Record<string, unknown>)[key] = common[key];
