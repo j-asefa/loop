@@ -97,8 +97,12 @@ async function pressLatency(page, locator) {
       for (const fy of [0.5, 0.3, 0.7, 0.15]) {
         const x = rect.left + rect.width * fx,
           y = rect.top + rect.height * fy;
-        const hit = document.elementFromPoint(x, y);
-        if (hit && (hit === element || element.contains(hit))) return { x, y };
+        // The nearest control under the point must be the target itself, not
+        // a link or button inside it, which takes the press for itself.
+        const hit = document
+          .elementFromPoint(x, y)
+          ?.closest('a, button, input, summary, [role="button"], [role="tab"]');
+        if (hit === element) return { x, y };
       }
     return null;
   });
@@ -318,6 +322,40 @@ export async function responsivenessSmoke(page, fixture, engine) {
     };
     await expect(rows.first()).toBeVisible();
 
+    // A pressed style must not move the hit area. A press scale shrinks an
+    // element away from points near its edge, so a click that starts there
+    // ends on the parent and is lost. While held, and after any press
+    // transition, a point half a pixel inside the edge must still hit the
+    // element. (The compose button is a 54 px circle: a 3% scale moves its
+    // edge by under a pixel.)
+    report.pressHitArea = {};
+    for (const [name, target] of [
+      ["compose", targets.compose],
+      ["card", targets.card],
+    ]) {
+      await target.evaluate((element) =>
+        element.scrollIntoView({ block: "center" }),
+      );
+      const box = await target.boundingBox();
+      const point = { x: box.x + 0.5, y: box.y + box.height / 2 };
+      await page.mouse.move(point.x, point.y);
+      await page.mouse.down();
+      await page.waitForTimeout(200);
+      const kept = await target.evaluate((element, { x, y }) => {
+        const hit = document.elementFromPoint(x, y);
+        return !!hit && (hit === element || element.contains(hit));
+      }, point);
+      // Release away from the target so no click or navigation follows.
+      await page.mouse.move(2, 2);
+      await page.mouse.up();
+      report.pressHitArea[name] = kept;
+    }
+    const menu = page.locator("dialog[open]");
+    if (await menu.count()) {
+      await page.keyboard.press("Escape");
+      await expect(menu).toHaveCount(0);
+    }
+
     if (client) {
       console.log("responsiveness: swipe", JSON.stringify(report.tabs));
       // 3. A card swipe that does not cross the archive threshold.
@@ -476,14 +514,8 @@ export async function responsivenessSmoke(page, fixture, engine) {
     await client?.send("Emulation.setCPUThrottlingRate", { rate: 1 });
   }
   console.log(`responsiveness ${engine}: ${JSON.stringify(report)}`);
-  // Budgets met so far (D3). Press: every press shows a pressed style, p95
-  // under 50 ms.
-  for (const [name, value] of Object.entries(report.press))
-    if (value.visibleChange !== "5/5" || !(value.p95 < 50))
-      throw new Error(
-        `Press ${name} missed its budget (5/5 visible, p95 < 50 ms): ${JSON.stringify(value)}`,
-      );
-  // Every other measurement must have produced a value.
+  // Every measurement must have produced a value; budgets are checked last,
+  // so a missed budget does not hide a measurement that failed to run.
   const ran = (ok, name) => {
     if (!ok) throw new Error(`Responsiveness measurement did not run: ${name}`);
   };
@@ -502,5 +534,17 @@ export async function responsivenessSmoke(page, fixture, engine) {
   // (for example after a React upgrade), and every count would read zero.
   ran(report.refresh.commits > 0, "React commit probe");
   ran(Number.isFinite(report.archive?.visibleMs), "archive");
+  // Budgets met so far (D3). Press: every press shows a pressed style, p95
+  // under 50 ms.
+  for (const [name, value] of Object.entries(report.press))
+    if (value.visibleChange !== "5/5" || !(value.p95 < 50))
+      throw new Error(
+        `Press ${name} missed its budget (5/5 visible, p95 < 50 ms): ${JSON.stringify(value)}`,
+      );
+  for (const [name, kept] of Object.entries(report.pressHitArea))
+    if (!kept)
+      throw new Error(
+        `Pressing ${name} moved its hit area off a point near its edge`,
+      );
   return report;
 }

@@ -1435,28 +1435,28 @@ button.avatar {
   --ease-in: cubic-bezier(0.4, 0, 1, 1);
 }
 
-/* Responsiveness: press states (D4). A tap shows in the next frame. The
-   individual scale property composes with any transform an element already
-   has instead of replacing it. Text fields are never scaled. */
+/* Responsiveness: press states (D4). A tap shows in the next frame. Pressed
+   elements dim rather than shrink: a scale would move the hit area, so a
+   click starting near an edge would end outside the element and be lost.
+   Text fields are never styled. */
 button:not(:disabled):active,
 [role="tab"]:not([aria-disabled="true"]):active,
 .chip:active {
-  scale: 0.97;
+  opacity: 0.7;
 }
 [role="button"] {
   touch-action: manipulation;
 }
 .card-content[role="button"] {
-  transition:
-    scale var(--motion-fast) var(--ease-out),
-    opacity var(--motion-fast) var(--ease-out);
+  transition: opacity var(--motion-fast) var(--ease-out);
 }
 /* A press on a link or control inside the card shows on that control only. */
 .card-content[role="button"]:active:not(
     :has(a:active, button:active, input:active, summary:active)
   ) {
-  scale: 0.99;
-  opacity: 0.88;
+  opacity: 0.8;
+  /* Dim at once on press; fade back on release. */
+  transition-duration: 0s;
 }
 @media (prefers-reduced-motion: reduce) {
   .card-content[role="button"] {
