@@ -47,6 +47,13 @@ import {
   type DoneReadFilter,
 } from "./DoneFeedFilters";
 import {
+  interleaveFeed,
+  type FeedSourceFilter,
+} from "../shared/feed-interleave";
+import type { StreamItem } from "../shared/stream-item";
+import { StreamItemCard, StreamItemReader } from "./StreamItemCard";
+import { useSocialStream } from "./useSocialStream";
+import {
   useDoneThreads,
   OrganizeCards,
   DoneThreadReader,
@@ -1400,17 +1407,33 @@ export function Feed({
     scope: selectionScope,
     read: "all" as DoneReadFilter,
     agent: "",
+    stream: "all" as FeedSourceFilter,
   });
   const selection =
     doneSelection.scope === selectionScope
       ? doneSelection
-      : { scope: selectionScope, read: "all" as const, agent: "" };
+      : {
+          scope: selectionScope,
+          read: "all" as const,
+          agent: "",
+          stream: "all" as const,
+        };
   const clearDoneFilters = () =>
     setDoneSelection({
       scope: selectionScope,
       read: "all",
       agent: "",
+      stream: "all",
     });
+  const showSocialStream =
+    !hideFilters && filter === "done" && !project && !teams && !scopedAgent;
+  const socialStream = useSocialStream(showSocialStream);
+  const [readingStream, setReadingStream] = useState<{
+    id: string;
+    item: StreamItem;
+    generation: number;
+  } | null>(null);
+  const [savingStream, setSavingStream] = useState<StreamItem | null>(null);
   const combined = !!sources && !project && !teams && !scopedAgent;
   const allSources: AgentSource[] = combined
     ? sources
@@ -1437,7 +1460,16 @@ export function Feed({
   const doneAgent = filter === "done" ? selectedAgent : undefined;
   const agent = doneAgent?.id ?? scopedAgent;
   const doneRead = filter === "done" ? selection.read : "all";
-  const doneFiltered = filter === "done" && (doneRead !== "all" || !!doneAgent);
+  const effectiveStreamSource: FeedSourceFilter = !showSocialStream
+    ? "agents"
+    : doneAgent
+      ? "agents"
+      : selection.stream;
+  const doneFiltered =
+    filter === "done" &&
+    (doneRead !== "all" ||
+      !!doneAgent ||
+      (showSocialStream && selection.stream !== "all"));
   const dismissingRef = useRef(new Set<string>());
   const [dismissingCards, setDismissingCards] = useState<Set<string>>(
     () => new Set(),
@@ -1795,6 +1827,30 @@ export function Feed({
           ? feedItemOrder(a.card.item, b.card.item)
           : a.key.localeCompare(b.key)),
     );
+  const interleaved = showSocialStream
+    ? interleaveFeed(
+        feedRows.map((row) => ({
+          item: row,
+          key: row.key,
+          unread: row.kind === "card" ? row.card.item.read_at === null : false,
+        })),
+        socialStream.items,
+        effectiveStreamSource,
+        doneRead,
+      )
+    : {
+        rows: feedRows.map((row) => ({
+          kind: "agent" as const,
+          item: row,
+          key: row.key,
+        })),
+        hasMoreStreams: false,
+      };
+  const activeReadingStream =
+    readingStream?.generation === generation
+      ? (socialStream.items.find((item) => item.id === readingStream.id) ??
+        readingStream.item)
+      : null;
   const selectionFor = (rows: VisibleCard[]): ThreadSelection | null => {
     if (!rows.length) return null;
     const source = rows[0].item.sourceId ?? scopedSource;
@@ -4484,17 +4540,46 @@ export function Feed({
             agent={selectedAgent ? selection.agent : ""}
             agents={doneAgents}
             source={scopedSource}
+            streamSource={showSocialStream ? effectiveStreamSource : undefined}
+            onStreamSource={
+              showSocialStream
+                ? (stream) => {
+                    if (stream === "feeds") setSelectedCards(null);
+                    setDoneSelection({
+                      ...selection,
+                      stream,
+                      agent: stream === "feeds" ? "" : selection.agent,
+                    });
+                  }
+                : undefined
+            }
             onRead={(read) => setDoneSelection({ ...selection, read })}
-            onAgent={(agent) => setDoneSelection({ ...selection, agent })}
+            onAgent={(agent) =>
+              setDoneSelection({
+                ...selection,
+                agent,
+                stream: agent ? "agents" : selection.stream,
+              })
+            }
             onClear={clearDoneFilters}
           />
         )}
+        {showSocialStream &&
+          effectiveStreamSource === "feeds" &&
+          socialStream.error && (
+            <CollectionReadNotice
+              error={socialStream.error}
+              busy={socialStream.busy}
+              retry={socialStream.retry}
+            />
+          )}
         <>
-          {(loading ||
-            partialReadPending ||
-            mailThreads.loading ||
-            (combined && sourcesLoading)) &&
-          !feedRows.length ? (
+          {(effectiveStreamSource === "feeds"
+            ? socialStream.loading
+            : loading ||
+              partialReadPending ||
+              mailThreads.loading ||
+              (combined && sourcesLoading)) && !interleaved.rows.length ? (
             <div
               className="feed-loading"
               role="status"
@@ -4504,50 +4589,83 @@ export function Feed({
               <span />
               <span />
             </div>
-          ) : feedRows.length ? (
+          ) : interleaved.rows.length ? (
             <ul className="feed-list feed">
-              {feedRows.map((row) =>
-                row.kind === "card" ? (
-                  card(row.card.item, false, row.card.thread)
-                ) : (
+              {interleaved.rows.map((entry) => {
+                if (entry.kind === "stream") {
+                  return (
+                    <StreamItemCard
+                      key={entry.key}
+                      item={entry.item}
+                      images={socialStream.images}
+                      onOpen={(item) => {
+                        if (!item.read)
+                          void socialStream.markRead(item.rawId, true);
+                        setReadingStream({ id: item.id, item, generation });
+                      }}
+                      onDismiss={(item) =>
+                        void socialStream.dismiss(item.rawId)
+                      }
+                      onRemind={(item) => setSavingStream(item)}
+                      onMarkRead={(item, read) =>
+                        void socialStream.markRead(item.rawId, read)
+                      }
+                      onAsk={onAsk ? (text) => onAsk(text) : undefined}
+                    />
+                  );
+                }
+                if (entry.item.kind === "card") {
+                  return card(
+                    entry.item.card.item,
+                    false,
+                    entry.item.card.thread,
+                  );
+                }
+                const mailThread = entry.item.thread;
+                return (
                   <AgentThreadCard
-                    key={row.key}
-                    thread={row.thread}
+                    key={entry.item.key}
+                    thread={mailThread}
                     environment={
-                      row.thread.source
+                      mailThread.source
                         ? activeSources.find(
-                            (source) => source.id === row.thread.source,
+                            (source) => source.id === mailThread.source,
                           )?.name
                         : undefined
                     }
-                    onOpen={() => setReadingMail({ ...row.thread, generation })}
+                    onOpen={() => setReadingMail({ ...mailThread, generation })}
                   />
-                ),
-              )}
+                );
+              })}
             </ul>
           ) : (
-            !error &&
-            !readError && (
+            (effectiveStreamSource === "feeds"
+              ? !socialStream.error
+              : !error && !readError) && (
               <div className="feed-empty">
                 <p>
                   <strong>
-                    {doneFiltered
-                      ? "No results match these filters."
-                      : filter === "all"
-                        ? "Nothing here yet."
-                        : filter === "threads"
-                          ? "No threads yet."
-                          : filter === "done"
-                            ? "Nothing finished yet."
-                            : filter === "replies"
-                              ? "Replies to messages you send during a task will appear here."
-                              : filter === "working"
-                                ? "No agents are working right now."
-                                : filter === "outcomes"
-                                  ? "No finished work here yet."
-                                  : filter === "unfinished"
-                                    ? "Nothing unfinished here."
-                                    : "Nothing is queued."}
+                    {effectiveStreamSource === "feeds"
+                      ? socialStream.hasFollowedFeeds
+                        ? "No feed stories match these filters."
+                        : "No followed feeds yet. Add feeds in Your profile → Social."
+                      : doneFiltered
+                        ? "No results match these filters."
+                        : filter === "all"
+                          ? "Nothing here yet."
+                          : filter === "threads"
+                            ? "No threads yet."
+                            : filter === "done"
+                              ? "Nothing finished yet."
+                              : filter === "replies"
+                                ? "Replies to messages you send during a task will appear here."
+                                : filter === "working"
+                                  ? "No agents are working right now."
+                                  : filter === "outcomes"
+                                    ? "No finished work here yet."
+                                    : filter === "unfinished"
+                                      ? "Nothing unfinished here."
+                                      : "Nothing is queued."}
                   </strong>
                 </p>
                 {!doneFiltered &&
@@ -4556,17 +4674,31 @@ export function Feed({
               </div>
             )
           )}
-          {(next || mailThreads.hasMore) && (
-            <button
-              className="secondary load-more"
-              onClick={() => {
-                if (next) void load(true);
-                if (mailThreads.hasMore) mailThreads.loadMore();
-              }}
-            >
-              Load more
-            </button>
-          )}
+          {showSocialStream &&
+            effectiveStreamSource === "all" &&
+            interleaved.hasMoreStreams && (
+              <button
+                type="button"
+                className="secondary load-more"
+                onClick={() =>
+                  setDoneSelection({ ...selection, stream: "feeds", agent: "" })
+                }
+              >
+                See all feed stories
+              </button>
+            )}
+          {effectiveStreamSource !== "feeds" &&
+            (next || mailThreads.hasMore) && (
+              <button
+                className="secondary load-more"
+                onClick={() => {
+                  if (next) void load(true);
+                  if (mailThreads.hasMore) mailThreads.loadMore();
+                }}
+              >
+                Load more
+              </button>
+            )}
         </>
       </div>
       {menu &&
@@ -4643,6 +4775,34 @@ export function Feed({
           thread={readingMail}
           onClose={() => setReadingMail(null)}
           onOpen={onOpen}
+        />
+      )}
+      {activeReadingStream && (
+        <StreamItemReader
+          item={activeReadingStream}
+          images={socialStream.images}
+          onClose={() => setReadingStream(null)}
+          onDismiss={(item) => void socialStream.dismiss(item.rawId)}
+          onRemind={(item) => setSavingStream(item)}
+          onMarkRead={(item, read) =>
+            void socialStream.markRead(item.rawId, read)
+          }
+          onAsk={onAsk ? (text) => onAsk(text) : undefined}
+        />
+      )}
+      {savingStream && (
+        <LaterSheet
+          kind="story"
+          targetId={savingStream.rawId}
+          title={savingStream.title}
+          sourceId=""
+          onClose={() => setSavingStream(null)}
+          onDone={(label, created) =>
+            notify({
+              text: `Saved · ${label}`,
+              undo: () => undoReminder(created, ""),
+            })
+          }
         />
       )}
       {later && (
