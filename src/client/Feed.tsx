@@ -3770,6 +3770,10 @@ export function Feed({
     // again from another surface (dismissing).
     let settled: Promise<unknown> = Promise.resolve();
     let refusal: string | undefined;
+    // Decisions about this archive belong to the session it started in.
+    const generation = viewGeneration();
+    const sameSession = () =>
+      owner === viewOwner() && generation === viewGeneration();
     const archived = () => {
       // Keep the card filtered until the follow-up read has replaced any
       // read that started before the server applied the archive.
@@ -3783,7 +3787,9 @@ export function Feed({
     const hide = (): Promise<void> =>
       setHidden(true)
         .then(archived, (e) => {
-          if (owner !== viewOwner()) {
+          // After a sign-out (even back to the same owner) nothing from the
+          // old session is shown or offered for Retry.
+          if (!sameSession()) {
             pendingArchives.current.delete(itemKey);
             return;
           }
@@ -3815,7 +3821,7 @@ export function Feed({
             link: {
               label: "Retry",
               onSelect: () => {
-                if (owner !== viewOwner()) {
+                if (!sameSession()) {
                   pendingArchives.current.delete(itemKey);
                   return;
                 }
@@ -3831,7 +3837,7 @@ export function Feed({
             onExpire: () => {
               if (retried) return;
               pendingArchives.current.delete(itemKey);
-              if (owner === viewOwner()) restore();
+              if (sameSession()) restore();
             },
           });
         })
