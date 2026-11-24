@@ -6,6 +6,7 @@ import { Problem } from "../domain.js";
 export type ToolBinding = {
   name: string;
   connectionId: string;
+  server?: string;
   tool: string;
   description: string;
   inputSchema: any;
@@ -47,6 +48,7 @@ export function workspaceToolBindings(
             .digest("hex")
             .slice(0, 24),
         connectionId: row.id,
+        server: row.name,
         tool: tool.name,
         // The published name is a hash, so the server and original tool
         // names ride in the description where tool search can match them.

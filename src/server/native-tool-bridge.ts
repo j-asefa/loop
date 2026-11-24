@@ -19,6 +19,14 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { nativeSessions } from "./native-sessions.js";
 import { nativeBindings, invokeNative } from "./native-tools.js";
+import {
+  MCP_CALL_TOOL,
+  MCP_SEARCH_TOOL,
+  deferredMcpMetaBindings,
+  externalToolName,
+  mcpCallInput,
+  searchExternalBindings,
+} from "./native-mcp-search.js";
 import { canSearchSavedMemory } from "./memory.js";
 import { toolBindings, invokeTool, type ToolBinding } from "./mcp/broker.js";
 import { db, now } from "./db.js";
@@ -35,6 +43,7 @@ type Ticket = {
   generation: string;
   token: string;
   bindings: Map<string, ToolBinding>;
+  externalBindings: Map<string, ToolBinding>;
   calls: Map<string, { digest: string; result: Promise<any> }>;
   displayChecks: Ticket["calls"];
   server?: Server;
@@ -71,6 +80,7 @@ export class NativeToolBridge {
       generation,
       token,
       bindings: new Map(),
+      externalBindings: new Map(),
       calls: new Map(),
       displayChecks: new Map(),
     });
@@ -83,30 +93,57 @@ export class NativeToolBridge {
         await t.server?.close().catch(() => {});
       }
   }
-  private list(t: Ticket) {
-    const live = nativeSessions.current(t.conversation, t.generation, false);
-    const run = live.run || live.bootstrapRun;
-    const bindings = [
-      // Some harnesses register tools only at session start. Dispatch checks the current run.
-      ...nativeBindings(run, { nativeCatalog: true }),
-      ...toolBindings(run.owner_id, run.agent_id!).map((b) => ({
-        ...b,
-        name:
-          "loop_mcp_" +
-          createHash("sha256")
-            .update(b.connectionId + ":" + b.tool)
-            .digest("hex")
-            .slice(0, 20),
-      })),
-    ];
-    // A published name must never silently change its target while this client is alive.
+  private externalCatalog(owner: string, agentId: string): ToolBinding[] {
+    return toolBindings(owner, agentId).map((b) => ({
+      ...b,
+      name: externalToolName(b.connectionId, b.tool),
+    }));
+  }
+  // A published name must never silently change its target while this client is alive.
+  private registerBindings(
+    target: Map<string, ToolBinding>,
+    bindings: ToolBinding[],
+  ): ToolBinding[] {
+    const accepted: ToolBinding[] = [];
     for (const binding of bindings) {
-      const old = t.bindings.get(binding.name);
+      const old = target.get(binding.name);
       if (
         !old ||
         (old.connectionId === binding.connectionId && old.tool === binding.tool)
-      )
-        t.bindings.set(binding.name, binding);
+      ) {
+        target.set(binding.name, binding);
+        accepted.push(binding);
+      }
+    }
+    return accepted;
+  }
+  private list(t: Ticket) {
+    const live = nativeSessions.current(t.conversation, t.generation, false);
+    const run = live.run || live.bootstrapRun;
+    // Some harnesses register tools only at session start. Dispatch checks the current run.
+    const native = nativeBindings(run, { nativeCatalog: true });
+    if (live.binding.harness === "antigravity") {
+      // Antigravity ACP loads tools from injected MCP servers eagerly inside a
+      // 64 KiB smallest-first schema budget and drops overflow tools. Keep
+      // Loop's own tools loaded upfront and serve connected MCP integrations on
+      // demand through loop_mcp_search + loop_mcp_call.
+      if (run.payload.reviewId) {
+        this.registerBindings(t.bindings, native);
+      } else {
+        const external = this.registerBindings(
+          t.externalBindings,
+          this.externalCatalog(run.owner_id, run.agent_id!),
+        );
+        this.registerBindings(t.bindings, [
+          ...native,
+          ...deferredMcpMetaBindings(external),
+        ]);
+      }
+    } else {
+      const external = run.payload.reviewId
+        ? []
+        : this.externalCatalog(run.owner_id, run.agent_id!);
+      this.registerBindings(t.bindings, [...native, ...external]);
     }
     return {
       tools: [...t.bindings.values()].map(
@@ -230,9 +267,50 @@ export class NativeToolBridge {
             await wait(revision);
             continue;
           }
-          const response = await (
-            binding.connectionId === "__loop__" ? invokeNative : invokeTool
-          )(run, binding, callId, args);
+          if (
+            binding.connectionId === "__loop__" &&
+            binding.tool === MCP_SEARCH_TOOL
+          ) {
+            if (run.payload.reviewId)
+              throw new Problem(
+                403,
+                "Snapshot reviews can only read their captured repository",
+              );
+            const active = this.registerBindings(
+              t.externalBindings,
+              this.externalCatalog(run.owner_id, run.agent_id!),
+            );
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify(searchExternalBindings(active, args)),
+                },
+              ],
+            };
+          }
+          let response: { pending: string } | { result: any };
+          if (
+            binding.connectionId === "__loop__" &&
+            binding.tool === MCP_CALL_TOOL
+          ) {
+            if (run.payload.reviewId)
+              throw new Problem(
+                403,
+                "Snapshot reviews can only read their captured repository",
+              );
+            const parsed = mcpCallInput.parse(args);
+            const target = t.externalBindings.get(parsed.toolId);
+            if (!target || target.connectionId === "__loop__")
+              throw new Error(
+                "Tool was not discovered in this native session. Call loop_mcp_search first.",
+              );
+            response = await invokeTool(run, target, callId, parsed.arguments);
+          } else {
+            response = await (
+              binding.connectionId === "__loop__" ? invokeNative : invokeTool
+            )(run, binding, callId, args);
+          }
           if ("result" in response) {
             if (binding.tool === "loop_install_mcp") {
               this.list(t);
