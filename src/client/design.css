@@ -1463,3 +1463,36 @@ button:not(:disabled):active,
     transition: none;
   }
 }
+
+/* Responsiveness: sheet motion (D6). A sheet and its backdrop fade in.
+   Opacity only: some sheets focus a field as they open, and a transformed
+   modal can be displaced by Safari's keyboard and mismeasured by
+   useSheetViewport. Closing stays instant: Sheet's parent closes it at once
+   (closing also updates the page history), and an exit needs the element
+   kept mounted after that, which comes with Motion in track B. Reduced
+   motion disables both. */
+.sheet[open]:not(.side-panel) {
+  animation: sheet-enter var(--motion-base) var(--ease-out);
+}
+.sheet[open]::backdrop {
+  animation: sheet-backdrop-enter var(--motion-base) var(--ease-out);
+}
+.sheet[open].side-panel {
+  animation: side-panel-in var(--motion-base) var(--ease-out);
+}
+@keyframes sheet-enter {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes sheet-backdrop-enter {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sheet[open],
+  .sheet[open]::backdrop {
+    animation: none !important;
+  }
+}

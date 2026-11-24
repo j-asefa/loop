@@ -538,6 +538,33 @@ export async function responsivenessSmoke(page, fixture, engine) {
         cardWrappers: await page.locator(".feed-item-wrap").count(),
       };
 
+      console.log("responsiveness: sheet");
+      // Sheets (D6): opening a result's reading sheet fades it in (the rule
+      // applies; this does not prove a faded frame was drawn), and Close
+      // closes it at once, leaving no open dialog.
+      await page
+        .locator(".feed-results .feed-item-card .feed-row")
+        .first()
+        .click();
+      const sheet = page.locator("dialog.sheet[open]");
+      await expect(sheet).toHaveCount(1);
+      // The computed animation name, not getAnimations(): a finished
+      // animation drops out of that list.
+      const entering = await sheet.evaluate(
+        (element) => getComputedStyle(element).animationName,
+      );
+      await page.waitForTimeout(300);
+      const closeStarted = Date.now();
+      await sheet
+        .locator(":scope > .sheet-inner > .sheet-head")
+        .getByRole("button", { name: "Close", exact: true })
+        .click();
+      await expect(page.locator("dialog[open]")).toHaveCount(0);
+      report.sheet = {
+        enterAnimation: entering === "sheet-enter",
+        closedMs: Date.now() - closeStarted,
+      };
+
       console.log("responsiveness: writes");
       // 5. A local write with the server held for 800 ms: is the change
       // visible before the response? Archive the first Done result, which
@@ -925,6 +952,11 @@ export async function responsivenessSmoke(page, fixture, engine) {
   if (!report.archive?.beforeResponse)
     throw new Error(
       `The archived card waited for the server: ${JSON.stringify(report.archive)}`,
+    );
+  // Sheets (D6): the reading sheet animates in and closes fully.
+  if (!report.sheet?.enterAnimation)
+    throw new Error(
+      `The sheet did not animate in: ${JSON.stringify(report.sheet)}`,
     );
   for (const [name, kept] of Object.entries(report.pressHitArea))
     if (!kept)
