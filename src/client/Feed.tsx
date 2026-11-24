@@ -1427,7 +1427,12 @@ export function Feed({
       stream: "all",
     });
   const showSocialStream =
-    !hideFilters && filter === "done" && !project && !teams && !scopedAgent;
+    !hideFilters &&
+    filter === "done" &&
+    !scopedSource &&
+    !project &&
+    !teams &&
+    !scopedAgent;
   const socialStream = useSocialStream(showSocialStream);
   const [readingStream, setReadingStream] = useState<{
     id: string;
@@ -4580,12 +4585,16 @@ export function Feed({
             />
           )}
         <>
-          {(effectiveStreamSource === "feeds"
-            ? socialStream.loading
-            : loading ||
-              partialReadPending ||
-              mailThreads.loading ||
-              (combined && sourcesLoading)) && !interleaved.rows.length ? (
+          {(
+            effectiveStreamSource === "feeds"
+              ? (socialStream.loading || socialStream.pendingCount > 0) &&
+                !interleaved.rows.length
+              : (loading ||
+                  partialReadPending ||
+                  mailThreads.loading ||
+                  (combined && sourcesLoading)) &&
+                !feedRows.length
+          ) ? (
             <div
               className="feed-loading"
               role="status"

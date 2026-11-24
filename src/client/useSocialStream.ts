@@ -62,6 +62,8 @@ export function useSocialStream(enabled: boolean) {
     (options?: { force?: boolean; manual?: boolean }) => void
   >(() => {});
   const cancelRef = useRef<() => void>(() => {});
+  const pendingMutations = useRef(0);
+  const deferredReload = useRef(false);
 
   useEffect(() => {
     if (!enabled) return;
@@ -81,6 +83,10 @@ export function useSocialStream(enabled: boolean) {
     });
 
     const load = (options: { force?: boolean; manual?: boolean } = {}) => {
+      if (!options.force && !options.manual && pendingMutations.current > 0) {
+        deferredReload.current = true;
+        return;
+      }
       if (options.force) executor.cancel();
       void executor.load(
         async (signal, mode) => {
@@ -175,6 +181,7 @@ export function useSocialStream(enabled: boolean) {
     async (rawId: string, read: boolean) => {
       const targetOwner = owner;
       const targetGen = generation;
+      pendingMutations.current += 1;
       cancelRef.current();
       setState((prev) => {
         if (prev.scope !== scopeKey || !prev.snapshot) return prev;
@@ -217,7 +224,13 @@ export function useSocialStream(enabled: boolean) {
             (error as Error).message || "Could not update story read state.",
           tone: "error",
         });
-        loadRef.current();
+        deferredReload.current = true;
+      } finally {
+        pendingMutations.current = Math.max(0, pendingMutations.current - 1);
+        if (pendingMutations.current === 0 && deferredReload.current) {
+          deferredReload.current = false;
+          loadRef.current();
+        }
       }
     },
     [scopeKey, owner, generation],
@@ -227,6 +240,7 @@ export function useSocialStream(enabled: boolean) {
     async (rawId: string) => {
       const targetOwner = owner;
       const targetGen = generation;
+      pendingMutations.current += 1;
       cancelRef.current();
       setState((prev) => {
         if (prev.scope !== scopeKey || !prev.snapshot) return prev;
@@ -257,6 +271,7 @@ export function useSocialStream(enabled: boolean) {
           undo: async () => {
             if (targetGen !== viewGeneration() || targetOwner !== viewOwner())
               return;
+            pendingMutations.current += 1;
             try {
               cancelRef.current();
               await callRoute(
@@ -265,13 +280,22 @@ export function useSocialStream(enabled: boolean) {
                 "",
               );
               emitClientEvent("loop-social-read");
-              loadRef.current();
+              deferredReload.current = true;
             } catch (undoError) {
               notify({
                 text:
                   (undoError as Error).message || "Could not restore story.",
                 tone: "error",
               });
+            } finally {
+              pendingMutations.current = Math.max(
+                0,
+                pendingMutations.current - 1,
+              );
+              if (pendingMutations.current === 0 && deferredReload.current) {
+                deferredReload.current = false;
+                loadRef.current();
+              }
             }
           },
         });
@@ -280,7 +304,13 @@ export function useSocialStream(enabled: boolean) {
           text: (error as Error).message || "Could not remove story.",
           tone: "error",
         });
-        loadRef.current();
+        deferredReload.current = true;
+      } finally {
+        pendingMutations.current = Math.max(0, pendingMutations.current - 1);
+        if (pendingMutations.current === 0 && deferredReload.current) {
+          deferredReload.current = false;
+          loadRef.current();
+        }
       }
     },
     [scopeKey, owner, generation],
