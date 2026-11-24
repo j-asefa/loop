@@ -25,3 +25,20 @@ describe("attachment tiles", () => {
     expect(attachmentThumbnail("text/html")).toBe(false);
   });
 });
+
+describe("Loop file addresses", () => {
+  it("accepts only artifact files and objects, here or on an agent source", async () => {
+    const { isLoopFilePath } = await import("../src/client/loopFilePaths");
+    expect(isLoopFilePath("/api/artifacts/a1/file")).toBe(true);
+    expect(isLoopFilePath("/api/artifacts/a1/file?version=2")).toBe(true);
+    expect(isLoopFilePath("/api/agent-sources/s1/objects/o1")).toBe(true);
+    for (const url of [
+      "https://tracker.example/x.png",
+      "//tracker.example/x.png",
+      "/api/artifacts/a1",
+      "/api/conversations/c1",
+      "data:image/png;base64,AA==",
+    ])
+      expect(isLoopFilePath(url)).toBe(false);
+  });
+});

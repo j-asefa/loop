@@ -1,4 +1,5 @@
 import { ErrorNotice } from "./ErrorNotice";
+import { LOOP_ARTIFACT_FILE_PATH, LOOP_OBJECT_PATH } from "./loopFilePaths";
 import { ArtifactId, ObjectId } from "../shared/contract-ids.js";
 import { fetchStream, routeUrl } from "./api";
 import { workspaceApi } from "../shared/workspace-api";
@@ -190,14 +191,8 @@ function FilePreviewBody({
     setSaveError("");
     void (async () => {
       try {
-        const artifact =
-          /^\/api\/(?:agent-sources\/([^/]+)\/)?artifacts\/([^/?#]+)\/file(?:\?[^#]*)?$/.exec(
-            url,
-          );
-        const object =
-          /^\/api\/(?:agent-sources\/([^/]+)\/)?objects\/([^/?#]+)(?:\?[^#]*)?$/.exec(
-            url,
-          );
+        const artifact = LOOP_ARTIFACT_FILE_PATH.exec(url);
+        const object = LOOP_OBJECT_PATH.exec(url);
         const target = artifact ?? object;
         if (!target) throw new Error("File address is unavailable");
         const previews = new URL(url, location.href).searchParams.getAll(

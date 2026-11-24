@@ -17,7 +17,7 @@ export function attachmentKind(mime: string, name = "") {
 
 export function attachmentSize(bytes: number) {
   if (bytes < KIB) return `${bytes} B`;
-  if (bytes < KIB * KIB) return `${Math.round(bytes / KIB)} KB`;
+  if (bytes < KIB * KIB - KIB / 2) return `${Math.round(bytes / KIB)} KB`;
   return `${(bytes / (KIB * KIB)).toFixed(1)} MB`;
 }
 
