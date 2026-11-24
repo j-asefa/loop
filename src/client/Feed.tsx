@@ -24,7 +24,7 @@ import {
 } from "../shared/run-state";
 import { lastVisit, recordVisit } from "./deviceHistory";
 import { proseEntry } from "./textEntry";
-import { isExecutionRefused, UnavailableResponse } from "./api";
+import { isExecutionRefused } from "./api";
 import { writeOutcome } from "./writeOutcome";
 import { operationBlockReason } from "./sourceAvailability";
 import {
@@ -3787,13 +3787,10 @@ export function Feed({
             pendingArchives.current.delete(itemKey);
             return;
           }
-          if (e instanceof UnavailableResponse) {
-            // The session changed before the write could be sent or read:
-            // nothing says it was archived, so show the card again.
-            pendingArchives.current.delete(itemKey);
-            restore();
-            return;
-          }
+          // An UnavailableResponse can come after the server has answered
+          // (a reply that failed its schema, or a session change while it
+          // was read), so it is not a refusal: it falls through to the
+          // outcome below and, without an explicit one, is uncertain.
           const outcome = writeOutcome(e);
           if (outcome === "applied") return archived();
           if (outcome === "refused") {
