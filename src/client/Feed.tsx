@@ -118,9 +118,11 @@ import {
   UserRound,
   Users,
   X,
+  ChevronDown,
   ChevronRight,
   ChevronUp,
 } from "lucide-react";
+import { cardTakeaway } from "./feedTakeaway";
 import { ConversationPulls } from "./ConversationPulls";
 import { sourceUrl } from "./sourceRouting";
 import type {
@@ -344,6 +346,9 @@ function FeedCard({
     Array.from(item.last_message?.content ?? item.last_message?.preview ?? "")
       .length >= FEED_MESSAGE_PREFIX_LIMIT;
   const loadedMessage = message?.id === messageId ? message : null;
+  // A finished answer that leads with a short paragraph shows just that
+  // paragraph on the card; See full opens the whole answer.
+  const takeaway = cardTakeaway(item, readAsCard);
   const fetchSource = item.sourceId ?? scopedSource;
   const fetchKey = messageId ? `${fetchSource ?? ""}:${messageId}` : "";
   const canLoadFull =
@@ -630,7 +635,7 @@ function FeedCard({
             !!(
               item.last_message?.content ?? item.last_message?.preview
             )?.trim() && (
-              <div className="preview">
+              <div className={"preview" + (takeaway ? " takeaway" : "")}>
                 {item.last_message!.role === "user" && (
                   <span className="feed-you">
                     {automationLabel(
@@ -649,25 +654,53 @@ function FeedCard({
                 ) : (
                   <RichText
                     content={
-                      item.last_message!.content ?? item.last_message!.preview
+                      takeaway ??
+                      item.last_message!.content ??
+                      item.last_message!.preview
                     }
-                    cappedPreview={messagePreviewCapped}
+                    cappedPreview={!takeaway && messagePreviewCapped}
                     compact
                   />
                 )}
               </div>
             )
           )}
-          {!!(item.last_message || item.run) && !onSelect && (
-            <button className="text-button preview-open" onClick={openReading}>
-              {readAsCard
-                ? item.reply
-                  ? "Read reply"
-                  : "Read update"
-                : "Open thread"}{" "}
-              <ArrowUpRight size={14} />
-            </button>
-          )}
+          {!!(item.last_message || item.run) &&
+            !onSelect &&
+            (takeaway ? (
+              <span className="preview-links">
+                <button
+                  className="text-button preview-open"
+                  aria-label={`See full: ${item.title}`}
+                  aria-haspopup="dialog"
+                  onClick={openReading}
+                >
+                  <ChevronDown size={14} aria-hidden="true" /> See full
+                </button>
+                <button
+                  className="text-button preview-open"
+                  aria-label={`Open thread: ${item.title}`}
+                  onClick={() => {
+                    onRead?.();
+                    onOpen();
+                  }}
+                >
+                  Open thread <ArrowUpRight size={14} />
+                </button>
+              </span>
+            ) : (
+              <button
+                className="text-button preview-open"
+                onClick={openReading}
+              >
+                {readAsCard
+                  ? item.reply
+                    ? "Read reply"
+                    : "Read update"
+                  : "Open thread"}{" "}
+                <ArrowUpRight size={14} />
+              </button>
+            ))}
           {draft && (
             <p className="feed-draft">
               <em className="draft-label">Draft:</em> {preview(draft, 120)}

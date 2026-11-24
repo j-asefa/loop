@@ -461,6 +461,14 @@ a:focus-visible {
   max-height: 200px;
   -webkit-line-clamp: 7;
 }
+.workspace-content .feed-card .preview.takeaway {
+  -webkit-line-clamp: 3;
+}
+.workspace-content .feed-card .preview-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
 .workspace-content .feed-card .preview img {
   border-radius: 12px;
 }
