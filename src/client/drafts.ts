@@ -8,6 +8,23 @@ export function appendDraftText(current: string, added: string): string {
   return current.trim() ? `${current.trimEnd()}\n\n${added}` : added;
 }
 
+export function replyButtonBlockReason(
+  currentContext: ComposerContext | null,
+  nextContext: ComposerContext,
+  currentDraft: string,
+): string {
+  if (!currentDraft.trim()) return "";
+  if (LEADING_REPLY_PREFIX.test(currentDraft))
+    return "Send or clear your current draft before using a reply button.";
+  if (
+    currentContext?.conversationId === nextContext.conversationId &&
+    currentContext?.messageId &&
+    currentContext.messageId !== nextContext.messageId
+  )
+    return "Send or clear your reply to the other message before using this reply button.";
+  return "";
+}
+
 export function seedReplyDraftText(current: string, prompt: string): string {
   const trimmed = current.trimEnd();
   if (!trimmed.trim()) return prompt;
@@ -24,7 +41,11 @@ export function resolveReplyContext(
   switching: boolean,
   currentDraft = "",
 ): ComposerContext | null {
-  if (hasText && !switching && LEADING_REPLY_PREFIX.test(currentDraft))
+  if (
+    hasText &&
+    !switching &&
+    replyButtonBlockReason(current, next, currentDraft)
+  )
     return current;
   if (
     hasText &&

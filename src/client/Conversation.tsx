@@ -1753,9 +1753,6 @@ function ConversationView({
               hasReplyTarget: Boolean(replyTarget),
               progress: Boolean(meta.progress),
               writing: messageWriting,
-              runActive: Boolean(
-                m.run_state && STARTED_RUN_DISPLAY_STATES.includes(m.run_state),
-              ),
             })
               ? (prompt: string) => onReply(replyTarget!, prompt)
               : null;

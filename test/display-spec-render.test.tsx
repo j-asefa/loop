@@ -3,7 +3,11 @@ import { expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { RichText } from "../src/client/components";
 import { DisplayReplyContext, DisplaySpec } from "../src/client/DisplaySpec";
-import { resolveReplyContext, seedReplyDraftText } from "../src/client/drafts";
+import {
+  replyButtonBlockReason,
+  resolveReplyContext,
+  seedReplyDraftText,
+} from "../src/client/drafts";
 import { compactMarkdown } from "../src/client/preview";
 import { canReplyFromMessageDisplay } from "../src/client/threadView";
 import { checkDisplay } from "../src/server/display-check";
@@ -696,28 +700,46 @@ it("checks and draws ReplyButton elements and pre-fills the reply handler only w
     ),
   ).toEqual(messageAContext);
   expect(
+    resolveReplyContext(
+      messageAContext,
+      messageBContext,
+      true,
+      false,
+      "Already typed for A",
+    ),
+  ).toEqual(messageAContext);
+  expect(
+    replyButtonBlockReason(messageAContext, messageBContext, "@ops check this"),
+  ).toBe("Send or clear your current draft before using a reply button.");
+  expect(
+    replyButtonBlockReason(
+      messageAContext,
+      messageBContext,
+      "Already typed for A",
+    ),
+  ).toBe(
+    "Send or clear your reply to the other message before using this reply button.",
+  );
+  expect(
+    replyButtonBlockReason(
+      messageAContext,
+      messageAFullContext,
+      "Already typed for A",
+    ),
+  ).toBe("");
+  expect(
     resolveReplyContext(messageAContext, messageAFullContext, false, false),
   ).toEqual(messageAFullContext);
 
-  // Conversation enables ReplyButton only on finished, non-imported, non-progress assistant answers whose run is not active.
+  // Conversation enables ReplyButton only on finished, non-imported, non-progress assistant answers.
   expect(
     canReplyFromMessageDisplay({
       role: "assistant",
       hasReplyTarget: true,
       progress: false,
       writing: false,
-      runActive: false,
     }),
   ).toBe(true);
-  expect(
-    canReplyFromMessageDisplay({
-      role: "assistant",
-      hasReplyTarget: true,
-      progress: false,
-      writing: false,
-      runActive: true,
-    }),
-  ).toBe(false);
   expect(
     canReplyFromMessageDisplay({
       role: "user",

@@ -54,6 +54,7 @@ import { type ScheduledSend } from "../LaterControls";
 import { notify } from "../toast";
 import {
   appendDraftText,
+  replyButtonBlockReason,
   resolveReplyContext,
   seedReplyDraftText,
   sourceDraftId,
@@ -535,6 +536,20 @@ export function useAppController(seed?: AppNavigationInitial) {
       !!context.conversationId &&
       (conversation !== context.conversationId ||
         source !== conversationSource);
+    if (text !== undefined && !switching) {
+      const blocked = replyButtonBlockReason(
+        replyContext,
+        context,
+        draftRef.current,
+      );
+      if (blocked) {
+        setComposerError(blocked);
+        setComposerExpanded(true);
+        if (context.conversationId) focusComposer();
+        else afterSheetsClose(focusComposer);
+        return;
+      }
+    }
     // Opening a thread from another source clears the composer's context, so
     // open it before setting the reply.
     if (switching)
@@ -559,8 +574,11 @@ export function useAppController(seed?: AppNavigationInitial) {
     // Opening another thread loads that thread's own draft; seed it first.
     if (switching) {
       const key = draftId(context.conversationId, source);
-      if (text !== undefined && !readThreadDraft(key).text)
-        writeThreadDraft(key, text, [], session?.user?.id);
+      if (text !== undefined) {
+        const saved = readThreadDraft(key, session?.user?.id);
+        if (!saved.text)
+          writeThreadDraft(key, text, saved.files, session?.user?.id);
+      }
     } else if (text !== undefined) {
       const nextText = seedReplyDraftText(draftRef.current, text);
       draftRef.current = nextText;
