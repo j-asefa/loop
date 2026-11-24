@@ -555,8 +555,12 @@ export function useAppController(seed?: AppNavigationInitial) {
       const key = draftId(context.conversationId, source);
       if (text !== undefined) {
         const saved = readThreadDraft(key, session?.user?.id);
-        if (!saved.text)
-          writeThreadDraft(key, text, saved.files, session?.user?.id);
+        writeThreadDraft(
+          key,
+          seedReplyDraftText(saved.text, text),
+          saved.files,
+          session?.user?.id,
+        );
       }
     } else if (text !== undefined) {
       const nextText = seedReplyDraftText(draftRef.current, text);

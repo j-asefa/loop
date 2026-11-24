@@ -425,6 +425,14 @@ it("checks and draws ReplyButton elements and pre-fills the reply handler only w
   expect(writingHtml).toContain(
     'class="display-reply-button" disabled="" title="Wait for the answer to finish to reply"',
   );
+  const openFinishedHtml = renderToStaticMarkup(
+    <DisplayReplyContext.Provider value={onReply}>
+      <RichText content={"```spec\n" + raw} />
+    </DisplayReplyContext.Provider>,
+  );
+  expect(openFinishedHtml).toContain(
+    'class="display-reply-button" disabled="" title="This display is incomplete"',
+  );
 
   // Legitimate ZWJ emoji sequences (\u200D), ZWNJ non-Latin words (\u200C), and $-prefixed labels with a valid prompt are accepted.
   const joinerSource = fence(

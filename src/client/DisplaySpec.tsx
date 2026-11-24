@@ -162,7 +162,9 @@ export function DisplaySpec({
   const onReply = !compact && !writing && !open && !omitSource ? reply : null;
   const disabledReplyTitle = writing
     ? "Wait for the answer to finish to reply"
-    : "Reply is available on finished assistant answers in a conversation";
+    : open || omitSource
+      ? "This display is incomplete"
+      : "Reply is available on finished assistant answers in a conversation";
   const read = useMemo(
     () =>
       readDisplaySpec(source, {
