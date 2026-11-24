@@ -241,6 +241,32 @@ test("Claude gives a prompt read inside an orphan turn the rest of that turn", a
   );
 });
 
+test("Claude stops a cancelled prompt that Claude reads after an orphan turn", async (t) => {
+  const { adapter, writes, controls, echo, result, statuses, steer } =
+    heldPastFallback(t);
+  await new Promise((done) => setImmediate(done));
+  result();
+  t.mock.timers.tick(HOLD_MS);
+  await assert.rejects(steer);
+  await adapter.prompt("Next prompt");
+  const next = writes.at(-1);
+  echo(writes[0]); // the orphan turn starts and is interrupted
+  await adapter.cancel(); // lands on the orphan turn too
+  result(); // the orphan turn's result
+  echo(next); // Claude then reads the cancelled prompt
+  await new Promise((done) => setImmediate(done));
+  assert.equal(
+    controls.filter((c: any) => c.subtype === "interrupt").length,
+    3,
+    "the cancelled prompt's turn is interrupted when it starts",
+  );
+  result();
+  assert.deepEqual(
+    statuses().map((e) => e.status),
+    ["completed", "interrupted"],
+  );
+});
+
 test("Claude holds a cancelled run for less than the supervisor's interrupt deadline", async (t) => {
   const { adapter, result, statuses, steer } = heldPastFallback(t);
   await new Promise((done) => setImmediate(done));

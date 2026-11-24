@@ -803,11 +803,11 @@ export class Claude extends DirectAdapter implements Adapter {
     // Claude reads stdin in order: any other echo means a later message joined
     // or started the current turn, so that turn is no longer the orphan's.
     this.orphanTurn = false;
-    if (this.steering.read(uuid)) {
-      // A cancelled run also stops the turn that answers its follow-up.
-      if (this.interrupted)
-        this.control({ subtype: "interrupt" }).catch(() => {});
-    }
+    const followUp = this.steering.read(uuid);
+    // A cancelled run also stops any turn that starts in it: one answering its
+    // follow-up, or its own prompt read after an orphan turn took the cancel.
+    if (this.interrupted && (followUp || this.active))
+      this.control({ subtype: "interrupt" }).catch(() => {});
   }
   private finish(m: any) {
     const earlier = this.steering.release();
