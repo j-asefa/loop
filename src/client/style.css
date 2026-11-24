@@ -9463,3 +9463,65 @@ label.catalog-filter-chip {
   padding: 0 4px;
   font-weight: 600;
 }
+.feed-starter-card {
+  margin: 16px 0;
+  padding: 18px;
+}
+.feed-starter-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.feed-starter-head h2 {
+  margin: 0 0 4px;
+  font-size: 18px;
+}
+.feed-starter-head p {
+  margin: 0;
+}
+.feed-starter-paths {
+  display: grid;
+  gap: 14px;
+}
+.feed-starter-path {
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.feed-starter-path h3 {
+  margin: 0 0 6px;
+  font-size: 15px;
+}
+.feed-starter-path p {
+  margin: 0 0 10px;
+}
+.feed-starter-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+}
+.feed-starter-list li {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 13px;
+}
+.feed-starter-list .news-mark {
+  width: 22px;
+  height: 22px;
+  font-size: 11px;
+}
+.feed-starter-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
