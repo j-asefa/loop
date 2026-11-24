@@ -27,7 +27,7 @@ describe("activityLine", () => {
     ];
     expect(activityLine(items, "r1")).toEqual({
       text: "Run npm test",
-      live: true,
+      state: "live",
     });
   });
 
@@ -46,7 +46,7 @@ describe("activityLine", () => {
         ],
         "r1",
       ),
-    ).toEqual({ text: "read Feed.tsx", live: false });
+    ).toEqual({ text: "read Feed.tsx", state: "done" });
     expect(activityLine([item(1, tool({}))], "r1")).toBeNull();
   });
 
@@ -58,7 +58,7 @@ describe("activityLine", () => {
     };
     expect(activityLine([item(1, output)], "r1")).toEqual({
       text: "npm test",
-      live: true,
+      state: "live",
     });
     const edit = {
       ...base,
@@ -67,7 +67,7 @@ describe("activityLine", () => {
     };
     expect(activityLine([item(1, edit)], "r1")).toEqual({
       text: "b.ts",
-      live: false,
+      state: "done",
     });
     const plan = {
       ...base,
@@ -82,12 +82,46 @@ describe("activityLine", () => {
     };
     expect(activityLine([item(1, plan)], "r1")).toEqual({
       text: "Build the page",
-      live: true,
+      state: "live",
     });
   });
 
   it("has no line for a run without activity, and skips capabilities", () => {
     expect(activityLine([], "r1")).toBeNull();
     expect(activityLine([item(5, { kind: "capabilities" })], "r1")).toBeNull();
+  });
+
+  it("never shows a failed, cancelled or uncertain step as done", () => {
+    const states = (status: string) =>
+      activityLine([item(1, tool({ title: "Run npm test", status }))], "r1")
+        ?.state;
+    expect(states("failed")).toBe("failed");
+    expect(states("cancelled")).toBe("failed");
+    expect(states("unknown")).toBe("unknown");
+    const output = (data: Record<string, unknown>) =>
+      activityLine(
+        [
+          item(1, {
+            ...base,
+            kind: "output",
+            data: { command: "npm test", chunks: [], ...data },
+          }),
+        ],
+        "r1",
+      )?.state;
+    expect(output({ status: "exited", exitCode: 0 })).toBe("done");
+    expect(output({ status: "exited", exitCode: 1 })).toBe("failed");
+    expect(output({ status: "exited" })).toBe("unknown");
+    expect(output({ status: "failed" })).toBe("failed");
+    expect(output({ status: "unknown" })).toBe("unknown");
+  });
+
+  it("skips records of another version", () => {
+    expect(
+      activityLine(
+        [item(1, { ...tool({ title: "Later shape" }), v: 2 })],
+        "r1",
+      ),
+    ).toBeNull();
   });
 });

@@ -1512,7 +1512,18 @@ button:not(:disabled):active,
 }
 .feed-activity-line svg {
   flex-shrink: 0;
+}
+.feed-activity-line.done svg {
   color: var(--green);
+}
+.feed-activity-line.failed svg {
+  color: var(--orange);
+}
+.feed-activity-unknown {
+  flex-shrink: 0;
+  width: 13px;
+  text-align: center;
+  font-weight: 700;
 }
 .feed-activity-text {
   min-width: 0;

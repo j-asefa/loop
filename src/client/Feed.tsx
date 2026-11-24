@@ -1455,13 +1455,23 @@ function ActivityLineView({
   const line = activityLine(items, run);
   if (!line) return null;
   return (
-    <p className={"feed-activity-line" + (line.live ? " live" : "")}>
-      {line.live ? (
+    <p className={"feed-activity-line " + line.state}>
+      {line.state === "live" ? (
         <span className="feed-activity-pulse" aria-hidden="true" />
-      ) : (
+      ) : line.state === "done" ? (
         <Check size={13} aria-hidden="true" />
+      ) : line.state === "failed" ? (
+        <X size={13} aria-hidden="true" />
+      ) : (
+        <span className="feed-activity-unknown" aria-hidden="true">
+          ?
+        </span>
       )}
       <span className="feed-activity-text">{line.text}</span>
+      {line.state === "failed" && <span className="sr-only"> (failed)</span>}
+      {line.state === "unknown" && (
+        <span className="sr-only"> (outcome unknown)</span>
+      )}
     </p>
   );
 }
@@ -4501,8 +4511,9 @@ export function Feed({
     });
     return actions;
   }
-  // At most this many cards follow their run's activity at once.
-  let activitySlots = 6;
+  // At most this many cards follow their run's activity at once: each reads
+  // its run's activity records, which can carry command output and diffs.
+  let activitySlots = 3;
   function card(item: FeedItem, inNeeds = false, thread?: SourcedDoneThread) {
     const displayKey = thread
       ? JSON.stringify([thread.source, "thread", thread.id])
