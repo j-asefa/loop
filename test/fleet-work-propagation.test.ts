@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { FleetAuthority } from "../src/server/fleet-authority.js";
 import { Codex } from "../src/adapters/codex.js";
 import { Claude } from "../src/adapters/claude.js";
+import { Pi } from "../src/adapters/pi.js";
 import { NotDelivered } from "../src/adapters/types.js";
 import type { DirectControls } from "../src/adapters/direct-controls.js";
 import type { Setting } from "../src/agent-activities.js";
@@ -92,10 +93,10 @@ function running(run: Run) {
   return ownedRun(run.id, owner);
 }
 function nativeAdapter(
-  harness: "codex" | "claude",
+  harness: "codex" | "claude" | "pi",
   billing: "existing" | "subscription" = "existing",
 ) {
-  const Adapter = harness === "codex" ? Codex : Claude;
+  const Adapter = harness === "codex" ? Codex : harness === "pi" ? Pi : Claude;
   return new Adapter(
     {
       harness,
@@ -862,16 +863,16 @@ it.each([
       release = Promise.withResolvers<void>();
     const { NativeSessions } = await import("../src/server/native-sessions.js");
     const sessions = new NativeSessions();
-    const adapter = nativeAdapter(
-      operation === "steer" ? "claude" : "codex",
-      "subscription",
-    );
+    // Claude writes a follow-up with no preparation step, so its check before
+    // the write is the only one (test/native-dispatch-guards.node.test.ts).
+    // Pi first waits for its previous steer, which leaves a window to recheck.
+    const harness = operation === "steer" ? "pi" : "codex";
+    const adapter = nativeAdapter(harness, "subscription");
     const methods: string[] = [],
       writes: unknown[] = [];
     const internals = adapter as unknown as {
       native: object;
-      control: () => Promise<void>;
-      steering: { result(): void };
+      steering: PromiseLike<void>;
       asyncQuestions: Map<string, unknown>;
     };
     // Real adapter and supervisor; native IO and its delayed reply are fixtures.
@@ -884,23 +885,26 @@ it.each([
           return { account: { type: "chatgpt" } };
         }
         if (method === "config/read") return { config: {} };
+        if (method === "steer") writes.push(method);
+        if (method === "get_state") return { isStreaming: true };
         return { turn: { id: "fixture", status: "inProgress" } };
-      },
-      write: async (value: unknown) => {
-        writes.push(value);
       },
       dispose: async () => {},
     };
-    internals.control = async () => {
-      waiting.resolve();
+    const prompt =
+      operation === "steer"
+        ? vi.spyOn(adapter as Pi, "prompt").mockImplementation(async () => {
+            (adapter as unknown as { turnActive: boolean }).turnActive = true;
+          })
+        : undefined;
+    // The steer waits here, after the supervisor's first check.
+    internals.steering = {
+      then: (next) => {
+        waiting.resolve();
+        return release.promise.then(next);
+      },
     };
-    const live = nativeLive(
-      sessions.state,
-      run,
-      adapter,
-      operation === "steer" ? "claude" : "codex",
-      generation,
-    );
+    const live = nativeLive(sessions.state, run, adapter, harness, generation);
     persistNativeStartup(run, live);
     const session = vi.spyOn(sessions, "session").mockResolvedValue(live);
     let executing:
@@ -967,13 +971,12 @@ it.each([
       else sender.revoke();
       release.resolve();
       if (operation === "steer") {
-        internals.steering.result();
         await expect
           .poll(() =>
             stored("SELECT state FROM run_steering WHERE run_id=?", run.id),
           )
           .toEqual({ state: "failed" });
-        expect(writes).toHaveLength(1); // Only the original prompt.
+        expect(writes).toEqual([]); // The follow-up never reached Pi.
       } else if (operation === "answer") {
         expect(await answering).toMatchObject({ status: 409 });
         expect(
@@ -1002,7 +1005,7 @@ it.each([
       }
     } finally {
       release.resolve();
-      if (operation === "steer") internals.steering.result();
+      prompt?.mockRestore();
       live.finish?.("completed");
       await executing;
       session.mockRestore();
