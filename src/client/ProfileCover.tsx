@@ -26,9 +26,6 @@ export function ProfileCover({ name }: { name?: string }) {
           height="533"
           decoding="async"
           draggable={false}
-          onError={(event) => {
-            event.currentTarget.hidden = true;
-          }}
         />
       </button>
       {open && (
