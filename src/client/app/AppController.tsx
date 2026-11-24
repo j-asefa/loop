@@ -579,7 +579,7 @@ export function useAppController(seed?: AppNavigationInitial) {
       if (agentId) setSelected(agentId);
       setActiveArtifact(item);
     },
-    onReply: (context, prompt) => beginReply(context, prompt),
+    onReply: (context) => beginReply(context),
   });
   const { open, replyToArtifact } = artifactReads;
   function openTeamFeed(team: Team) {

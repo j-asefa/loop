@@ -218,7 +218,7 @@ type SavedListProps = {
   project?: string;
   teams?: string;
   onOpen: (conversation: string, message?: string) => void;
-  onReply: (message: SavedMessage, prompt?: string) => void;
+  onReply: (message: SavedMessage) => void;
   renderResult: (
     item: ResultAction,
     options: { onUnsave: () => void },
@@ -430,9 +430,9 @@ function SavedCollection({
                       item.card.source.message_id!,
                     )
                   }
-                  onReply={(prompt) => {
+                  onReply={() => {
                     if (item.card.type === "message")
-                      onReply(cardMessage(item.card), prompt);
+                      onReply(cardMessage(item.card));
                   }}
                   onSave={() => unsave(item)}
                 />

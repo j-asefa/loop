@@ -125,6 +125,7 @@ import { notify } from "./toast";
 import { HandoffSheet, shareLink } from "./Handoff";
 import { EditQueued, type QueuedMessage } from "./Feed";
 import {
+  canReplyFromMessageDisplay,
   dayLabel,
   mergeActivityRecords,
   preview,
@@ -1747,13 +1748,14 @@ function ConversationView({
                   !!m.run_id &&
                   latestProgressByRun.get(m.run_id)?.id === m.id
                 : !anchor || latestAgent === m.id);
-            const replyWithPrompt =
-              replyTarget &&
-              m.role === "assistant" &&
-              !meta.automation &&
-              !messageWriting
-                ? (prompt: string) => onReply(replyTarget, prompt)
-                : null;
+            const replyWithPrompt = canReplyFromMessageDisplay({
+              role: m.role,
+              hasReplyTarget: Boolean(replyTarget),
+              progress: Boolean(meta.progress),
+              writing: messageWriting,
+            })
+              ? (prompt: string) => onReply(replyTarget!, prompt)
+              : null;
             const finalForRun =
               m.run_id &&
               !meta.progress &&

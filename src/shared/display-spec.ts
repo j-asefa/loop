@@ -95,8 +95,12 @@ export type DisplayChart = z.infer<typeof DisplayChartSchema>;
 const replyText = text
   .min(1)
   .refine(
-    (value) => !/^[ \t\r\n]*[@/!]/.test(value),
-    "Reply prompts cannot start with @, /, or !",
+    (value) => value.replace(/^[\s\uFEFF]+/u, "").length > 0,
+    "Reply text cannot be blank",
+  )
+  .refine(
+    (value) => !/^[\s\uFEFF]*[@/!$]/u.test(value),
+    "Reply prompts cannot start with @, /, !, or $",
   );
 
 // Props of each catalog component. Unknown props are ignored.

@@ -314,6 +314,60 @@ export function feedReplyQuote(item: {
   };
 }
 
+/**
+ * What a ReplyButton inside a Feed card's reading sheet quotes: any finished,
+ * non-imported assistant answer shown in the sheet (including on Threads or
+ * Queued cards where the card's plain Reply button opens the thread unquoted).
+ * Returns null for user prompts, live previews, awaiting-update placeholders,
+ * and imported threads so ReplyButton stays disabled there.
+ */
+export function feedDisplayReplyQuote(
+  item: {
+    agent_id: string | null;
+    origin: string;
+    live_preview?: string | null;
+    last_message: {
+      id: string;
+      role: string;
+      content?: string;
+      preview: string;
+    } | null;
+  },
+  awaitingUpdate: boolean | null = false,
+): FeedReplyQuote | null {
+  const message = item.last_message;
+  if (
+    !item.agent_id ||
+    item.origin.endsWith("-import") ||
+    item.live_preview ||
+    awaitingUpdate ||
+    !message ||
+    message.role !== "assistant"
+  )
+    return null;
+  const content = message.content ?? message.preview;
+  if (!content.trim()) return null;
+  return {
+    agentId: item.agent_id,
+    messageId: message.id,
+    content,
+  };
+}
+
+export function canReplyFromMessageDisplay(message: {
+  role: string;
+  hasReplyTarget: boolean;
+  progress?: boolean;
+  writing: boolean;
+}): boolean {
+  return (
+    message.hasReplyTarget &&
+    message.role === "assistant" &&
+    !message.progress &&
+    !message.writing
+  );
+}
+
 /** Context for an editable follow-up on a captured Git diff. */
 type ChangeContext = {
   projectName?: string;

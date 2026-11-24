@@ -142,6 +142,7 @@ import { LaterSheet, undoReminder } from "./LaterControls";
 import { shareLink } from "./Handoff";
 import { threadDraft, sourceDraftId } from "./drafts";
 import {
+  feedDisplayReplyQuote,
   feedNextAction,
   feedReplyQuote,
   type FeedReplyQuote,
@@ -767,12 +768,7 @@ function FeedCard({
                   {content ? (
                     <DisplayReplyContext.Provider
                       value={
-                        item.agent_id &&
-                        !item.origin.endsWith("-import") &&
-                        item.last_message?.role === "assistant" &&
-                        !item.last_message.automation &&
-                        !item.live_preview &&
-                        !awaitingUpdate
+                        feedDisplayReplyQuote(item, awaitingUpdate)
                           ? (prompt: string) =>
                               leaveReading(() => onReply(prompt))
                           : null
@@ -4165,19 +4161,7 @@ export function Feed({
                 item.conversation_id,
                 source,
                 feedReplyQuote(item) ??
-                  (prompt !== undefined &&
-                  item.agent_id &&
-                  !item.origin.endsWith("-import") &&
-                  item.last_message?.role === "assistant" &&
-                  !item.last_message.automation
-                    ? {
-                        agentId: item.agent_id,
-                        messageId: item.last_message.id,
-                        content:
-                          item.last_message.content ??
-                          item.last_message.preview,
-                      }
-                    : null) ??
+                  (prompt !== undefined ? feedDisplayReplyQuote(item) : null) ??
                   undefined,
                 prompt,
               )

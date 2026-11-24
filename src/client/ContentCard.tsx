@@ -1,5 +1,4 @@
 import { useState, type ReactNode } from "react";
-import { DisplayReplyContext } from "./DisplaySpec";
 import {
   AlarmClock,
   Archive,
@@ -128,7 +127,7 @@ export function ContentCard({
   card: Card;
   onOpen: () => void;
   onProfile?: () => void;
-  onReply?: (prompt?: string) => void;
+  onReply?: () => void;
   onSave?: () => void;
   onFile?: () => void;
   onArchive?: () => void;
@@ -168,7 +167,7 @@ export function ContentCard({
             id: "reply",
             label: "Reply",
             icon: <MessageSquare size={18} />,
-            onSelect: () => onReply(),
+            onSelect: onReply,
           },
         ]
       : []),
@@ -315,18 +314,7 @@ export function ContentCard({
           </span>
           {card.type === "result" && <h2>{title}</h2>}
           <div className={card.type === "result" ? "preview" : undefined}>
-            <DisplayReplyContext.Provider
-              value={
-                onReply &&
-                card.type === "message" &&
-                card.author.kind === "agent" &&
-                card.role === "assistant"
-                  ? (prompt: string) => onReply(prompt)
-                  : null
-              }
-            >
-              <CardBody card={card} compact={card.type === "result"} />
-            </DisplayReplyContext.Provider>
+            <CardBody card={card} compact={card.type === "result"} />
           </div>
           {card.type === "message" ? (
             <>
@@ -361,7 +349,7 @@ export function ContentCard({
         </div>
         <div className="card-actions">
           {onReply && (
-            <button onClick={() => onReply()}>
+            <button onClick={onReply}>
               <MessageSquare size={16} />
               Reply
             </button>

@@ -312,20 +312,17 @@ export function renderResults(
     profileWork,
     next,
   } = props;
-  const replySaved = (message: SavedMessage, prompt?: string) =>
+  const replySaved = (message: SavedMessage) =>
     message.agent_id
-      ? beginReply(
-          {
-            agentId: message.agent_id,
-            conversationId: message.conversation_id,
-            messageId: message.message_id,
-            content: message.content,
-            ...((message.personal ?? message.role === "user")
-              ? { mine: true }
-              : {}),
-          },
-          prompt,
-        )
+      ? beginReply({
+          agentId: message.agent_id,
+          conversationId: message.conversation_id,
+          messageId: message.message_id,
+          content: message.content,
+          ...((message.personal ?? message.role === "user")
+            ? { mine: true }
+            : {}),
+        })
       : setConversation(message.conversation_id, message.message_id);
   // Result cards look and act the same in the feed, projects and Saved.
   const resultCard = (
