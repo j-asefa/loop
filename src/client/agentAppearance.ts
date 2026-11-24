@@ -1,4 +1,6 @@
-// Character order defines deterministic avatar and backdrop assignments.
+import { FAMILY_OFFSET, PALETTES, profileCoverSvg } from "./animalArt";
+
+// Character order defines deterministic avatar, backdrop and cover assignments.
 const characters = {
   atlas: "atlas",
   nova: "nova",
@@ -115,16 +117,34 @@ const backdrops = [
   "#c6ad92",
 ];
 
-// Each palette contains one scene per character.
-const coverFamilies = new Map<string, string[]>();
+// Each family has one scene; a character draws it in its own avatar palette.
+const familySize = new Map<string, number>();
+const paletteIndex = new Map<AgentCharacter, number>();
 for (const character of names) {
   const family = characters[character];
-  const variants = coverFamilies.get(family) ?? [];
-  variants.push(`${character}-scene`);
-  coverFamilies.set(family, variants);
+  const index = familySize.get(family) ?? 0;
+  paletteIndex.set(
+    character,
+    (FAMILY_OFFSET[family] + index) % PALETTES.length,
+  );
+  familySize.set(family, index + 1);
 }
 
-/** One consistent avatar and coordinated cover for a name, in every view. */
+const covers = new Map<AgentCharacter, string>();
+function cover(character: AgentCharacter) {
+  let source = covers.get(character);
+  if (!source) {
+    const svg = profileCoverSvg(
+      characters[character],
+      PALETTES[paletteIndex.get(character)!],
+    );
+    source = `data:image/svg+xml,${encodeURIComponent(svg)}`;
+    covers.set(character, source);
+  }
+  return source;
+}
+
+/** One consistent avatar and matching cover for a name, in every view. */
 export function agentAppearance(name: string) {
   const normalized = name.toLowerCase();
   let seed = 2166136261;
@@ -132,15 +152,9 @@ export function agentAppearance(name: string) {
     seed = Math.imul(seed ^ c.charCodeAt(0), 16777619) >>> 0;
   const named = names.indexOf(normalized as AgentCharacter);
   const character = names[named < 0 ? (seed >>> 8) % names.length : named];
-  const family = characters[character];
-  const variants = coverFamilies.get(family)!;
-  // Named characters have distinct covers.
-  // Other names vary within the palette, even when they share an avatar.
-  const cover =
-    named < 0 ? variants[seed % variants.length] : `${character}-scene`;
   return {
     character,
     background: backdrops[(named < 0 ? seed >>> 16 : named) % backdrops.length],
-    cover: `/profile-covers/${cover}.webp`,
+    cover: cover(character),
   };
 }

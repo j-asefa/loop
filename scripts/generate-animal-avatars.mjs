@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { FAMILY_OFFSET, PALETTES } from "../src/client/animalArt.ts";
 
 // Exact 100 character -> family map from src/client/agentAppearance.ts
 export const CHARACTER_FAMILIES = {
@@ -103,98 +104,6 @@ export const CHARACTER_FAMILIES = {
   pine: "flint",
   sequoia: "flint",
   swift: "flint",
-};
-
-// 9 curated mid-century mineral/botanical colorways (warm, earthy, crisp at 24px)
-const PALETTES = [
-  {
-    bg: "#d8b89c",
-    main: "#d16236",
-    dark: "#9f4120",
-    light: "#f7f2e8",
-    accent: "#d8b048",
-    eye: "#1f1e1c",
-  },
-  {
-    bg: "#a8bcbd",
-    main: "#365669",
-    dark: "#243b49",
-    light: "#f5f3ec",
-    accent: "#deb64c",
-    eye: "#1b2024",
-  },
-  {
-    bg: "#adb9a3",
-    main: "#2f5343",
-    dark: "#203b2f",
-    light: "#f4f1e8",
-    accent: "#d8b048",
-    eye: "#1b221e",
-  },
-  {
-    bg: "#bfb5c0",
-    main: "#3a3342",
-    dark: "#25202b",
-    light: "#f5f2ee",
-    accent: "#e0ba50",
-    eye: "#1b181f",
-  },
-  {
-    bg: "#d9c48c",
-    main: "#8a5a2b",
-    dark: "#633e1c",
-    light: "#f8f4e8",
-    accent: "#c75d38",
-    eye: "#201b16",
-  },
-  {
-    bg: "#c5b5a8",
-    main: "#5e463a",
-    dark: "#3f2e26",
-    light: "#f6f2ea",
-    accent: "#d9a944",
-    eye: "#1e1916",
-  },
-  {
-    bg: "#b5c2bd",
-    main: "#395d57",
-    dark: "#25403c",
-    light: "#f3f5f0",
-    accent: "#d67746",
-    eye: "#1a2220",
-  },
-  {
-    bg: "#cfc2b2",
-    main: "#464d57",
-    dark: "#2d323a",
-    light: "#f6f4ee",
-    accent: "#d4a83f",
-    eye: "#191c20",
-  },
-  {
-    bg: "#c7b6a4",
-    main: "#9c4738",
-    dark: "#723025",
-    light: "#f7f2e9",
-    accent: "#dfba52",
-    eye: "#211918",
-  },
-];
-
-// Each family has a preferred primary colorway index so named characters feel natural
-const FAMILY_OFFSET = {
-  ember: 0,
-  owl: 1,
-  moss: 2,
-  prism: 3,
-  pebble: 4,
-  flint: 5,
-  cobalt: 6,
-  echo: 7,
-  atlas: 8,
-  sage: 2,
-  nova: 3,
-  orbit: 1,
 };
 
 function renderFamily(family, p, v) {

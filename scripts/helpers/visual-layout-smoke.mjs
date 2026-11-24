@@ -412,11 +412,11 @@ export async function visualLayoutSmoke(page, fixture, engine, capture) {
     .run(fixture.owner);
   await editName("Iris");
   await expect(personal.locator("h1")).toHaveText("Iris");
-  const savedArtwork = {
-    avatar: "/avatars/animals/iris.svg",
-    cover: "/profile-covers/iris-scene.webp",
-  };
-  assert.deepEqual(await personalArtwork(), savedArtwork);
+  const savedArtwork = await personalArtwork();
+  assert.equal(savedArtwork.avatar, "/avatars/animals/iris.svg");
+  // Covers are drawn in the browser from the avatar palette, not fetched.
+  assert.match(savedArtwork.cover, /^data:image\/svg\+xml,/);
+  assert.notEqual(savedArtwork.cover, accountArtwork.cover);
   await openSettings(page);
   await expect(page.locator(".drawer-account .avatar img")).toHaveAttribute(
     "src",
@@ -472,16 +472,13 @@ export async function visualLayoutSmoke(page, fixture, engine, capture) {
   await expect(
     page.locator(".your-agents .avatar-fallback").first(),
   ).not.toBeEmpty();
-  await page.route(/\/profile-cover(?:s\/[^/]+)?\.webp$/, (route) =>
-    route.abort(),
-  );
   await page
     .locator(".agent-strip button")
     .filter({ hasText: agent.name })
     .click();
   const profile = page.locator(".profile-head");
-  await expect(profile.locator(".profile-cover img")).toBeHidden();
-  await expect(profile.locator(".profile-cover")).toBeVisible();
+  // The cover needs no request, so it still shows beside the avatar fallback.
+  await expect(profile.locator(".profile-cover img")).toBeVisible();
   await expect(
     profile.getByRole("button", { name: "Message", exact: true }),
   ).toBeVisible();
@@ -492,8 +489,7 @@ export async function visualLayoutSmoke(page, fixture, engine, capture) {
   await expect(
     personal.locator(".my-profile-avatar .avatar-fallback"),
   ).not.toBeEmpty();
-  await expect(personal.locator(".profile-cover img")).toBeHidden();
-  await expect(personal.locator(".profile-cover")).toBeVisible();
+  await expect(personal.locator(".profile-cover img")).toBeVisible();
   await expect(
     personal.getByRole("button", { name: "Edit profile", exact: true }),
   ).toBeVisible();
