@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { Codex } from "../src/adapters/codex.js";
 import { Claude } from "../src/adapters/claude.js";
+import { HOLD_MS } from "../src/adapters/claude-steering.js";
 import { Pi } from "../src/adapters/pi.js";
 import { OpenCode } from "../src/adapters/opencode.js";
 import { Muse } from "../src/adapters/muse.js";
@@ -81,10 +82,11 @@ function liveClaude() {
   };
   const echo = (write: any) =>
     adapter.message({ ...write, isReplay: true, session_id: "session-1" });
-  const result = () =>
+  const result = (errors?: string[]) =>
     adapter.message({
       type: "result",
-      is_error: false,
+      is_error: !!errors,
+      ...(errors ? { errors } : {}),
       session_id: "session-1",
       origin: { kind: "human" },
     });
@@ -144,22 +146,76 @@ test("Claude keeps the run open when a turn ends before it reads a follow-up", a
   );
 });
 
-for (const ending of ["cancel", "dispose"] as const)
-  test(`Claude leaves an unread follow-up unconfirmed after ${ending}`, async () => {
-    const { adapter, writes, result, statuses } = liveClaude();
-    const steer = adapter.steer("Side question");
-    await new Promise((done) => setImmediate(done));
-    if (ending === "cancel") {
-      await adapter.cancel();
-      result();
-      assert.deepEqual(
-        statuses().map((e) => e.status),
-        ["interrupted"],
-      );
-    } else await adapter.dispose();
-    await assert.rejects(steer, /Claude/);
-    assert.equal(writes.length, 1, "the follow-up is never written again");
+test("Claude keeps a cancelled run open for the turn that answers its follow-up, then stops it", async () => {
+  // Observed on Claude Code 2.1.237 and 2.1.325: after an interrupt Claude
+  // still reads an unread follow-up and answers it in a further turn.
+  const { adapter, writes, controls, echo, result, statuses } = liveClaude();
+  const steer = adapter.steer("Side question");
+  await new Promise((done) => setImmediate(done));
+  await adapter.cancel();
+  result(["interrupted"]);
+  assert.equal(statuses().length, 0, "the follow-up's turn is still to come");
+  echo(writes[0]);
+  assert.equal(await settled(steer), "read");
+  await new Promise((done) => setImmediate(done));
+  assert.equal(
+    controls.filter((c: any) => c.subtype === "interrupt").length,
+    2,
+    "the follow-up's turn is interrupted too",
+  );
+  result();
+  assert.deepEqual(
+    statuses().map((e) => [e.status, e.detail]),
+    [["interrupted", "interrupted"]],
+  );
+  assert.equal(writes.length, 1, "the follow-up is never written again");
+});
+
+test("Claude ends a held run when no echo follows, and ignores that follow-up's late turn", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { adapter, writes, controls, echo, result, statuses } = liveClaude();
+  const steer = adapter.steer("Side question");
+  await new Promise((done) => setImmediate(done));
+  result(["first turn failed"]);
+  assert.equal(statuses().length, 0);
+  t.mock.timers.tick(HOLD_MS);
+  await assert.rejects(steer, /Claude stopped before confirming/);
+  assert.deepEqual(
+    statuses().map((e) => [e.status, e.detail]),
+    [["failed", "first turn failed"]],
+  );
+  // A late echo starts a turn no run owns: it is stopped and nothing of it
+  // reaches the next run, whose prompt Claude reads after it.
+  echo(writes[0]);
+  await new Promise((done) => setImmediate(done));
+  assert.equal(
+    controls.filter((c: any) => c.subtype === "interrupt").length,
+    1,
+  );
+  adapter.active = true;
+  adapter.message({
+    type: "control_request",
+    request_id: "orphan-permission",
+    request: { subtype: "can_use_tool", tool_name: "Bash", input: {} },
   });
+  assert.equal(writes.at(-1).response.response.behavior, "deny");
+  result();
+  assert.equal(statuses().length, 1, "the orphan turn's result is ignored");
+  result();
+  assert.deepEqual(
+    statuses().map((e) => e.status),
+    ["failed", "completed"],
+  );
+});
+
+test("Claude leaves an unread follow-up unconfirmed after dispose", async () => {
+  const { adapter, writes } = liveClaude();
+  const steer = adapter.steer("Side question");
+  await new Promise((done) => setImmediate(done));
+  await adapter.dispose();
+  await assert.rejects(steer, /Claude closed before confirming/);
+  assert.equal(writes.length, 1, "the follow-up is never written again");
+});
 
 test("Pi rechecks after metadata and after its steering queue", async () => {
   const adapter: any = new Pi({ ...options, harness: "pi" }, () => {});

@@ -119,6 +119,7 @@ export class Claude extends DirectAdapter implements Adapter {
   private interrupted = false;
   private active = false;
   private steering = new ClaudeSteering();
+  private orphanTurn = false;
   private billing!: Billing;
   constructor(
     private options: Options,
@@ -440,8 +441,30 @@ export class Claude extends DirectAdapter implements Adapter {
   private activityInputs = new Map<string, { name: string; input: any }>();
   private message(m: any) {
     if (m.type === "user" && m.isReplay) {
-      this.steering.read(m.uuid);
+      this.echo(m.uuid);
       return;
+    }
+    if (this.orphanTurn) {
+      if (m.type === "result" && !m.parent_tool_use_id) this.orphanTurn = false;
+      // Nobody can answer its permission requests; refuse them.
+      if (m.type === "control_request")
+        void this.native
+          .write({
+            type: "control_response",
+            response: {
+              subtype: "success",
+              request_id: m.request_id,
+              response:
+                m.request?.subtype === "elicitation"
+                  ? { action: "decline", content: null }
+                  : {
+                      behavior: "deny",
+                      message: "Loop stopped this turn's run.",
+                    },
+            },
+          })
+          .catch(() => {});
+      if (m.type !== "control_response") return;
     }
     // Streaming input also carries results for turns injected by Claude
     // (notably stopped background tasks on resume). They must not settle the
@@ -747,37 +770,59 @@ export class Claude extends DirectAdapter implements Adapter {
     if (m.type === "result") {
       const usage = claudeTokens(m.usage);
       if (usage) this.emit({ type: "usage", usage });
-      // Claude answers an unread follow-up in a further turn of this run.
-      if (this.steering.pending && !this.interrupted) return;
-      this.steering.abandon(
-        "Claude stopped before confirming that it read the follow-up.",
-      );
-      this.active = false;
-      // The turn's child streams are now complete; freeze their ids so late
-      // events for them cannot move or overwrite this run's native history.
-      // The set is ids-only and kept for the adapter's lifetime: evicting an
-      // id would let a late event treat a completed stream as new and
-      // overwrite its recorded history.
-      for (const id of this.childItems) this.priorChildIds.add(id);
-      for (const id of this.childText.keys()) this.priorChildIds.add(id);
-      this.messageIds.clear();
-      this.childItems.clear();
-      this.childText.clear();
-      this.childTextBytes = 0;
-      for (const id of this.requests.keys())
-        this.emit({ type: "resolved", id });
-      this.requests.clear();
-      this.emit({
-        type: "status",
-        status: this.interrupted
-          ? "interrupted"
-          : m.is_error
-            ? "failed"
-            : "completed",
-        recoverable: !!m.is_error && !this.interrupted,
-        detail: m.errors?.join("\n"),
-      });
+      // Claude answers an unread follow-up in a further turn, even after an
+      // interrupt, so the run stays open until it reads it (see echo()).
+      if (this.steering.pending) {
+        this.steering.hold(m, () => this.finish({ ...m, errors: [] }));
+        return;
+      }
+      this.finish(m);
     }
+  }
+  /** Claude read the message with this uuid; its turn starts now. */
+  private echo(uuid: unknown) {
+    if (this.steering.read(uuid)) {
+      // A cancelled run also stops the turn that answers its follow-up.
+      if (this.interrupted)
+        this.control({ subtype: "interrupt" }).catch(() => {});
+    } else if (this.steering.abandoned(uuid)) {
+      // A follow-up Loop gave up on started a turn no Loop run owns: drop its
+      // output and result, and stop it if no newer prompt has been written.
+      this.orphanTurn = true;
+      if (!this.active) this.control({ subtype: "interrupt" }).catch(() => {});
+    }
+  }
+  private finish(m: any) {
+    const earlier = this.steering.release();
+    this.steering.abandon(
+      "Claude stopped before confirming that it read the follow-up.",
+    );
+    this.active = false;
+    // The turn's child streams are now complete; freeze their ids so late
+    // events for them cannot move or overwrite this run's native history.
+    // The set is ids-only and kept for the adapter's lifetime: evicting an
+    // id would let a late event treat a completed stream as new and
+    // overwrite its recorded history.
+    for (const id of this.childItems) this.priorChildIds.add(id);
+    for (const id of this.childText.keys()) this.priorChildIds.add(id);
+    this.messageIds.clear();
+    this.childItems.clear();
+    this.childText.clear();
+    this.childTextBytes = 0;
+    for (const id of this.requests.keys()) this.emit({ type: "resolved", id });
+    this.requests.clear();
+    this.emit({
+      type: "status",
+      status: this.interrupted
+        ? "interrupted"
+        : m.is_error
+          ? "failed"
+          : "completed",
+      recoverable: !!m.is_error && !this.interrupted,
+      // An earlier turn of this run that ended while a follow-up was unread
+      // keeps its errors here; the status is that of the final turn.
+      detail: [...earlier, ...(m.errors ?? [])].join("\n") || undefined,
+    });
   }
   async dispose() {
     this.steering.abandon(
