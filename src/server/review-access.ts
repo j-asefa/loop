@@ -4,7 +4,7 @@ import { reviewGit, MAX_REVIEW_FILE_BYTES } from "./review-git.js";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { db } from "./db.js";
-import { ownedTeam, ownedRun, Problem } from "./domain.js";
+import { ownedAgent, ownedTeam, ownedRun, Problem } from "./domain.js";
 import type { Run } from "./queue.js";
 import type { ReviewSnapshot } from "./review-snapshot.js";
 import { snapshotDelta } from "./review-delta.js";
@@ -31,6 +31,7 @@ const reviewRoles = TEAM_PRESETS.find((p) => p.id === "code-review")!.roles;
  */
 export function reviewAssignments(team: {
   id: string;
+  owner_id: string;
   manager_id: string;
   preset_id: string | null;
   preset_config: string | null;
@@ -48,27 +49,30 @@ export function reviewAssignments(team: {
       throw new Problem(409, "Review team configuration is incomplete");
     return assignments;
   }
+  // At most the preset's three reviewers, chosen by agent ID so a retry
+  // picks the same ones; retired members are skipped.
+  const focus = reviewRoles.slice(1);
   const members = teamMembersQueries
     .agents(db, team.id)
     .map((m) => m.agent_id)
-    .filter((agent) => agent !== team.manager_id)
-    .sort();
-  const focus = reviewRoles.slice(1);
+    .filter(
+      (agent) =>
+        agent !== team.manager_id &&
+        !ownedAgent(agent, team.owner_id).retired_at,
+    )
+    .sort()
+    .slice(0, focus.length);
   return [
     {
       role: "lead",
       agentId: team.manager_id,
       instructions: reviewLeadInstructions(members.length),
     },
-    ...members.map((agentId, index) => {
-      const role = focus[index % focus.length];
-      const round = Math.floor(index / focus.length);
-      return {
-        role: round ? `${role.id}-${round + 1}` : role.id,
-        agentId,
-        instructions: role.instructions,
-      };
-    }),
+    ...members.map((agentId, index) => ({
+      role: focus[index].id,
+      agentId,
+      instructions: focus[index].instructions,
+    })),
   ];
 }
 export const reviewReadSchema = z.object({
@@ -324,19 +328,25 @@ export function assertReviewIdentity(
   reviewId: string,
   teamId: string | undefined,
   agentId: string,
+  /** The review is creating this agent's task now (internal binding). */
+  starting = false,
 ) {
   const r = reviewRecord(owner, reviewId);
   if (r.team_id !== teamId)
     throw new Problem(403, "Review belongs to another team");
   const team = ownedTeam(r.team_id, owner);
-  // A review team's fixed roles are its pinned assignments; any other team
-  // reviews with its current manager and members.
+  // A review team's fixed roles are its pinned assignments. For any other
+  // team, the agents given this review when it started (its lead and the
+  // lead's reviewers), not whoever is on the team now; while it starts,
+  // the team's current assignments.
   const assigned =
     team.preset_id === "code-review"
       ? (JSON.parse(team.preset_config || "{}").assignments ?? []).some(
           (a: { agentId?: string }) => a.agentId === agentId,
         )
-      : reviewAssignments(team).some((a) => a.agentId === agentId);
+      : starting
+        ? reviewAssignments(team).some((a) => a.agentId === agentId)
+        : !!codeReviewsQueries.assignedAgent(db, owner, reviewId, agentId);
   if (!assigned)
     throw new Problem(403, "Agent is not assigned to this review team");
 }

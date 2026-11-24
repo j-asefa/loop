@@ -306,7 +306,14 @@ export function submit(
           409,
           "Use Review changes to capture a snapshot for this review team first",
         );
-      if (reviewId) assertReviewIdentity(owner, reviewId, teamId, agent.id);
+      if (reviewId)
+        assertReviewIdentity(
+          owner,
+          reviewId,
+          teamId,
+          agent.id,
+          !!data.reviewId,
+        );
       if (teamId || reviewId) assertTeamConnection(connection);
       const snapshot: Snapshot = {
         agentId: agent.id,

@@ -41,11 +41,12 @@ export function snapshot(
 }
 
 const requestStatement = statement(
-  "SELECT id,request_hash FROM code_reviews WHERE owner_id=? AND request_key=?",
+  "SELECT id,request_hash,folder_id FROM code_reviews WHERE owner_id=? AND request_key=?",
 );
 const requestRow = QueryRecords.code_reviews.pick({
   id: true,
   request_hash: true,
+  folder_id: true,
 });
 export function request(db: Database.Database, owner: string, key: string) {
   const row = requestStatement(db).get(owner, key);
@@ -184,4 +185,21 @@ export function earlier(
   return earlierStatement(db)
     .all(scope)
     .map((row) => parseRecord(earlierRow, row, "code_reviews"));
+}
+
+const assignedAgentStatement = statement(
+  "SELECT 1 FROM code_reviews c JOIN runs r ON r.id=c.run_id WHERE c.id=@review AND c.owner_id=@owner AND (r.agent_id=@agent OR EXISTS(SELECT 1 FROM delegations d JOIN runs child ON child.id=d.child_run_id WHERE d.parent_run_id=c.run_id AND child.agent_id=@agent))",
+);
+const assignedAgentRow = z.object({ "1": z.number() });
+/** Whether the agent is this review's lead or one of the lead's reviewers. */
+export function assignedAgent(
+  db: Database.Database,
+  owner: string,
+  review: string,
+  agent: string,
+) {
+  const row = assignedAgentStatement(db).get({ review, owner, agent });
+  return row === undefined
+    ? undefined
+    : parseRecord(assignedAgentRow, row, "code_reviews");
 }

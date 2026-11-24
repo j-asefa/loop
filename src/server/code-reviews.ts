@@ -457,7 +457,15 @@ export function requestReview(
   const team = ownedTeam(args.teamId, run.owner_id);
   // A native session's project is its verified agent worktree.
   const session = companionSessionsQueries.project(db, run.conversation_id);
+  const idempotencyKey =
+    "agent:" +
+    createHash("sha256")
+      .update(run.id + ":" + callId)
+      .digest("hex");
+  // A repeated or polling call keeps the project its review started with;
+  // only a new request looks for the project that holds the checkout.
   const folderId =
+    codeReviewsQueries.request(db, run.owner_id, idempotencyKey)?.folder_id ||
     payload.folderId ||
     team.folder_id ||
     (session?.project && projectOf(run.owner_id, session.project));
@@ -470,11 +478,7 @@ export function requestReview(
       folderId,
       scope: args.scope,
       base: args.base,
-      idempotencyKey:
-        "agent:" +
-        createHash("sha256")
-          .update(run.id + ":" + callId)
-          .digest("hex"),
+      idempotencyKey,
     },
     {
       path: session?.project ?? directory(run.owner_id, folderId),
