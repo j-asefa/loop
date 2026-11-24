@@ -3,6 +3,8 @@ import { snippetTitle } from "../shared/workshop-actions";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { callRoute, readRoute } from "./api";
 import { emitClientEvent, listenClientEvent } from "./clientEvents";
+import { useSourceId } from "./SourceContext";
+import { executionSourceId } from "./sourceRouting";
 import { notify } from "./toast";
 import { viewGeneration, viewOwner } from "./viewCache";
 
@@ -12,12 +14,14 @@ export type SavedSnippet = RouteResponse<
 
 /**
  * Loads the signed-in owner's saved `/` snippets for quick-action sheets.
- * Isolated by owner and view generation so snippets never leak across accounts.
+ * Isolated by owner, source, and view generation so snippets match `/` autocomplete
+ * and never leak across accounts or workspaces.
  */
 export function useSnippets(enabled: boolean) {
   const generation = viewGeneration();
   const owner = viewOwner();
-  const scopeKey = JSON.stringify([generation, owner]);
+  const source = useSourceId();
+  const scopeKey = JSON.stringify([generation, owner, source]);
   const [state, setState] = useState<{
     scope: string;
     items: SavedSnippet[];
@@ -39,7 +43,7 @@ export function useSnippets(enabled: boolean) {
         items: prev.scope === scopeKey ? prev.items : [],
         loading: prev.scope !== scopeKey || prev.items.length === 0,
       }));
-      void readRoute(workspaceApi.snippetList, {}, "", controller.signal)
+      void readRoute(workspaceApi.snippetList, {}, source, controller.signal)
         .then(({ items }) => {
           if (
             !active ||
@@ -72,7 +76,7 @@ export function useSnippets(enabled: boolean) {
       activeController?.abort();
       stop();
     };
-  }, [enabled, scopeKey, generation, owner]);
+  }, [enabled, scopeKey, generation, owner, source]);
 
   return {
     snippets: state.scope === scopeKey ? state.items : [],
@@ -90,7 +94,7 @@ const inFlightSnippetSaves = new Set<string>();
  */
 export async function saveTextAsSnippet(
   content: string,
-  source = "",
+  source = executionSourceId(),
 ): Promise<boolean> {
   const text = content.trim();
   if (!text) return false;

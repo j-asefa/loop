@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ContentCard } from "./ContentCard";
 import { useCards } from "./useCards";
 import { CollectionReadNotice } from "./CollectionRead";
+import { useSourceId } from "./SourceContext";
 import { saveTextAsSnippet } from "./useSnippets";
 import type { Agent } from "../shared/types";
 
@@ -29,6 +30,7 @@ export function PersonalProfile({
   /** Quote this prompt in its thread, like replying to any other message. */
   onReply?: (prompt: PromptReply) => void;
 }) {
+  const source = useSourceId();
   const [filter, setFilter] = useState(query.trim());
   useEffect(() => {
     const timer = setTimeout(() => setFilter(query.trim()), 300);
@@ -103,7 +105,7 @@ export function PersonalProfile({
             }
             onSaveSnippet={
               card.content.trim()
-                ? () => void saveTextAsSnippet(card.content)
+                ? () => void saveTextAsSnippet(card.content, source)
                 : undefined
             }
           />

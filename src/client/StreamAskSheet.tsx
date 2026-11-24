@@ -9,6 +9,7 @@ import {
 import type { EnvironmentAgent } from "./agentSources";
 import { AgentPicker } from "./AgentPicker";
 import { Sheet } from "./components";
+import { executionSourceId } from "./sourceRouting";
 import { useSnippets } from "./useSnippets";
 
 /**
@@ -28,9 +29,14 @@ export function StreamAskSheet({
   onClose: () => void;
   onAsk: (text: string, agentId?: string) => void;
 }) {
+  const currentSource = executionSourceId();
   const activeAgents = useMemo(
-    () => agents.filter((agent) => !agent.retired_at && !agent.sourceId),
-    [agents],
+    () =>
+      agents.filter(
+        (agent) =>
+          !agent.retired_at && (agent.sourceId ?? "") === currentSource,
+      ),
+    [agents, currentSource],
   );
   const councilAgent = useMemo(
     () => activeAgents.find((agent) => /council/i.test(agent.name)),
