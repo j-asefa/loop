@@ -123,6 +123,7 @@ import {
   ChevronUp,
 } from "lucide-react";
 import { cardTakeaway } from "./feedTakeaway";
+import { useNewResultsPill } from "./useNewResultsPill";
 import { ConversationPulls } from "./ConversationPulls";
 import { sourceUrl } from "./sourceRouting";
 import type {
@@ -1896,6 +1897,10 @@ export function Feed({
     () => cachedView<FeedItem[]>(needsKey()) || [],
   );
   const [needsOpen, setNeedsOpen] = useState(false);
+  const { count: newResults, showNewResults } = useNewResultsPill(
+    filter === "done" && !needsOpen,
+    feedRows.map((row) => row.key),
+  );
   const needsRequest = useRef(0);
   const needsSourceRequests = useRef(new Map<string, number>());
   const needsReads = useRef<
@@ -4435,6 +4440,16 @@ export function Feed({
       )}
       {/* Keep the selected feed mounted so collapsing Needs you restores it. */}
       <div className="feed-results" hidden={needsOpen}>
+        {newResults > 0 && (
+          <button
+            type="button"
+            className="new-results-pill"
+            onClick={showNewResults}
+          >
+            <ArrowUp size={16} aria-hidden="true" />
+            {newResults === 1 ? "1 new result" : `${newResults} new results`}
+          </button>
+        )}
         {!hideFilters && filter === "done" && (
           <DoneFeedFilters
             read={selection.read}

@@ -249,6 +249,23 @@ for (const engine of selectedEngines()) {
       await expect(card("Normal live delivery control")).toHaveCount(1, {
         timeout: 10_000,
       });
+      // A result that arrives while the reader is scrolled down is counted
+      // in a pill instead of moving the page; the pill returns to the top.
+      await page.evaluate(() =>
+        window.scrollTo(0, document.documentElement.scrollHeight),
+      );
+      await expect
+        .poll(() => page.evaluate(() => window.scrollY))
+        .toBeGreaterThan(200);
+      publish("live-scrolled", "gemini", "Arrived while scrolled down");
+      const newResults = page.locator(".new-results-pill");
+      await expect(newResults).toHaveText("1 new result", { timeout: 10_000 });
+      await newResults.click();
+      await expect
+        .poll(() => page.evaluate(() => window.scrollY))
+        .toBeLessThan(48);
+      await expect(newResults).toHaveCount(0);
+      await expect(card("Arrived while scrolled down")).toBeInViewport();
       let heldDone;
       await page.route(changes, (route) => {
         if (!heldDone) heldDone = route;

@@ -1383,3 +1383,21 @@ button.avatar {
   right: max(12px, env(safe-area-inset-right));
   color: white;
 }
+.new-results-pill {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 72px);
+  left: 50%;
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transform: translateX(-50%);
+  min-height: 40px;
+  padding: 8px 16px;
+  border: 1px solid color-mix(in srgb, var(--brass) 55%, var(--line));
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 650;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.16);
+}
