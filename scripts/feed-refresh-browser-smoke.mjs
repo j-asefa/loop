@@ -260,12 +260,27 @@ for (const engine of selectedEngines()) {
       publish("live-scrolled", "gemini", "Arrived while scrolled down");
       const newResults = page.locator(".new-results-pill");
       await expect(newResults).toHaveText("1 new result", { timeout: 10_000 });
+      // Centred on the feed column, not the window beside the sidebar.
+      const pillBox = await newResults.boundingBox();
+      const columnBox = await feed.boundingBox();
+      assert(
+        Math.abs(
+          pillBox.x + pillBox.width / 2 - (columnBox.x + columnBox.width / 2),
+        ) < 2,
+        "The new-results pill is centred on the feed column",
+      );
+      await expect(
+        page.getByRole("status").filter({ hasText: "1 new result above" }),
+      ).toHaveCount(1);
       await newResults.click();
       await expect
         .poll(() => page.evaluate(() => window.scrollY))
         .toBeLessThan(48);
       await expect(newResults).toHaveCount(0);
       await expect(card("Arrived while scrolled down")).toBeInViewport();
+      await expect(
+        page.locator(".feed-results .feed-item-card .feed-row").first(),
+      ).toBeFocused();
       let heldDone;
       await page.route(changes, (route) => {
         if (!heldDone) heldDone = route;

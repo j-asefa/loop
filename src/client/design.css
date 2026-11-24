@@ -1383,16 +1383,21 @@ button.avatar {
   right: max(12px, env(safe-area-inset-right));
   color: white;
 }
-.new-results-pill {
-  position: fixed;
+/* Sticky inside the feed column, so it centres on the content, not the
+   window beside the sidebar. The anchor takes no space in the list. */
+.new-results-anchor {
+  position: sticky;
   top: calc(env(safe-area-inset-top, 0px) + 72px);
-  left: 50%;
-  z-index: 20;
+  z-index: 6;
+  display: flex;
+  justify-content: center;
+  height: 0;
+}
+.new-results-pill {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  transform: translateX(-50%);
-  min-height: 40px;
+  height: 40px;
   padding: 8px 16px;
   border: 1px solid color-mix(in srgb, var(--brass) 55%, var(--line));
   border-radius: 999px;
