@@ -51,8 +51,16 @@ import {
   selectFeedStreamSource,
   type FeedSourceFilter,
 } from "../shared/feed-interleave";
+import {
+  canReplyFromDoneSheet,
+  DEFAULT_DONE_QUICK_REPLIES,
+  snippetLabel,
+} from "../shared/workshop-actions";
 import type { StreamItem } from "../shared/stream-item";
+import { DisplayReplyContext } from "./DisplaySpec";
+import { StreamAskSheet } from "./StreamAskSheet";
 import { StreamItemCard, StreamItemReader } from "./StreamItemCard";
+import { useSnippets } from "./useSnippets";
 import { useSocialStream } from "./useSocialStream";
 import {
   useDoneThreads,
@@ -125,7 +133,9 @@ import {
   Square,
   UserRound,
   Users,
+  Sparkles,
   X,
+  Zap,
   ChevronDown,
   ChevronRight,
   ChevronUp,
@@ -276,7 +286,7 @@ function FeedCard({
   model?: string;
   environment?: { kind: ExecutionLocation | null; label: string } | null;
   onOpen: () => void;
-  onReply: () => void;
+  onReply: (prompt?: string) => void;
   onRead?: () => void;
   onReadingChange?: (open: boolean) => void;
   onQuestion?: () => void;
@@ -297,6 +307,8 @@ function FeedCard({
   onSelect?: () => void;
 }) {
   const readProjection = useProjectionRoute();
+  const [quickReplyOpen, setQuickReplyOpen] = useState(false);
+  const { snippets: quickReplySnippets } = useSnippets(quickReplyOpen);
 
   const scopedSource = useSourceId();
   const inheritedCapabilities = useSourceCapabilities();
@@ -761,7 +773,7 @@ function FeedCard({
                 </button>
               )}
               {next?.kind !== "draft" && (
-                <button onClick={onReply}>
+                <button onClick={() => onReply()}>
                   <MessageSquare size={16} />
                   {groupCount ? "Reply to latest" : "Reply"}
                 </button>
@@ -797,7 +809,10 @@ function FeedCard({
               swipeToClose
               className="result-sheet feed-reading-sheet"
               title={item.title}
-              onClose={closeReading}
+              onClose={() => {
+                setQuickReplyOpen(false);
+                closeReading();
+              }}
               heading={
                 <div className="result-header">
                   <ResultIdentity
@@ -865,36 +880,54 @@ function FeedCard({
                   </p>
                 )}
                 <div className="artifact-body">
-                  {content ? (
-                    item.card ? (
-                      <CardBody card={item.card} />
+                  <DisplayReplyContext.Provider
+                    value={
+                      canReplyFromDoneSheet({
+                        isFinished: status.tone === "done",
+                        writing:
+                          !!item.live_preview && content === item.live_preview,
+                        hasReplyHandler: Boolean(onReply),
+                        isAssistant: item.last_message
+                          ? item.last_message.role === "assistant"
+                          : true,
+                      })
+                        ? (prompt: string) =>
+                            leaveReading(() => onReply(prompt))
+                        : null
+                    }
+                  >
+                    {content ? (
+                      item.card ? (
+                        <CardBody card={item.card} />
+                      ) : (
+                        <RichText
+                          content={content}
+                          previewEndsAtLine={item.live_preview_ends_at_line}
+                          previewFenceIsSpec={item.live_preview_fence_spec}
+                          previewFenceCut={
+                            item.live_preview
+                              ? (item.live_preview_fence_cut ?? false)
+                              : undefined
+                          }
+                          cappedPreview={
+                            item.live_preview
+                              ? previewAtLimit
+                              : message?.id !== messageId &&
+                                messagePreviewCapped
+                          }
+                          writing={
+                            !!item.live_preview && content === item.live_preview
+                          }
+                        />
+                      )
                     ) : (
-                      <RichText
-                        content={content}
-                        previewEndsAtLine={item.live_preview_ends_at_line}
-                        previewFenceIsSpec={item.live_preview_fence_spec}
-                        previewFenceCut={
-                          item.live_preview
-                            ? (item.live_preview_fence_cut ?? false)
-                            : undefined
-                        }
-                        cappedPreview={
-                          item.live_preview
-                            ? previewAtLimit
-                            : message?.id !== messageId && messagePreviewCapped
-                        }
-                        writing={
-                          !!item.live_preview && content === item.live_preview
-                        }
-                      />
-                    )
-                  ) : (
-                    <p className="field-hint">
-                      {status.tone === "working"
-                        ? "Waiting for agent update…"
-                        : "No agent update yet."}
-                    </p>
-                  )}
+                      <p className="field-hint">
+                        {status.tone === "working"
+                          ? "Waiting for agent update…"
+                          : "No agent update yet."}
+                      </p>
+                    )}
+                  </DisplayReplyContext.Provider>
                 </div>
                 {readError && (
                   <ErrorNotice role="alert">
@@ -936,9 +969,26 @@ function FeedCard({
                     {quickDismissLabel}
                   </button>
                 )}
+                {canReplyFromDoneSheet({
+                  isFinished: status.tone === "done",
+                  writing: !!item.live_preview && content === item.live_preview,
+                  hasReplyHandler: Boolean(onReply),
+                  isAssistant: item.last_message
+                    ? item.last_message.role === "assistant"
+                    : true,
+                }) && (
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => setQuickReplyOpen(true)}
+                  >
+                    <Zap size={16} aria-hidden="true" />
+                    Quick reply
+                  </button>
+                )}
                 <button
                   className="primary"
-                  onClick={() => leaveReading(onReply)}
+                  onClick={() => leaveReading(() => onReply())}
                 >
                   {draft ? (
                     <PencilLine size={18} />
@@ -948,6 +998,34 @@ function FeedCard({
                   {draft ? "Continue draft" : "Reply"}
                 </button>
               </div>
+              {quickReplyOpen && (
+                <ActionSheet
+                  title="Quick reply"
+                  onClose={() => setQuickReplyOpen(false)}
+                  actions={[
+                    ...quickReplySnippets.map((snippet) => ({
+                      id: `snippet:${snippet.id}`,
+                      label: snippetLabel(snippet.title, snippet.content),
+                      hint: snippet.content.slice(0, 90),
+                      icon: <Sparkles size={18} />,
+                      onSelect: () => {
+                        setQuickReplyOpen(false);
+                        leaveReading(() => onReply(snippet.content));
+                      },
+                    })),
+                    ...DEFAULT_DONE_QUICK_REPLIES.map((action) => ({
+                      id: action.id,
+                      label: action.label,
+                      hint: action.hint,
+                      icon: <Zap size={18} />,
+                      onSelect: () => {
+                        setQuickReplyOpen(false);
+                        leaveReading(() => onReply(action.instruction));
+                      },
+                    })),
+                  ]}
+                />
+              )}
             </Sheet>
           </SourceProvider>,
           document.body,
@@ -1369,6 +1447,7 @@ export function Feed({
     conversation: string,
     sourceId?: string,
     quote?: FeedReplyQuote,
+    prompt?: string,
   ) => void;
   agent?: string;
 
@@ -1376,7 +1455,7 @@ export function Feed({
 
   onShowReminder?: (id: string) => void;
 
-  onAsk?: (text: string) => void;
+  onAsk?: (text: string, agentId?: string) => void;
   /** Present only for the combined top-level Feed. */
   sources?: AgentSource[];
   /** Initial discovery has not established the combined Feed's destinations. */
@@ -1440,6 +1519,10 @@ export function Feed({
     generation: number;
   } | null>(null);
   const [savingStream, setSavingStream] = useState<{
+    item: StreamItem;
+    generation: number;
+  } | null>(null);
+  const [askingStream, setAskingStream] = useState<{
     item: StreamItem;
     generation: number;
   } | null>(null);
@@ -4315,12 +4398,13 @@ export function Feed({
                 source,
               )
         }
-        onReply={() =>
+        onReply={(prompt) =>
           onReply
             ? onReply(
                 item.conversation_id,
                 source,
                 feedReplyQuote(item) ?? undefined,
+                prompt,
               )
             : onOpen(item.conversation_id, undefined, source)
         }
@@ -4625,7 +4709,12 @@ export function Feed({
                       onMarkRead={(item, read) =>
                         void socialStream.markRead(item.rawId, read)
                       }
-                      onAsk={onAsk ? (text) => onAsk(text) : undefined}
+                      onAsk={
+                        onAsk
+                          ? (_text, item) =>
+                              setAskingStream({ item, generation })
+                          : undefined
+                      }
                     />
                   );
                 }
@@ -4803,7 +4892,19 @@ export function Feed({
           onMarkRead={(item, read) =>
             void socialStream.markRead(item.rawId, read)
           }
-          onAsk={onAsk ? (text) => onAsk(text) : undefined}
+          onAsk={
+            onAsk
+              ? (_text, item) => setAskingStream({ item, generation })
+              : undefined
+          }
+        />
+      )}
+      {showSocialStream && askingStream?.generation === generation && onAsk && (
+        <StreamAskSheet
+          item={askingStream.item}
+          agents={agents}
+          onClose={() => setAskingStream(null)}
+          onAsk={(text, agentId) => onAsk(text, agentId)}
         />
       )}
       {showSocialStream && savingStream?.generation === generation && (

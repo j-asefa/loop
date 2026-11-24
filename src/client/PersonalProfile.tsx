@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ContentCard } from "./ContentCard";
 import { useCards } from "./useCards";
 import { CollectionReadNotice } from "./CollectionRead";
+import { saveTextAsSnippet } from "./useSnippets";
 import type { Agent } from "../shared/types";
 
 export type PromptReply = {
@@ -98,6 +99,11 @@ export function PersonalProfile({
                       conversation_id: card.source.conversation_id!,
                       agent_id: card.recipient!.id!,
                     })
+                : undefined
+            }
+            onSaveSnippet={
+              card.content.trim()
+                ? () => void saveTextAsSnippet(card.content)
                 : undefined
             }
           />

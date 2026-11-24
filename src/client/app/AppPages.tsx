@@ -494,14 +494,14 @@ export function renderAppPages(
             sources={unified.feedSources}
             sourcesLoading={unified.loading}
             onOpen={openSourcedConversation}
-            onReply={(c, source, quote) => {
+            onReply={(c, source, quote, prompt) => {
               if (!quote) {
                 openSourcedConversation(c, undefined, source);
                 return focusThreadComposer(c);
               }
               beginReply(
                 { ...quote, conversationId: c },
-                undefined,
+                prompt,
                 source ?? executionSourceId(),
               );
             }}

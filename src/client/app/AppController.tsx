@@ -350,11 +350,15 @@ export function useAppController(seed?: AppNavigationInitial) {
     setReplyContext(null);
     afterSheetsClose(focusComposer);
   }
-  // "Ask an agent" on a pull request starts a new message about it; your
-  // unsent draft is kept and the request is added after it.
-  function askAboutPull(text: string) {
+  // "Ask an agent" on a pull request or Feed stream item starts a new message
+  // about it; any existing unsent draft and recipient are preserved.
+  function askAboutPull(text: string, agentId?: string) {
     setReplyContext(null);
     setContextArtifact(null);
+    if (agentId && !draftRef.current.trim() && !attachments.length) {
+      setSelected(agentId);
+      setExtraRecipients([]);
+    }
     setDraft((current) => appendDraftText(current, text));
     focusComposer();
   }
@@ -581,11 +585,19 @@ export function useAppController(seed?: AppNavigationInitial) {
     const url = new URL(location.href);
     url.searchParams.delete("artifact");
     history.replaceState(history.state, "", url.pathname + url.search);
-    // Opening another thread loads that thread's own draft; seed it first.
+    // Opening another thread loads that thread's own draft; seed it first
+    // unless that thread already holds a different unsent draft.
     if (switching) {
       const key = draftId(context.conversationId, source);
-      if (text !== undefined && !readThreadDraft(key).text)
-        writeThreadDraft(key, text, [], session?.user?.id);
+      if (text !== undefined) {
+        const existing = readThreadDraft(key).text;
+        if (!existing.trim())
+          writeThreadDraft(key, text, [], session?.user?.id);
+        else if (existing.trim() !== text.trim())
+          setComposerError(
+            "Send or clear your current draft before using a reply button.",
+          );
+      }
     } else if (text !== undefined) {
       draftRef.current = text;
       setDraft(text);

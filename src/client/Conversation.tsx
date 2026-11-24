@@ -1428,6 +1428,7 @@ function ConversationView({
                   },
                 });
                 onSubmitted();
+                emitClientEvent("loop-snippets-change");
                 notify({
                   text: "Saved as a snippet. Type / in any composer to insert it.",
                 });

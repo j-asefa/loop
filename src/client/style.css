@@ -9455,3 +9455,11 @@ label.catalog-filter-chip {
   margin-top: 16px;
   flex-wrap: wrap;
 }
+.stream-ask-agent {
+  margin: 0 0 12px;
+}
+.stream-ask-section {
+  margin: 8px 0 4px;
+  padding: 0 4px;
+  font-weight: 600;
+}
