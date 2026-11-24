@@ -56,8 +56,10 @@ a {
   color: var(--blue);
   text-decoration: none;
 }
-a:hover {
-  text-decoration: underline;
+@media (hover: hover) {
+  a:hover {
+    text-decoration: underline;
+  }
 }
 button:focus-visible,
 a:focus-visible,
@@ -143,8 +145,10 @@ small,
   justify-content: center;
   flex-shrink: 0;
 }
-.icon-button:hover {
-  background: var(--secondary);
+@media (hover: hover) {
+  .icon-button:hover {
+    background: var(--secondary);
+  }
 }
 .wordmark {
   display: flex;
@@ -1255,8 +1259,10 @@ small,
   color: var(--text);
   text-decoration: none;
 }
-.published-file-open:hover {
-  background: var(--secondary);
+@media (hover: hover) {
+  .published-file-open:hover {
+    background: var(--secondary);
+  }
 }
 .published-file-open > span:first-of-type {
   flex: 1;
@@ -1320,8 +1326,10 @@ small,
   border-radius: 10px;
   margin: 15px 0;
 }
-.approval-summary:hover {
-  background: var(--bg);
+@media (hover: hover) {
+  .approval-summary:hover {
+    background: var(--bg);
+  }
 }
 .approval-symbol {
   display: inline-flex;
@@ -4206,8 +4214,10 @@ label.directory-search:focus-within {
   flex-shrink: 0;
   color: var(--brass-text);
 }
-.profile-team-link:hover strong {
-  text-decoration: underline;
+@media (hover: hover) {
+  .profile-team-link:hover strong {
+    text-decoration: underline;
+  }
 }
 .profile-team strong,
 .team-manager-option strong {
@@ -5363,9 +5373,13 @@ select {
   text-align: left;
   font-size: 16px;
 }
-.action-list button:hover,
 .action-list button:focus-visible {
   background: var(--secondary);
+}
+@media (hover: hover) {
+  .action-list button:hover {
+    background: var(--secondary);
+  }
 }
 .action-list button > svg {
   flex-shrink: 0;
@@ -5679,8 +5693,10 @@ details > summary {
   text-align: left;
   border-radius: 10px;
 }
-.outline-list button:hover {
-  background: var(--secondary);
+@media (hover: hover) {
+  .outline-list button:hover {
+    background: var(--secondary);
+  }
 }
 .outline-icon {
   flex-shrink: 0;
@@ -6084,8 +6100,10 @@ details > summary {
     background 120ms ease,
     box-shadow 120ms ease;
 }
-.done-menu-action:not(:disabled):hover {
-  background: color-mix(in srgb, var(--secondary) 45%, var(--surface));
+@media (hover: hover) {
+  .done-menu-action:not(:disabled):hover {
+    background: color-mix(in srgb, var(--secondary) 45%, var(--surface));
+  }
 }
 .done-menu-icon {
   display: inline-flex;
@@ -6366,8 +6384,10 @@ details > summary {
     inset 0 1px 0 #ffffff35,
     0 2px 3px #00000008;
 }
-.thread-create-submit:not(:disabled):hover {
-  background: color-mix(in srgb, var(--brass) 90%, white);
+@media (hover: hover) {
+  .thread-create-submit:not(:disabled):hover {
+    background: color-mix(in srgb, var(--brass) 90%, white);
+  }
 }
 .thread-create-submit svg {
   flex-shrink: 0;
@@ -6820,9 +6840,13 @@ details > summary {
 .action-primary button > svg {
   color: var(--brass-text);
 }
-.action-primary button:hover,
 .action-primary button:focus-visible {
   background: var(--secondary);
+}
+@media (hover: hover) {
+  .action-primary button:hover {
+    background: var(--secondary);
+  }
 }
 .action-more-toggle {
   display: flex;
@@ -7284,9 +7308,13 @@ html:has(.sheet.side-panel[open]) {
   color: var(--text);
   font-size: 14px;
 }
-.my-profile-counts button:hover span,
 .my-profile-counts button:focus-visible span {
   text-decoration: underline;
+}
+@media (hover: hover) {
+  .my-profile-counts button:hover span {
+    text-decoration: underline;
+  }
 }
 .my-profile .personal-message-card {
   border-left: 3px solid var(--brass);
@@ -7519,8 +7547,10 @@ html:has(.sheet.side-panel[open]) {
   text-align: left;
   overflow-wrap: anywhere;
 }
-.pull-row:hover {
-  border-color: var(--muted);
+@media (hover: hover) {
+  .pull-row:hover {
+    border-color: var(--muted);
+  }
 }
 .pull-row-heading {
   display: flex;
@@ -8093,9 +8123,13 @@ html:has(.sheet.side-panel[open]) {
   color: inherit;
   text-decoration: none;
 }
-.news-card h2 a:hover,
 .news-card h2 a:focus-visible {
   text-decoration: underline;
+}
+@media (hover: hover) {
+  .news-card h2 a:hover {
+    text-decoration: underline;
+  }
 }
 .news-card .news-stats {
   margin: 0;
@@ -8258,8 +8292,10 @@ html:has(.sheet.side-panel[open]) {
   font-size: 13px;
   text-decoration: none;
 }
-.news-card .card-actions a:hover {
-  color: var(--text);
+@media (hover: hover) {
+  .news-card .card-actions a:hover {
+    color: var(--text);
+  }
 }
 
 @media (max-width: 360px) {
@@ -8310,9 +8346,13 @@ html:has(.sheet.side-panel[open]) {
   color: var(--text);
   padding-block: 15px;
 }
-.settings-row:hover,
 .settings-row:focus-visible {
   background: var(--bg);
+}
+@media (hover: hover) {
+  .settings-row:hover {
+    background: var(--bg);
+  }
 }
 .settings-row strong {
   display: block;
@@ -8427,9 +8467,13 @@ html:has(.sheet.side-panel[open]) {
   min-height: 60px;
   padding: 11px 14px;
 }
-.settings-list .settings-row:hover,
 .settings-list .settings-row:focus-visible {
   background: var(--secondary);
+}
+@media (hover: hover) {
+  .settings-list .settings-row:hover {
+    background: var(--secondary);
+  }
 }
 
 .settings-row.has-state {
@@ -9163,8 +9207,10 @@ label.catalog-filter-chip {
   font-weight: 600;
   cursor: pointer;
 }
-.settings-file-field input[type="file"]::file-selector-button:hover {
-  background: var(--secondary);
+@media (hover: hover) {
+  .settings-file-field input[type="file"]::file-selector-button:hover {
+    background: var(--secondary);
+  }
 }
 .connection-notice {
   display: flex;
