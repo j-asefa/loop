@@ -9,8 +9,68 @@ import type { Run } from "./queue.js";
 import type { ReviewSnapshot } from "./review-snapshot.js";
 import { snapshotDelta } from "./review-delta.js";
 import * as followUpQueries from "./sql/review-follow-ups.js";
+import * as teamMembersQueries from "./sql/team-members.js";
+import {
+  TEAM_PRESETS,
+  reviewLeadInstructions,
+} from "../shared/team-presets.js";
 
 export const MAX_REVIEW_REPORT_CHARS = 24_000;
+export type ReviewAssignment = {
+  role: string;
+  agentId: string;
+  instructions?: string;
+};
+const reviewRoles = TEAM_PRESETS.find((p) => p.id === "code-review")!.roles;
+/**
+ * Who reviews: a "Review code changes" team uses its fixed roles, whose
+ * agents already carry the review instructions. Any other team reviews
+ * with its manager as the lead and each member as an independent
+ * reviewer; their own instructions are unchanged, so each review task
+ * carries the review instructions instead.
+ */
+export function reviewAssignments(team: {
+  id: string;
+  manager_id: string;
+  preset_id: string | null;
+  preset_config: string | null;
+}): ReviewAssignment[] {
+  if (team.preset_id === "code-review") {
+    const config = z
+      .object({
+        assignments: z.array(
+          z.object({ role: z.string(), agentId: z.string().min(1) }),
+        ),
+      })
+      .parse(JSON.parse(team.preset_config || "null"));
+    const assignments = config.assignments;
+    if (assignments.length !== 4 || assignments[0].agentId !== team.manager_id)
+      throw new Problem(409, "Review team configuration is incomplete");
+    return assignments;
+  }
+  const members = teamMembersQueries
+    .agents(db, team.id)
+    .map((m) => m.agent_id)
+    .filter((agent) => agent !== team.manager_id)
+    .sort();
+  const focus = reviewRoles.slice(1);
+  return [
+    {
+      role: "lead",
+      agentId: team.manager_id,
+      instructions: reviewLeadInstructions(members.length),
+    },
+    ...members.map((agentId, index) => {
+      const role = focus[index % focus.length];
+      const round = Math.floor(index / focus.length);
+      return {
+        role: round ? `${role.id}-${round + 1}` : role.id,
+        agentId,
+        instructions: role.instructions,
+      };
+    }),
+  ];
+}
 export const reviewReadSchema = z.object({
   path: z.string().max(4096).optional(),
   version: z.enum(["current", "before"]).default("current"),
@@ -269,8 +329,15 @@ export function assertReviewIdentity(
   if (r.team_id !== teamId)
     throw new Problem(403, "Review belongs to another team");
   const team = ownedTeam(r.team_id, owner);
-  const config = JSON.parse(team.preset_config || "{}");
-  if (!config.assignments?.some((a: any) => a.agentId === agentId))
+  // A review team's fixed roles are its pinned assignments; any other team
+  // reviews with its current manager and members.
+  const assigned =
+    team.preset_id === "code-review"
+      ? (JSON.parse(team.preset_config || "{}").assignments ?? []).some(
+          (a: { agentId?: string }) => a.agentId === agentId,
+        )
+      : reviewAssignments(team).some((a) => a.agentId === agentId);
+  if (!assigned)
     throw new Problem(403, "Agent is not assigned to this review team");
 }
 

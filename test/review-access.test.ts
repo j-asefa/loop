@@ -38,7 +38,7 @@ db.prepare(
   "INSERT INTO folders(id,owner_id,kind,name,created_at) VALUES(?,?,'project','Fixture',?)",
 ).run(folder, owner, now());
 db.prepare(
-  "INSERT INTO teams(id,owner_id,name,manager_id,created_at,preset_config) VALUES(?,?,'Fixture',?,?,?)",
+  "INSERT INTO teams(id,owner_id,name,manager_id,created_at,preset_config,preset_id) VALUES(?,?,'Fixture',?,?,?,'code-review')",
 ).run(
   team,
   owner,

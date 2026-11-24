@@ -55,6 +55,18 @@ export function path(db: Database.Database, folder: string) {
     : parseRecord(pathRow, row, "project_paths");
 }
 
+const ownedStatement = statement(
+  "SELECT p.folder_id,p.path FROM project_paths p JOIN folders f ON f.id=p.folder_id WHERE f.owner_id=?",
+);
+/** The owner's projects that are bound to a local repository. */
+export function owned(db: Database.Database, owner: string) {
+  return ownedStatement(db)
+    .all(owner)
+    .map((row) =>
+      parseRecord(QueryRecords.project_paths, row, "project_paths"),
+    );
+}
+
 const allStatement = statement("SELECT * FROM project_paths");
 
 export function all(db: Database.Database) {
