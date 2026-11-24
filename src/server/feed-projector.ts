@@ -225,9 +225,18 @@ export function projectFeed(db: Database.Database, emit: Emit) {
         : [...keys].filter(
             (key) => key.startsWith("run:") || key.startsWith("message:"),
           );
-    // A result write may make another result the newest: re-project the two
-    // top result cards too, so one a reminder lifted drops back.
-    if (selected?.length)
+    // While a surfaced reminder lifts this conversation's newest result, a
+    // result write may make another result the newest: re-project the two
+    // top result cards too, so the lifted one drops back. Without such a
+    // reminder, writes never touch historical result cards.
+    if (
+      selected?.length &&
+      db
+        .prepare(
+          "SELECT 1 FROM later_items WHERE owner_id=? AND kind='conversation' AND target_id=? AND done_at IS NULL AND surfaced_at IS NOT NULL",
+        )
+        .get(owner, conversation)
+    )
       for (const { card_key } of db
         .prepare(
           "SELECT card_key FROM feed_cards WHERE owner_id=? AND conversation_id=? AND kind='result' ORDER BY sort_at DESC,card_key DESC LIMIT 2",

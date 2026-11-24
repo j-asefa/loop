@@ -138,6 +138,12 @@ const selections = new WeakMap<
   Map<string, Database.Statement>
 >();
 
+// The open reminder's surfaced time, and the conversation's newest sealed
+// result (by time, then id), for the Done sort of the row in `flagged`.
+const REMINDED_AT =
+  "(SELECT l.surfaced_at FROM later_items l WHERE l.owner_id=@owner AND l.kind='conversation' AND l.target_id=flagged.conversation_id AND l.done_at IS NULL)";
+const NEWEST_RESULT =
+  "(SELECT n.id FROM results n WHERE n.owner_id=@owner AND n.conversation_id=flagged.conversation_id AND n.sealed=1 AND n.kind IN ('run_answer','imported_answer') ORDER BY n.created_at DESC,n.id DESC LIMIT 1)";
 export function sourceCards(
   db: Database.Database,
   owner: string,
@@ -194,9 +200,6 @@ export function sourceCards(
       c.feed_last_activity_at last_activity_at,c.feed_queued queued,cp.position_message_id,
       (SELECT l.id FROM later_items l WHERE l.owner_id=c.owner_id AND l.kind='conversation' AND l.target_id=c.id AND l.done_at IS NULL) later_id,
       EXISTS(SELECT 1 FROM later_items l WHERE l.owner_id=c.owner_id AND l.kind='conversation' AND l.target_id=c.id AND l.done_at IS NULL AND l.surfaced_at IS NULL) snoozed,
-      (SELECT l.surfaced_at FROM later_items l WHERE l.owner_id=c.owner_id AND l.kind='conversation' AND l.target_id=c.id AND l.done_at IS NULL) reminded_at,
-      (SELECT n.id FROM results n WHERE n.owner_id=@owner AND n.conversation_id=@conversation AND n.sealed=1
-        AND n.kind IN ('run_answer','imported_answer') ORDER BY n.created_at DESC,n.id DESC LIMIT 1) newest_result,
       c.feed_queued>0 has_queued,c.approval_until,
       COALESCE(${results ? "completed.card_key," : ""}'run:'||c.feed_done_run_id,'message:'||c.feed_last_message_id,'run:'||c.feed_run_id) done_card_key,
       COALESCE(c.run_state IN ('awaiting_approval','paused') OR (c.raw_state IN ('failed','interrupted') AND c.attention_dismissed_at IS NULL),0) needs_run,
@@ -208,11 +211,12 @@ export function sourceCards(
   ), page AS MATERIALIZED (
     -- In Done, a reminder that has come due lifts the conversation's newest
     -- card (or its idle card) back to the top; thread cards keep their order.
+    -- Computed here so the stored card payload carries only sort_at.
     SELECT *,${
       results
-        ? "CASE WHEN done_card_key=newest_result THEN MAX(COALESCE(done_at,last_activity_at),COALESCE(reminded_at,0)) ELSE COALESCE(done_at,last_activity_at) END"
+        ? `CASE WHEN done_card_key=${NEWEST_RESULT} THEN MAX(COALESCE(done_at,last_activity_at),COALESCE(${REMINDED_AT},0)) ELSE COALESCE(done_at,last_activity_at) END`
         : done
-          ? "MAX(COALESCE(done_at,last_activity_at),COALESCE(reminded_at,0))"
+          ? `MAX(COALESCE(done_at,last_activity_at),COALESCE(${REMINDED_AT},0))`
           : "last_activity_at"
     } sort_at,
       EXISTS(SELECT 1 FROM done_card_dismissals d WHERE d.owner_id=@owner AND d.conversation_id=flagged.conversation_id AND d.card_key=flagged.done_card_key) hidden
