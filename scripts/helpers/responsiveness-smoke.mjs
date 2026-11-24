@@ -682,22 +682,40 @@ export async function responsivenessSmoke(page, fixture, engine) {
       };
       await page.route("**/api/feed/*", drop);
       try {
+        // Without Retry, the card comes back when the notice ends: the
+        // server may not have archived it.
         await swipeArchive(
           page.locator(".feed-results .feed-item-card").first(),
         );
         await expect(row).toHaveCount(0, { timeout: 300 });
-        await expect(
-          page.getByText("Not saved. Removed here only."),
-        ).toBeVisible();
-        // A refresh still returns the card (the server never archived it),
-        // but the change kept here keeps it hidden until Retry.
+        const notSaved = page.getByText("Not saved. Removed here only.");
+        await expect(notSaved).toBeVisible();
+        await expect(notSaved).toHaveCount(0, { timeout: 8000 });
+        await expect(row).toHaveCount(1);
+        attempts = 0;
+
+        // With the notice still up, a refresh still returns the card (the
+        // server never archived it), but the change kept here keeps it
+        // hidden until Retry.
+        await swipeArchive(
+          page.locator(".feed-results .feed-item-card").first(),
+        );
+        await expect(row).toHaveCount(0, { timeout: 300 });
+        await expect(notSaved).toBeVisible();
         await page.evaluate(() => window.scrollTo(0, 0));
+        const read = page.waitForResponse(
+          (response) =>
+            new URL(response.url()).pathname === "/api/feed" &&
+            response.request().method() === "GET",
+          { timeout: 10000 },
+        );
         await dragProbe(page, client, top, { x: 195, y: 420 }, 12, 200);
         await client.send("Input.dispatchTouchEvent", {
           type: "touchEnd",
           touchPoints: [],
         });
-        await page.waitForTimeout(1000);
+        await read;
+        await page.waitForTimeout(200);
         await expect(row).toHaveCount(0);
         if (attempts !== 1)
           throw new Error(
@@ -713,7 +731,11 @@ export async function responsivenessSmoke(page, fixture, engine) {
       await page.getByRole("button", { name: "Retry", exact: true }).click();
       await retried;
       await expect(row).toHaveCount(0);
-      report.archiveUncertain = { keptRemoved: true, resentOnlyOnRetry: true };
+      report.archiveUncertain = {
+        restoredWhenNoticeEnds: true,
+        keptRemovedThroughRefresh: true,
+        resentOnlyOnRetry: true,
+      };
 
       console.log("responsiveness: swipe to reply");
       // 6. Swipe an agent message right in a conversation. The message and

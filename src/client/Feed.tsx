@@ -3766,58 +3766,76 @@ export function Feed({
     pendingArchives.current.add(itemKey);
     remove();
     // Resolves once the server has answered, applied or not, so Undo never
-    // overtakes the hide it reverses.
+    // overtakes the hide it reverses. Until then the card cannot be archived
+    // again from another surface (dismissing).
     let settled: Promise<unknown> = Promise.resolve();
-    let refused = false;
+    let refusal: string | undefined;
     const archived = () => {
-      pendingArchives.current.delete(itemKey);
-      if (current()) startTransition(() => void load());
+      // Keep the card filtered until the follow-up read has replaced any
+      // read that started before the server applied the archive.
+      const revalidated = current()
+        ? new Promise<void>((resolve) =>
+            startTransition(() => void load().finally(resolve)),
+          )
+        : Promise.resolve();
+      void revalidated.finally(() => pendingArchives.current.delete(itemKey));
     };
     const hide = (): Promise<void> =>
-      setHidden(true).then(archived, (e) => {
-        if (owner !== viewOwner() || e instanceof UnavailableResponse) {
-          pendingArchives.current.delete(itemKey);
-          return;
-        }
-        const outcome = writeOutcome(e);
-        if (outcome === "applied") return archived();
-        if (outcome === "refused") {
-          // The server did not archive it: show the card again and why.
-          // This replaces the Undo toast, which has nothing left to undo.
-          pendingArchives.current.delete(itemKey);
-          refused = true;
-          restore();
-          notify({ text: (e as Error).message, tone: "error" });
-          return;
-        }
-        // The outcome is uncertain. Keep the local change (the card stays
-        // hidden here, even if a read returns it) and let the owner resend
-        // the same write; never resend it automatically.
-        notify({
-          text: "Not saved. Removed here only.",
-          tone: "error",
-          link: {
-            label: "Retry",
-            onSelect: () => {
-              if (owner !== viewOwner()) return;
-              remove();
-              settled = hide().catch(() => {});
+      setHidden(true)
+        .then(archived, (e) => {
+          if (owner !== viewOwner() || e instanceof UnavailableResponse) {
+            pendingArchives.current.delete(itemKey);
+            return;
+          }
+          const outcome = writeOutcome(e);
+          if (outcome === "applied") return archived();
+          if (outcome === "refused") {
+            // The server did not archive it: show the card again and why.
+            // This replaces the Undo toast, which has nothing left to undo.
+            pendingArchives.current.delete(itemKey);
+            refusal = (e as Error).message;
+            restore();
+            notify({ text: refusal, tone: "error" });
+            return;
+          }
+          // The outcome is uncertain. While the owner can still act on it,
+          // keep the local change (the card stays hidden here even if a read
+          // returns it) and offer to resend the same write; never resend it
+          // automatically. When the notice ends without Retry, show the card
+          // again: the server may not have archived it.
+          let retried = false;
+          notify({
+            text: "Not saved. Removed here only.",
+            tone: "error",
+            link: {
+              label: "Retry",
+              onSelect: () => {
+                if (owner !== viewOwner()) return;
+                retried = true;
+                pendingArchives.current.add(itemKey);
+                remove();
+                markDismissing(dismissKey, true);
+                settled = hide().catch(() => {});
+              },
             },
-          },
-        });
-      });
+            onExpire: () => {
+              if (retried || owner !== viewOwner()) return;
+              pendingArchives.current.delete(itemKey);
+              restore();
+            },
+          });
+        })
+        .finally(() => markDismissing(dismissKey, false));
     settled = hide().catch(() => {});
     notify({
       text: item.reply ? "Reply archived." : "Removed from Done.",
       undo: async () => {
         if (owner !== viewOwner()) return;
         await settled;
-        // A refused archive was never applied and is already shown again.
-        if (
-          refused ||
-          owner !== viewOwner() ||
-          dismissingRef.current.has(dismissKey)
-        )
+        // A refused archive was never applied and is already shown again;
+        // keep the server's reason on screen instead of "Undone.".
+        if (refusal) throw new Error(refusal);
+        if (owner !== viewOwner() || dismissingRef.current.has(dismissKey))
           return;
         markDismissing(dismissKey, true);
         try {
@@ -3831,7 +3849,6 @@ export function Feed({
         }
       },
     });
-    markDismissing(dismissKey, false);
   }
   async function markReplyRead(item: FeedItem) {
     if (!item.reply || item.reply.read_at !== null || !item.last_message)
