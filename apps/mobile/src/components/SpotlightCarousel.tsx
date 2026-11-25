@@ -8,6 +8,7 @@ import React, {
 import {
   Keyboard,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -37,6 +38,7 @@ import {
   Bookmark,
   BookmarkCheck,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   CornerUpLeft,
@@ -226,7 +228,10 @@ export function SpotlightCarousel({
   const [committedQuery, setCommittedQuery] = useState("");
   const [quickReplyOpen, setQuickReplyOpen] = useState(false);
 
-  // Detached floating Reply composer + file attachments
+  // Detached floating Reply composer + hidden-by-default bottom controls + long-press sheet
+  const [controlsVisible, setControlsVisible] = useState(false);
+  const [actionSheetCard, setActionSheetCard] =
+    useState<NativeResultCard | null>(null);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
@@ -483,10 +488,49 @@ export function SpotlightCarousel({
     setSearchOpen(false);
   }, []);
 
+  const openReplyControls = useCallback((focusInput = true) => {
+    haptics.medium();
+    setControlsVisible(true);
+    if (focusInput) {
+      setTimeout(() => replyInputRef.current?.focus(), 70);
+    }
+  }, []);
+
+  const hideReplyControls = useCallback(() => {
+    haptics.light();
+    Keyboard.dismiss();
+    setControlsVisible(false);
+  }, []);
+
+  const bottomPullUpGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetY([-10, 10])
+        .onEnd((e) => {
+          if (e.translationY < -24 || e.velocityY < -300) {
+            runOnJS(openReplyControls)(true);
+          }
+        }),
+    [openReplyControls],
+  );
+
+  const controlsPullDownGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetY([-10, 10])
+        .onEnd((e) => {
+          if (e.translationY > 24 || e.velocityY > 300) {
+            runOnJS(hideReplyControls)();
+          }
+        }),
+    [hideReplyControls],
+  );
+
   const prefillReply = useCallback((prompt: string) => {
     setDraft(prompt);
     setQuickReplyOpen(false);
-    setTimeout(() => replyInputRef.current?.focus(), 40);
+    setControlsVisible(true);
+    setTimeout(() => replyInputRef.current?.focus(), 70);
   }, []);
 
   const submitReply = useCallback(() => {
@@ -511,6 +555,7 @@ export function SpotlightCarousel({
     setDraft("");
     clearAttachments();
     Keyboard.dismiss();
+    setControlsVisible(false);
     Promise.resolve(onSendReply(activeCard, finalPrompt, readyIds))
       .catch(() => {})
       .finally(() => {
@@ -527,7 +572,10 @@ export function SpotlightCarousel({
   if (!slides.length) return null;
 
   return (
-    <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+    <View
+      style={[StyleSheet.absoluteFill, { zIndex: 30 }]}
+      pointerEvents="box-none"
+    >
       {/* Frosted blurred Feed backdrop */}
       <Animated.View style={[StyleSheet.absoluteFill, backdropAnimatedStyle]}>
         <BlurView
@@ -837,21 +885,10 @@ export function SpotlightCarousel({
                       scrollToSlide(index, true);
                     }}
                     onPullToSearch={() => openSearch()}
-                    onReply={() => {
-                      haptics.light();
-                      replyInputRef.current?.focus();
-                    }}
-                    onToggleSaved={() => {
+                    onPullUpToReply={() => openReplyControls(true)}
+                    onLongPress={() => {
                       haptics.medium();
-                      onToggleSaved(slide);
-                    }}
-                    onRemind={() => {
-                      haptics.light();
-                      onRemind(slide);
-                    }}
-                    onDone={() => {
-                      haptics.success();
-                      onDismissCard(slide);
+                      setActionSheetCard(slide);
                     }}
                     onReplyButton={prefillReply}
                   />
@@ -991,121 +1028,164 @@ export function SpotlightCarousel({
             </View>
           )}
 
-          {/* Sliding-Window Tactile Dot Rail (scales cleanly to large carousels) */}
-          {slides.length > 1 && !keyboardVisible && (
-            <CarouselDotRail
-              total={slides.length}
-              activeIndex={safeIndex}
-              committedQuery={committedQuery}
-              hitIndexes={committedHits.map((h) => h.index)}
-              theme={theme}
-              onSelect={(index) => {
-                haptics.selection();
-                scrollToSlide(index, true);
-              }}
-            />
-          )}
+          {/* Bottom controls bar: hidden by default, revealed on pull-up to reply */}
+          {controlsVisible ? (
+            <View style={styles.controlsRevealWrap}>
+              <GestureDetector gesture={controlsPullDownGesture}>
+                <View style={styles.controlsHandleRow}>
+                  <Pressable
+                    accessibilityLabel="Hide reply controls"
+                    hitSlop={10}
+                    onPress={hideReplyControls}
+                    style={[
+                      styles.controlsCollapseBtn,
+                      {
+                        backgroundColor: theme.soft,
+                        borderColor: theme.line,
+                      },
+                    ]}
+                  >
+                    <ChevronDown size={14} color={theme.muted} />
+                  </Pressable>
+                  {slides.length > 1 && (
+                    <CarouselDotRail
+                      total={slides.length}
+                      activeIndex={safeIndex}
+                      committedQuery={committedQuery}
+                      hitIndexes={committedHits.map((h) => h.index)}
+                      theme={theme}
+                      onSelect={(index) => {
+                        haptics.selection();
+                        scrollToSlide(index, true);
+                      }}
+                    />
+                  )}
+                  <View style={styles.controlsSpacer} />
+                </View>
+              </GestureDetector>
 
-          {/* Detached Floating Reply Pill (Attach + Quick + Input + Open Thread + Send) */}
-          <View style={styles.replyFloatWrap}>
-            <AttachmentChipStrip
-              attachments={replyAttachments.attachments}
-              theme={theme}
-              onRemove={replyAttachments.removeAttachment}
-            />
-            <View
-              style={[
-                styles.replyPill,
-                {
-                  backgroundColor: theme.pillBg,
-                  borderColor: theme.line,
-                },
-              ]}
-            >
-              <Pressable
-                accessibilityLabel="Attach photo or file"
-                disabled={!replyAttachments.canAddMore}
-                onPress={() => {
-                  haptics.light();
-                  Keyboard.dismiss();
-                  replyAttachments.setPickerOpen(true);
-                }}
-                style={[
-                  styles.replyQuickBtn,
-                  !replyAttachments.canAddMore && { opacity: 0.4 },
-                ]}
-              >
-                <Paperclip
-                  size={16}
-                  color={
-                    replyAttachments.attachments.length > 0
-                      ? theme.brassText
-                      : theme.muted
-                  }
+              {/* Detached Floating Reply Pill (Attach + Quick + Input + Open Thread + Send) */}
+              <View style={styles.replyFloatWrap}>
+                <AttachmentChipStrip
+                  attachments={replyAttachments.attachments}
+                  theme={theme}
+                  onRemove={replyAttachments.removeAttachment}
                 />
-              </Pressable>
-              <Pressable
-                accessibilityLabel="Quick replies and snippets"
-                onPress={() => {
-                  haptics.light();
-                  setQuickReplyOpen(true);
-                }}
-                style={styles.replyQuickBtn}
-              >
-                <Zap size={16} color={theme.brassText} />
-              </Pressable>
-              <TextInput
-                ref={replyInputRef}
-                value={draft}
-                onChangeText={setDraft}
-                placeholder={`Reply to @${agentName}…`}
-                placeholderTextColor={theme.muted}
-                style={[styles.replyInput, { color: theme.text }]}
-                multiline
-                maxLength={1200}
-                returnKeyType="default"
-              />
-              {onOpenThread && activeCard && (
-                <Pressable
-                  accessibilityLabel="Open full thread"
-                  onPress={() => {
-                    haptics.light();
-                    onOpenThread(activeCard);
-                  }}
-                  style={styles.replyOpenThreadBtn}
+                <View
+                  style={[
+                    styles.replyPill,
+                    {
+                      backgroundColor: theme.pillBg,
+                      borderColor: theme.line,
+                    },
+                  ]}
                 >
-                  <ArrowUpRight size={17} color={theme.muted} />
-                </Pressable>
-              )}
-              <Pressable
-                accessibilityLabel="Send reply"
-                disabled={
-                  (!draft.trim() && replyAttachments.readyIds.length === 0) ||
-                  replyAttachments.uploading ||
-                  sending
-                }
-                onPress={submitReply}
-                style={({ pressed }) => [
-                  styles.replySendBtn,
-                  {
-                    backgroundColor: theme.brass,
-                    opacity:
+                  <Pressable
+                    accessibilityLabel="Attach photo or file"
+                    disabled={!replyAttachments.canAddMore}
+                    onPress={() => {
+                      haptics.light();
+                      Keyboard.dismiss();
+                      replyAttachments.setPickerOpen(true);
+                    }}
+                    style={[
+                      styles.replyQuickBtn,
+                      !replyAttachments.canAddMore && { opacity: 0.4 },
+                    ]}
+                  >
+                    <Paperclip
+                      size={16}
+                      color={
+                        replyAttachments.attachments.length > 0
+                          ? theme.brassText
+                          : theme.muted
+                      }
+                    />
+                  </Pressable>
+                  <Pressable
+                    accessibilityLabel="Quick replies and snippets"
+                    onPress={() => {
+                      haptics.light();
+                      setQuickReplyOpen(true);
+                    }}
+                    style={styles.replyQuickBtn}
+                  >
+                    <Zap size={16} color={theme.brassText} />
+                  </Pressable>
+                  <TextInput
+                    ref={replyInputRef}
+                    value={draft}
+                    onChangeText={setDraft}
+                    placeholder={`Reply to @${agentName}…`}
+                    placeholderTextColor={theme.muted}
+                    style={[styles.replyInput, { color: theme.text }]}
+                    multiline
+                    maxLength={1200}
+                    returnKeyType="default"
+                  />
+                  {onOpenThread && activeCard && (
+                    <Pressable
+                      accessibilityLabel="Open full thread"
+                      onPress={() => {
+                        haptics.light();
+                        onOpenThread(activeCard);
+                      }}
+                      style={styles.replyOpenThreadBtn}
+                    >
+                      <ArrowUpRight size={17} color={theme.muted} />
+                    </Pressable>
+                  )}
+                  <Pressable
+                    accessibilityLabel="Send reply"
+                    disabled={
                       (!draft.trim() &&
                         replyAttachments.readyIds.length === 0) ||
                       replyAttachments.uploading ||
                       sending
-                        ? 0.36
-                        : pressed
-                          ? 0.85
-                          : 1,
-                    transform: [{ scale: pressed ? 0.93 : 1 }],
-                  },
-                ]}
-              >
-                <ArrowUp size={17} color={theme.onBrass} strokeWidth={2.4} />
-              </Pressable>
+                    }
+                    onPress={submitReply}
+                    style={({ pressed }) => [
+                      styles.replySendBtn,
+                      {
+                        backgroundColor: theme.brass,
+                        opacity:
+                          (!draft.trim() &&
+                            replyAttachments.readyIds.length === 0) ||
+                          replyAttachments.uploading ||
+                          sending
+                            ? 0.36
+                            : pressed
+                              ? 0.85
+                              : 1,
+                        transform: [{ scale: pressed ? 0.93 : 1 }],
+                      },
+                    ]}
+                  >
+                    <ArrowUp
+                      size={17}
+                      color={theme.onBrass}
+                      strokeWidth={2.4}
+                    />
+                  </Pressable>
+                </View>
+              </View>
             </View>
-          </View>
+          ) : (
+            <GestureDetector gesture={bottomPullUpGesture}>
+              <Pressable
+                accessibilityLabel="Pull up to reply"
+                onPress={() => openReplyControls(true)}
+                style={styles.bottomEdgeZone}
+              >
+                <View
+                  style={[
+                    styles.bottomEdgePill,
+                    { backgroundColor: theme.line },
+                  ]}
+                />
+              </Pressable>
+            </GestureDetector>
+          )}
         </Animated.View>
       </KeyboardAvoidingView>
 
@@ -1117,6 +1197,219 @@ export function SpotlightCarousel({
         onTakePhoto={() => void replyAttachments.takePhoto()}
         onPickFile={() => void replyAttachments.pickDocument()}
       />
+
+      {/* Long-press Card Actions Sheet (Save, Remind, Reply, Mark Done, Open Thread) */}
+      <Modal
+        visible={Boolean(actionSheetCard)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setActionSheetCard(null)}
+      >
+        <Pressable
+          style={[
+            styles.actionModalBackdrop,
+            { backgroundColor: "rgba(0,0,0,0.48)" },
+          ]}
+          onPress={() => setActionSheetCard(null)}
+        >
+          {actionSheetCard && (
+            <Pressable
+              onPress={() => {}}
+              style={[
+                styles.quickSheet,
+                {
+                  backgroundColor: theme.surface,
+                  borderColor: theme.line,
+                  paddingBottom: Math.max(insets.bottom + 14, 22),
+                },
+              ]}
+            >
+              <View style={styles.quickSheetHead}>
+                <View style={styles.actionHeadMeta}>
+                  <Text
+                    style={[styles.quickSheetTitle, { color: theme.text }]}
+                    numberOfLines={1}
+                  >
+                    {actionSheetCard.fallbackTitle ||
+                      `@${actionSheetCard.agentName}`}
+                  </Text>
+                  <Text style={[styles.actionHeadSub, { color: theme.muted }]}>
+                    @{actionSheetCard.agentName} ·{" "}
+                    {relativeTime(actionSheetCard.createdAt)}
+                  </Text>
+                </View>
+                <Pressable
+                  hitSlop={8}
+                  onPress={() => {
+                    haptics.light();
+                    setActionSheetCard(null);
+                  }}
+                >
+                  <X size={18} color={theme.muted} />
+                </Pressable>
+              </View>
+
+              <Pressable
+                onPress={() => {
+                  const target = actionSheetCard;
+                  setActionSheetCard(null);
+                  haptics.medium();
+                  onToggleSaved(target);
+                }}
+                style={({ pressed }) => [
+                  styles.quickOption,
+                  {
+                    backgroundColor: pressed ? theme.attention : theme.soft,
+                    borderColor: actionSheetCard.saved
+                      ? theme.attentionLine
+                      : theme.line,
+                  },
+                ]}
+              >
+                {actionSheetCard.saved ? (
+                  <BookmarkCheck size={18} color={theme.brassText} />
+                ) : (
+                  <Bookmark size={18} color={theme.brassText} />
+                )}
+                <View style={styles.quickOptionText}>
+                  <Text
+                    style={[styles.quickOptionLabel, { color: theme.text }]}
+                  >
+                    {actionSheetCard.saved ? "Remove from Saved" : "Save card"}
+                  </Text>
+                  <Text
+                    style={[styles.quickOptionHint, { color: theme.muted }]}
+                  >
+                    {actionSheetCard.saved
+                      ? "Unbookmark this answer"
+                      : "Keep this answer in your Saved library"}
+                  </Text>
+                </View>
+              </Pressable>
+
+              <Pressable
+                onPress={() => {
+                  const target = actionSheetCard;
+                  setActionSheetCard(null);
+                  haptics.light();
+                  onRemind(target);
+                }}
+                style={({ pressed }) => [
+                  styles.quickOption,
+                  {
+                    backgroundColor: pressed ? theme.attention : theme.soft,
+                    borderColor: theme.line,
+                  },
+                ]}
+              >
+                <AlarmClock size={18} color={theme.brassText} />
+                <View style={styles.quickOptionText}>
+                  <Text
+                    style={[styles.quickOptionLabel, { color: theme.text }]}
+                  >
+                    Remind me…
+                  </Text>
+                  <Text
+                    style={[styles.quickOptionHint, { color: theme.muted }]}
+                  >
+                    Bring this card back later or when a run finishes
+                  </Text>
+                </View>
+              </Pressable>
+
+              <Pressable
+                onPress={() => {
+                  setActionSheetCard(null);
+                  openReplyControls(true);
+                }}
+                style={({ pressed }) => [
+                  styles.quickOption,
+                  {
+                    backgroundColor: pressed ? theme.attention : theme.soft,
+                    borderColor: theme.line,
+                  },
+                ]}
+              >
+                <CornerUpLeft size={18} color={theme.text} />
+                <View style={styles.quickOptionText}>
+                  <Text
+                    style={[styles.quickOptionLabel, { color: theme.text }]}
+                  >
+                    Reply to @{actionSheetCard.agentName}
+                  </Text>
+                  <Text
+                    style={[styles.quickOptionHint, { color: theme.muted }]}
+                  >
+                    Open reply bar and carousel controls
+                  </Text>
+                </View>
+              </Pressable>
+
+              <Pressable
+                onPress={() => {
+                  const target = actionSheetCard;
+                  setActionSheetCard(null);
+                  haptics.success();
+                  onDismissCard(target);
+                }}
+                style={({ pressed }) => [
+                  styles.quickOption,
+                  {
+                    backgroundColor: pressed ? theme.greenSoft : theme.soft,
+                    borderColor: theme.line,
+                  },
+                ]}
+              >
+                <Check size={18} color={theme.green} />
+                <View style={styles.quickOptionText}>
+                  <Text
+                    style={[styles.quickOptionLabel, { color: theme.text }]}
+                  >
+                    Mark done
+                  </Text>
+                  <Text
+                    style={[styles.quickOptionHint, { color: theme.muted }]}
+                  >
+                    Clear this card from Done
+                  </Text>
+                </View>
+              </Pressable>
+
+              {onOpenThread && (
+                <Pressable
+                  onPress={() => {
+                    const target = actionSheetCard;
+                    setActionSheetCard(null);
+                    haptics.light();
+                    onOpenThread(target);
+                  }}
+                  style={({ pressed }) => [
+                    styles.quickOption,
+                    {
+                      backgroundColor: pressed ? theme.raised : theme.soft,
+                      borderColor: theme.line,
+                    },
+                  ]}
+                >
+                  <ArrowUpRight size={18} color={theme.muted} />
+                  <View style={styles.quickOptionText}>
+                    <Text
+                      style={[styles.quickOptionLabel, { color: theme.text }]}
+                    >
+                      Open full thread
+                    </Text>
+                    <Text
+                      style={[styles.quickOptionHint, { color: theme.muted }]}
+                    >
+                      View complete chronological conversation
+                    </Text>
+                  </View>
+                </Pressable>
+              )}
+            </Pressable>
+          )}
+        </Pressable>
+      </Modal>
 
       {/* Frosted Quick Reply Sheet */}
       {quickReplyOpen && (
@@ -1232,10 +1525,8 @@ function FloatingCarouselCard({
   theme,
   onSelectNeighbor,
   onPullToSearch,
-  onReply,
-  onToggleSaved,
-  onRemind,
-  onDone,
+  onPullUpToReply,
+  onLongPress,
   onReplyButton,
 }: {
   slide: NativeResultCard;
@@ -1249,17 +1540,35 @@ function FloatingCarouselCard({
   theme: LoopTheme;
   onSelectNeighbor: () => void;
   onPullToSearch: () => void;
-  onReply: () => void;
-  onToggleSaved: () => void;
-  onRemind: () => void;
-  onDone: () => void;
+  onPullUpToReply: () => void;
+  onLongPress: () => void;
   onReplyButton: (prompt: string) => void;
 }) {
   const [pullHint, setPullHint] = useState<"idle" | "pulling" | "ready">(
     "idle",
   );
+  const [pullUpHint, setPullUpHint] = useState<"idle" | "pulling" | "ready">(
+    "idle",
+  );
   const pullArmedRef = useRef(false);
   const lastPullYRef = useRef(0);
+  const pullUpArmedRef = useRef(false);
+  const lastBottomPullRef = useRef(0);
+  const viewportHeightRef = useRef(0);
+  const contentHeightRef = useRef(0);
+
+  const longPressGesture = useMemo(
+    () =>
+      Gesture.LongPress()
+        .enabled(isActive)
+        .minDuration(380)
+        .maxDistance(12)
+        .onStart(() => {
+          runOnJS(onLongPress)();
+        }),
+    [isActive, onLongPress],
+  );
+
   const animatedCardStyle = useAnimatedStyle(() => {
     const inputRange = [
       (index - 1) * snapInterval,
@@ -1423,146 +1732,131 @@ function FloatingCarouselCard({
         </View>
       )}
 
-      {/* Scrollable Card Body with pull-down-to-search + smart 3-line expandable title */}
-      <ScrollView
-        style={styles.cardScroll}
-        contentContainerStyle={styles.cardScrollContent}
-        showsVerticalScrollIndicator={false}
-        bounces
-        alwaysBounceVertical
-        nestedScrollEnabled
-        scrollEventThrottle={16}
-        onScroll={(e) => {
-          const y = e.nativeEvent.contentOffset.y;
-          lastPullYRef.current = y;
-          if (y < -62) {
-            if (!pullArmedRef.current) {
-              pullArmedRef.current = true;
-              haptics.light();
-              setPullHint("ready");
+      {/* Scrollable Card Body: pull down to search, pull up to reply, long-press for Save/Remind */}
+      <GestureDetector gesture={longPressGesture}>
+        <ScrollView
+          style={styles.cardScroll}
+          contentContainerStyle={styles.cardScrollContent}
+          showsVerticalScrollIndicator={false}
+          bounces
+          alwaysBounceVertical
+          nestedScrollEnabled
+          scrollEventThrottle={16}
+          onLayout={(e) => {
+            viewportHeightRef.current = e.nativeEvent.layout.height;
+          }}
+          onContentSizeChange={(_w, h) => {
+            contentHeightRef.current = h;
+          }}
+          onScroll={(e) => {
+            const y = e.nativeEvent.contentOffset.y;
+            lastPullYRef.current = y;
+
+            // Pull down at top -> search thread
+            if (y < -62) {
+              if (!pullArmedRef.current) {
+                pullArmedRef.current = true;
+                haptics.light();
+                setPullHint("ready");
+              }
+            } else if (y < -20) {
+              pullArmedRef.current = false;
+              if (pullHint !== "pulling") setPullHint("pulling");
+            } else if (pullHint !== "idle") {
+              pullArmedRef.current = false;
+              setPullHint("idle");
             }
-          } else if (y < -20) {
+
+            // Pull up at bottom -> open reply box & bottom controls
+            const maxScroll = Math.max(
+              0,
+              contentHeightRef.current - viewportHeightRef.current,
+            );
+            const bottomPull = y - maxScroll;
+            lastBottomPullRef.current = bottomPull;
+            if (bottomPull > 54) {
+              if (!pullUpArmedRef.current) {
+                pullUpArmedRef.current = true;
+                haptics.light();
+                setPullUpHint("ready");
+              }
+            } else if (bottomPull > 18) {
+              pullUpArmedRef.current = false;
+              if (pullUpHint !== "pulling") setPullUpHint("pulling");
+            } else if (pullUpHint !== "idle") {
+              pullUpArmedRef.current = false;
+              setPullUpHint("idle");
+            }
+          }}
+          onScrollEndDrag={() => {
+            const shouldSearch =
+              pullArmedRef.current || lastPullYRef.current < -62;
+            const shouldReply =
+              pullUpArmedRef.current || lastBottomPullRef.current > 54;
             pullArmedRef.current = false;
-            if (pullHint !== "pulling") setPullHint("pulling");
-          } else if (pullHint !== "idle") {
-            pullArmedRef.current = false;
+            pullUpArmedRef.current = false;
             setPullHint("idle");
-          }
-        }}
-        onScrollEndDrag={() => {
-          const shouldSearch =
-            pullArmedRef.current || lastPullYRef.current < -62;
-          pullArmedRef.current = false;
-          setPullHint("idle");
-          if (shouldSearch) {
-            onPullToSearch();
-          }
-        }}
-      >
-        <CarouselCardTitle
-          title={header.title}
-          compact={header.compactTitle}
-          theme={theme}
-        />
-
-        {header.promptQuote && (
-          <CarouselPromptQuote prompt={header.promptQuote} theme={theme} />
-        )}
-
-        <RichContent
-          content={slide.body}
-          theme={theme}
-          onReplyButton={onReplyButton}
-          skipLeadingHeading={
-            header.titleSource === "heading" ? header.title : undefined
-          }
-        />
-      </ScrollView>
-
-      {/* Per-card discrete action footer: Reply | Save | Remind | Done */}
-      <View
-        style={[
-          styles.cardFooter,
-          {
-            borderTopColor: theme.line,
-            backgroundColor: theme.surface,
-          },
-        ]}
-      >
-        <Pressable
-          onPress={onReply}
-          style={({ pressed }) => [
-            styles.chipBtn,
-            {
-              backgroundColor: theme.attention,
-              borderColor: theme.attentionLine,
-              transform: [{ scale: pressed ? 0.95 : 1 }],
-            },
-          ]}
+            setPullUpHint("idle");
+            if (shouldSearch) {
+              onPullToSearch();
+            } else if (shouldReply) {
+              onPullUpToReply();
+            }
+          }}
         >
-          <CornerUpLeft size={13} color={theme.brassText} />
-          <Text style={[styles.chipText, { color: theme.brassText }]}>
-            Reply
-          </Text>
-        </Pressable>
+          <CarouselCardTitle
+            title={header.title}
+            compact={header.compactTitle}
+            theme={theme}
+          />
 
-        <Pressable
-          onPress={onToggleSaved}
-          style={({ pressed }) => [
-            styles.chipBtn,
-            {
-              backgroundColor: slide.saved ? theme.attention : theme.soft,
-              borderColor: slide.saved ? theme.attentionLine : theme.line,
-              transform: [{ scale: pressed ? 0.95 : 1 }],
-            },
-          ]}
-        >
-          {slide.saved ? (
-            <BookmarkCheck size={13} color={theme.brassText} />
-          ) : (
-            <Bookmark size={13} color={theme.text} />
+          {header.promptQuote && (
+            <CarouselPromptQuote prompt={header.promptQuote} theme={theme} />
           )}
-          <Text
+
+          <RichContent
+            content={slide.body}
+            theme={theme}
+            onReplyButton={onReplyButton}
+            skipLeadingHeading={
+              header.titleSource === "heading" ? header.title : undefined
+            }
+          />
+        </ScrollView>
+      </GestureDetector>
+
+      {/* Pull-up-to-reply tactile indicator */}
+      {pullUpHint !== "idle" && (
+        <View style={styles.pullReplyBar} pointerEvents="none">
+          <View
             style={[
-              styles.chipText,
-              { color: slide.saved ? theme.brassText : theme.text },
+              styles.pullSearchPill,
+              {
+                backgroundColor:
+                  pullUpHint === "ready" ? theme.attention : theme.soft,
+                borderColor: pullUpHint === "ready" ? theme.brass : theme.line,
+              },
             ]}
           >
-            {slide.saved ? "Saved" : "Save"}
-          </Text>
-        </Pressable>
-
-        <Pressable
-          onPress={onRemind}
-          style={({ pressed }) => [
-            styles.chipBtn,
-            {
-              backgroundColor: theme.soft,
-              borderColor: theme.line,
-              transform: [{ scale: pressed ? 0.95 : 1 }],
-            },
-          ]}
-        >
-          <AlarmClock size={13} color={theme.text} />
-          <Text style={[styles.chipText, { color: theme.text }]}>Remind</Text>
-        </Pressable>
-
-        <Pressable
-          onPress={onDone}
-          style={({ pressed }) => [
-            styles.chipBtn,
-            styles.chipDone,
-            {
-              backgroundColor: theme.soft,
-              borderColor: theme.line,
-              transform: [{ scale: pressed ? 0.95 : 1 }],
-            },
-          ]}
-        >
-          <Check size={13} color={theme.text} />
-          <Text style={[styles.chipText, { color: theme.text }]}>Done</Text>
-        </Pressable>
-      </View>
+            <CornerUpLeft
+              size={12}
+              color={pullUpHint === "ready" ? theme.brassText : theme.muted}
+            />
+            <Text
+              style={[
+                styles.pullSearchText,
+                {
+                  color: pullUpHint === "ready" ? theme.brassText : theme.muted,
+                },
+              ]}
+            >
+              {pullUpHint === "ready"
+                ? "Release to reply"
+                : "Pull up to reply…"}
+            </Text>
+          </View>
+        </View>
+      )}
     </Animated.View>
   );
 }
@@ -2066,14 +2360,14 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
   },
   cardTitle: {
-    fontSize: 19,
-    lineHeight: 25,
+    fontSize: 21,
+    lineHeight: 27,
     fontWeight: "700",
     letterSpacing: -0.3,
   },
   cardTitleCompact: {
-    fontSize: 17,
-    lineHeight: 23,
+    fontSize: 18.5,
+    lineHeight: 25,
     fontWeight: "600",
   },
   expandToggle: {
@@ -2084,14 +2378,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   expandToggleText: {
-    fontSize: 11,
+    fontSize: 11.5,
     fontWeight: "700",
   },
   promptQuote: {
     borderRadius: 12,
     borderWidth: 1,
-    paddingHorizontal: 11,
-    paddingVertical: 9,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     marginBottom: 14,
     gap: 4,
   },
@@ -2101,13 +2395,63 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   promptLabel: {
-    fontSize: 10,
+    fontSize: 10.5,
     fontWeight: "700",
     letterSpacing: 0.6,
   },
   promptBody: {
-    fontSize: 13,
-    lineHeight: 19,
+    fontSize: 14.5,
+    lineHeight: 21,
+  },
+  controlsRevealWrap: {
+    paddingTop: 2,
+  },
+  controlsHandleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 4,
+    minHeight: 32,
+  },
+  controlsCollapseBtn: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  controlsSpacer: {
+    width: 26,
+  },
+  bottomEdgeZone: {
+    height: 24,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  bottomEdgePill: {
+    width: 38,
+    height: 4,
+    borderRadius: 2,
+    opacity: 0.55,
+  },
+  pullReplyBar: {
+    alignItems: "center",
+    paddingVertical: 8,
+  },
+  actionModalBackdrop: {
+    flex: 1,
+    justifyContent: "flex-end",
+  },
+  actionHeadMeta: {
+    flex: 1,
+    marginRight: 10,
+    gap: 2,
+  },
+  actionHeadSub: {
+    fontSize: 12,
+    fontWeight: "500",
   },
   cardFooter: {
     flexDirection: "row",

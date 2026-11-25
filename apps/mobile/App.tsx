@@ -833,94 +833,96 @@ function LoopShell() {
           </Pressable>
         )}
 
-      {/* Frosted Native 5-Tab Bottom Bar */}
-      <View
-        style={[
-          styles.tabBarOuter,
-          {
-            paddingBottom: Math.max(insets.bottom, 10),
-            borderTopColor: theme.line,
-          },
-        ]}
-      >
-        <BlurView
-          intensity={75}
-          tint={theme.blurTint}
-          style={StyleSheet.absoluteFill}
-        />
+      {/* Frosted Native 5-Tab Bottom Bar (hidden while Spotlight Carousel is open) */}
+      {!openConversationId && (
         <View
           style={[
-            StyleSheet.absoluteFill,
+            styles.tabBarOuter,
             {
-              backgroundColor: theme.isDark
-                ? "rgba(20, 20, 18, 0.72)"
-                : "rgba(255, 255, 255, 0.78)",
+              paddingBottom: Math.max(insets.bottom, 10),
+              borderTopColor: theme.line,
             },
           ]}
-        />
+        >
+          <BlurView
+            intensity={75}
+            tint={theme.blurTint}
+            style={StyleSheet.absoluteFill}
+          />
+          <View
+            style={[
+              StyleSheet.absoluteFill,
+              {
+                backgroundColor: theme.isDark
+                  ? "rgba(20, 20, 18, 0.72)"
+                  : "rgba(255, 255, 255, 0.78)",
+              },
+            ]}
+          />
 
-        <BottomTabButton
-          label="Feed"
-          active={appTab === "feed"}
-          badge={feedBadgeCount}
-          theme={theme}
-          icon={
-            <Inbox
-              size={20}
-              color={appTab === "feed" ? theme.brassText : theme.muted}
-            />
-          }
-          onPress={() => selectBottomTab("feed")}
-        />
-        <BottomTabButton
-          label="Projects"
-          active={appTab === "projects"}
-          theme={theme}
-          icon={
-            <Folder
-              size={20}
-              color={appTab === "projects" ? theme.brassText : theme.muted}
-            />
-          }
-          onPress={() => selectBottomTab("projects")}
-        />
-        <BottomTabButton
-          label="PRs"
-          active={appTab === "pulls"}
-          theme={theme}
-          icon={
-            <GitPullRequest
-              size={20}
-              color={appTab === "pulls" ? theme.brassText : theme.muted}
-            />
-          }
-          onPress={() => selectBottomTab("pulls")}
-        />
-        <BottomTabButton
-          label="Search"
-          active={appTab === "search"}
-          theme={theme}
-          icon={
-            <Search
-              size={20}
-              color={appTab === "search" ? theme.brassText : theme.muted}
-            />
-          }
-          onPress={() => selectBottomTab("search")}
-        />
-        <BottomTabButton
-          label="Profile"
-          active={appTab === "profile"}
-          theme={theme}
-          icon={
-            <UserRound
-              size={20}
-              color={appTab === "profile" ? theme.brassText : theme.muted}
-            />
-          }
-          onPress={() => selectBottomTab("profile")}
-        />
-      </View>
+          <BottomTabButton
+            label="Feed"
+            active={appTab === "feed"}
+            badge={feedBadgeCount}
+            theme={theme}
+            icon={
+              <Inbox
+                size={20}
+                color={appTab === "feed" ? theme.brassText : theme.muted}
+              />
+            }
+            onPress={() => selectBottomTab("feed")}
+          />
+          <BottomTabButton
+            label="Projects"
+            active={appTab === "projects"}
+            theme={theme}
+            icon={
+              <Folder
+                size={20}
+                color={appTab === "projects" ? theme.brassText : theme.muted}
+              />
+            }
+            onPress={() => selectBottomTab("projects")}
+          />
+          <BottomTabButton
+            label="PRs"
+            active={appTab === "pulls"}
+            theme={theme}
+            icon={
+              <GitPullRequest
+                size={20}
+                color={appTab === "pulls" ? theme.brassText : theme.muted}
+              />
+            }
+            onPress={() => selectBottomTab("pulls")}
+          />
+          <BottomTabButton
+            label="Search"
+            active={appTab === "search"}
+            theme={theme}
+            icon={
+              <Search
+                size={20}
+                color={appTab === "search" ? theme.brassText : theme.muted}
+              />
+            }
+            onPress={() => selectBottomTab("search")}
+          />
+          <BottomTabButton
+            label="Profile"
+            active={appTab === "profile"}
+            theme={theme}
+            icon={
+              <UserRound
+                size={20}
+                color={appTab === "profile" ? theme.brassText : theme.muted}
+              />
+            }
+            onPress={() => selectBottomTab("profile")}
+          />
+        </View>
+      )}
 
       {/* Spotlight Stage Floating Carousel */}
       {openConversationId && openCarouselCards.length > 0 && (

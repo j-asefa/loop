@@ -15,7 +15,13 @@ import Svg, {
   Rect,
   SvgXml,
 } from "react-native-svg";
-import { CornerDownRight, ExternalLink } from "lucide-react-native";
+import {
+  CheckSquare,
+  CornerDownRight,
+  ExternalLink,
+  FileCode2,
+  Square,
+} from "lucide-react-native";
 import { getAgentArt } from "../agentArt";
 import { haptics } from "../haptics";
 import type { LoopTheme } from "../theme";
@@ -112,42 +118,170 @@ function parseSpecBlock(source: string): ParsedSpec | null {
 
 type InlineToken =
   | { kind: "text"; text: string }
-  | { kind: "bold"; text: string }
-  | { kind: "italic"; text: string }
+  | { kind: "bold"; children: InlineToken[] }
+  | { kind: "italic"; children: InlineToken[] }
+  | { kind: "boldItalic"; children: InlineToken[] }
+  | { kind: "strike"; children: InlineToken[] }
   | { kind: "code"; text: string }
-  | { kind: "link"; label: string; url: string };
+  | { kind: "link"; label: string; url: string; isLocalFile?: boolean };
 
-function tokenizeInline(text: string): InlineToken[] {
+function tokenizeInline(text: string, depth = 0): InlineToken[] {
+  if (!text || depth > 4) return text ? [{ kind: "text", text }] : [];
   const tokens: InlineToken[] = [];
+
+  // Order matters: inline code first (protects inner syntax), then links,
+  // then bold+italic, bold, strike, italic, bare URLs, escaped punctuation.
   const pattern =
-    /(\[[^\]]+\]\(https?:\/\/[^)\s]+\)|\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*)/g;
+    /(``[^`]+``|`[^`\n]+`|\[([^\]]+)\]\(((?:https?|exps|mailto|file):\/\/[^)\s]+|mailto:[^)\s]+)\)|\*\*\*([^*\n]+?)\*\*\*|___([^_\n]+?)___|\*\*((?:[^*]|\*(?!\*))+?)\*\*|(?<!\w)__((?:[^_]|_(?!_))+)__(?!\w)|~~([^~\n]+?)~~|\*([^*\n]+?)\*|(?<!\w)_([^_\n]+?)_(?!\w)|(https?:\/\/[^\s<>()]+)|\\([\\`*_{}[\]()#+\-.!~|]))/g;
+
   let lastIndex = 0;
   let match: RegExpExecArray | null;
+
   while ((match = pattern.exec(text)) !== null) {
     if (match.index > lastIndex) {
       tokens.push({ kind: "text", text: text.slice(lastIndex, match.index) });
     }
     const raw = match[0];
-    if (raw.startsWith("[")) {
-      const linkMatch = /^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/.exec(raw);
-      if (linkMatch) {
-        tokens.push({ kind: "link", label: linkMatch[1], url: linkMatch[2] });
-      } else {
-        tokens.push({ kind: "text", text: raw });
-      }
-    } else if (raw.startsWith("**") && raw.endsWith("**")) {
-      tokens.push({ kind: "bold", text: raw.slice(2, -2) });
-    } else if (raw.startsWith("`") && raw.endsWith("`")) {
+
+    if (raw.startsWith("``") && raw.endsWith("``") && raw.length > 4) {
+      tokens.push({ kind: "code", text: raw.slice(2, -2).trim() });
+    } else if (raw.startsWith("`") && raw.endsWith("`") && raw.length > 2) {
       tokens.push({ kind: "code", text: raw.slice(1, -1) });
-    } else if (raw.startsWith("*") && raw.endsWith("*")) {
-      tokens.push({ kind: "italic", text: raw.slice(1, -1) });
+    } else if (match[2] !== undefined && match[3] !== undefined) {
+      const url = match[3];
+      tokens.push({
+        kind: "link",
+        label: match[2],
+        url,
+        isLocalFile: url.startsWith("file://"),
+      });
+    } else if (match[4] !== undefined || match[5] !== undefined) {
+      const inner = match[4] ?? match[5];
+      tokens.push({
+        kind: "boldItalic",
+        children: tokenizeInline(inner, depth + 1),
+      });
+    } else if (match[6] !== undefined || match[7] !== undefined) {
+      const inner = match[6] ?? match[7];
+      tokens.push({
+        kind: "bold",
+        children: tokenizeInline(inner, depth + 1),
+      });
+    } else if (match[8] !== undefined) {
+      tokens.push({
+        kind: "strike",
+        children: tokenizeInline(match[8], depth + 1),
+      });
+    } else if (match[9] !== undefined || match[10] !== undefined) {
+      const inner = match[9] ?? match[10];
+      tokens.push({
+        kind: "italic",
+        children: tokenizeInline(inner, depth + 1),
+      });
+    } else if (match[11] !== undefined) {
+      // Trim trailing sentence punctuation from bare URLs
+      const cleaned = match[11].replace(/[.,;:!?]+$/, "");
+      const trailing = match[11].slice(cleaned.length);
+      tokens.push({ kind: "link", label: cleaned, url: cleaned });
+      if (trailing) tokens.push({ kind: "text", text: trailing });
+    } else if (match[12] !== undefined) {
+      tokens.push({ kind: "text", text: match[12] });
+    } else {
+      tokens.push({ kind: "text", text: raw });
     }
+
     lastIndex = match.index + raw.length;
   }
+
   if (lastIndex < text.length) {
     tokens.push({ kind: "text", text: text.slice(lastIndex) });
   }
   return tokens;
+}
+
+function renderInlineTokens(
+  tokens: InlineToken[],
+  theme: LoopTheme,
+  keyPrefix = "",
+): React.ReactNode[] {
+  return tokens.map((tok, idx) => {
+    const key = `${keyPrefix}${idx}`;
+    if (tok.kind === "bold") {
+      return (
+        <Text key={key} style={styles.bold}>
+          {renderInlineTokens(tok.children, theme, `${key}-`)}
+        </Text>
+      );
+    }
+    if (tok.kind === "italic") {
+      return (
+        <Text key={key} style={styles.italic}>
+          {renderInlineTokens(tok.children, theme, `${key}-`)}
+        </Text>
+      );
+    }
+    if (tok.kind === "boldItalic") {
+      return (
+        <Text key={key} style={[styles.bold, styles.italic]}>
+          {renderInlineTokens(tok.children, theme, `${key}-`)}
+        </Text>
+      );
+    }
+    if (tok.kind === "strike") {
+      return (
+        <Text key={key} style={[styles.strike, { color: theme.muted }]}>
+          {renderInlineTokens(tok.children, theme, `${key}-`)}
+        </Text>
+      );
+    }
+    if (tok.kind === "code") {
+      return (
+        <Text
+          key={key}
+          style={[
+            styles.inlineCode,
+            {
+              backgroundColor: theme.raised,
+              color: theme.brassText,
+            },
+          ]}
+        >
+          {` ${tok.text} `}
+        </Text>
+      );
+    }
+    if (tok.kind === "link") {
+      if (tok.isLocalFile) {
+        return (
+          <Text
+            key={key}
+            style={[
+              styles.inlineCode,
+              {
+                backgroundColor: theme.raised,
+                color: theme.brassText,
+              },
+            ]}
+          >
+            {` ${tok.label} `}
+          </Text>
+        );
+      }
+      return (
+        <Text
+          key={key}
+          style={{ color: theme.blue, textDecorationLine: "underline" }}
+          onPress={() => {
+            haptics.light();
+            void Linking.openURL(tok.url).catch(() => {});
+          }}
+        >
+          {renderInlineTokens(tokenizeInline(tok.label, 1), theme, `${key}-l-`)}
+        </Text>
+      );
+    }
+    return <React.Fragment key={key}>{tok.text}</React.Fragment>;
+  });
 }
 
 export function InlineFormattedText({
@@ -170,139 +304,209 @@ export function InlineFormattedText({
       numberOfLines={numberOfLines}
       onTextLayout={onTextLayout}
     >
-      {tokens.map((tok, idx) => {
-        if (tok.kind === "bold") {
-          return (
-            <Text key={idx} style={styles.bold}>
-              {tok.text}
-            </Text>
-          );
-        }
-        if (tok.kind === "italic") {
-          return (
-            <Text key={idx} style={styles.italic}>
-              {tok.text}
-            </Text>
-          );
-        }
-        if (tok.kind === "code") {
-          return (
-            <Text
-              key={idx}
-              style={[
-                styles.inlineCode,
-                {
-                  backgroundColor: theme.raised,
-                  color: theme.brassText,
-                },
-              ]}
-            >
-              {` ${tok.text} `}
-            </Text>
-          );
-        }
-        if (tok.kind === "link") {
-          return (
-            <Text
-              key={idx}
-              style={{ color: theme.blue, textDecorationLine: "underline" }}
-              onPress={() => {
-                haptics.light();
-                void Linking.openURL(tok.url).catch(() => {});
-              }}
-            >
-              {tok.label}
-            </Text>
-          );
-        }
-        return <React.Fragment key={idx}>{tok.text}</React.Fragment>;
-      })}
+      {renderInlineTokens(tokens, theme)}
     </Text>
   );
 }
 
 type ContentBlock =
-  | { kind: "heading"; level: 1 | 2 | 3; text: string }
+  | { kind: "heading"; level: 1 | 2 | 3 | 4; text: string }
   | { kind: "paragraph"; text: string }
-  | { kind: "bullet"; text: string }
-  | { kind: "numbered"; num: string; text: string }
+  | { kind: "bullet"; text: string; indent: number }
+  | { kind: "numbered"; num: string; text: string; indent: number }
+  | { kind: "task"; checked: boolean; text: string; indent: number }
+  | { kind: "quote"; lines: string[] }
+  | { kind: "hr" }
+  | { kind: "table"; headers: string[]; rows: string[][] }
   | { kind: "code"; lang: string; code: string }
   | { kind: "spec"; spec: ParsedSpec };
 
+function splitTableRow(line: string): string[] {
+  const trimmed = line.trim().replace(/^\|/, "").replace(/\|$/, "");
+  return trimmed
+    .split(/(?<!\\)\|/)
+    .map((cell) => cell.replace(/\\\|/g, "|").trim());
+}
+
+function isTableSeparator(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed.includes("|") && !trimmed.includes("-")) return false;
+  const stripped = trimmed.replace(/^\|/, "").replace(/\|$/, "");
+  const cols = stripped.split("|").map((c) => c.trim());
+  return cols.length >= 2 && cols.every((c) => /^:?-{3,}:?$/.test(c));
+}
+
+function isFenceStart(line: string): { marker: string; lang: string } | null {
+  const m = /^\s*(`{3,}|~{3,})\s*([a-zA-Z0-9_+-]*)\s*$/.exec(line);
+  if (!m) return null;
+  return { marker: m[1], lang: (m[2] ?? "").toLowerCase() };
+}
+
+function isHorizontalRule(line: string): boolean {
+  return /^(?:[-*_]\s*){3,}$/.test(line.trim());
+}
+
 function parseMarkdownBlocks(content: string): ContentBlock[] {
   const blocks: ContentBlock[] = [];
-  const fenceRegex = /```([a-zA-Z0-9_-]*)\s*\n([\s\S]*?)```/g;
-  let cursor = 0;
-  let match: RegExpExecArray | null;
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  let i = 0;
+  let paragraph: string[] = [];
 
-  const pushMarkdown = (chunk: string) => {
-    const lines = chunk.split(/\r?\n/);
-    let paragraph: string[] = [];
-
-    const flushParagraph = () => {
-      if (!paragraph.length) return;
-      blocks.push({ kind: "paragraph", text: paragraph.join(" ").trim() });
-      paragraph = [];
-    };
-
-    for (const rawLine of lines) {
-      const line = rawLine.trim();
-      if (!line) {
-        flushParagraph();
-        continue;
-      }
-      const heading = /^(#{1,3})\s+(.+)$/.exec(line);
-      if (heading) {
-        flushParagraph();
-        blocks.push({
-          kind: "heading",
-          level: heading[1].length as 1 | 2 | 3,
-          text: heading[2].trim(),
-        });
-        continue;
-      }
-      const bullet = /^[-*]\s+(.+)$/.exec(line);
-      if (bullet) {
-        flushParagraph();
-        blocks.push({ kind: "bullet", text: bullet[1].trim() });
-        continue;
-      }
-      const numbered = /^(\d+)\.\s+(.+)$/.exec(line);
-      if (numbered) {
-        flushParagraph();
-        blocks.push({
-          kind: "numbered",
-          num: numbered[1],
-          text: numbered[2].trim(),
-        });
-        continue;
-      }
-      paragraph.push(line);
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    const joined = paragraph
+      .map((line, idx) => {
+        const hardBreak = /(?: {2}|\\)$/.test(line);
+        const clean = line.replace(/(?: {2}|\\)$/, "").trim();
+        if (idx === paragraph.length - 1) return clean;
+        return hardBreak ? `${clean}\n` : `${clean} `;
+      })
+      .join("")
+      .trim();
+    if (joined) {
+      blocks.push({ kind: "paragraph", text: joined });
     }
-    flushParagraph();
+    paragraph = [];
   };
 
-  while ((match = fenceRegex.exec(content)) !== null) {
-    if (match.index > cursor) {
-      pushMarkdown(content.slice(cursor, match.index));
-    }
-    const lang = (match[1] ?? "").toLowerCase();
-    const body = match[2] ?? "";
-    if (lang === "spec") {
-      const parsed = parseSpecBlock(body);
-      if (parsed) {
-        blocks.push({ kind: "spec", spec: parsed });
-      } else {
-        blocks.push({ kind: "code", lang: "spec", code: body.trimEnd() });
+  while (i < lines.length) {
+    const rawLine = lines[i];
+    const trimmed = rawLine.trim();
+
+    // Fenced code or Loop spec block (supports 3+ backticks/tildes and unclosed streaming fences)
+    const fence = isFenceStart(rawLine);
+    if (fence) {
+      flushParagraph();
+      const closeChar = fence.marker[0];
+      const minLen = fence.marker.length;
+      const closeRe = new RegExp(`^\\s*${closeChar}{${minLen},}\\s*$`);
+      const bodyLines: string[] = [];
+      i += 1;
+      while (i < lines.length && !closeRe.test(lines[i])) {
+        bodyLines.push(lines[i]);
+        i += 1;
       }
-    } else {
-      blocks.push({ kind: "code", lang, code: body.trimEnd() });
+      if (i < lines.length) i += 1; // consume closing fence
+      const body = bodyLines.join("\n");
+      if (fence.lang === "spec") {
+        const parsed = parseSpecBlock(body);
+        if (parsed) {
+          blocks.push({ kind: "spec", spec: parsed });
+        } else {
+          blocks.push({ kind: "code", lang: "spec", code: body.trimEnd() });
+        }
+      } else {
+        blocks.push({ kind: "code", lang: fence.lang, code: body.trimEnd() });
+      }
+      continue;
     }
-    cursor = match.index + match[0].length;
+
+    if (!trimmed) {
+      flushParagraph();
+      i += 1;
+      continue;
+    }
+
+    // Horizontal rule
+    if (isHorizontalRule(trimmed)) {
+      flushParagraph();
+      blocks.push({ kind: "hr" });
+      i += 1;
+      continue;
+    }
+
+    // Headings (# through ######)
+    const heading = /^(#{1,6})\s+(.+?)\s*#*$/.exec(trimmed);
+    if (heading) {
+      flushParagraph();
+      const level = Math.min(4, heading[1].length) as 1 | 2 | 3 | 4;
+      blocks.push({ kind: "heading", level, text: heading[2].trim() });
+      i += 1;
+      continue;
+    }
+
+    // GFM Markdown table: header row + separator row + optional data rows
+    if (
+      trimmed.includes("|") &&
+      i + 1 < lines.length &&
+      isTableSeparator(lines[i + 1])
+    ) {
+      flushParagraph();
+      const headers = splitTableRow(rawLine);
+      i += 2; // skip header and separator
+      const rows: string[][] = [];
+      while (i < lines.length) {
+        const rowLine = lines[i].trim();
+        if (!rowLine || !rowLine.includes("|")) break;
+        const cells = splitTableRow(lines[i]);
+        while (cells.length < headers.length) cells.push("");
+        rows.push(cells.slice(0, headers.length));
+        i += 1;
+      }
+      blocks.push({ kind: "table", headers, rows });
+      continue;
+    }
+
+    // Blockquote (consecutive > lines)
+    if (/^>\s?/.test(trimmed)) {
+      flushParagraph();
+      const quoteLines: string[] = [];
+      while (i < lines.length && /^\s*>\s?/.test(lines[i])) {
+        const q = lines[i].replace(/^\s*>\s?/, "").trim();
+        if (q) quoteLines.push(q);
+        i += 1;
+      }
+      if (quoteLines.length) {
+        blocks.push({ kind: "quote", lines: quoteLines });
+      }
+      continue;
+    }
+
+    // Task list item (- [x] or - [ ])
+    const task = /^(\s*)[-*+]\s+\[([ xX])\]\s+(.+)$/.exec(rawLine);
+    if (task) {
+      flushParagraph();
+      const indent = Math.min(2, Math.floor(task[1].length / 2));
+      blocks.push({
+        kind: "task",
+        checked: task[2].toLowerCase() === "x",
+        text: task[3].trim(),
+        indent,
+      });
+      i += 1;
+      continue;
+    }
+
+    // Unordered bullet list (-, *, +)
+    const bullet = /^(\s*)[-*+]\s+(.+)$/.exec(rawLine);
+    if (bullet) {
+      flushParagraph();
+      const indent = Math.min(2, Math.floor(bullet[1].length / 2));
+      blocks.push({ kind: "bullet", text: bullet[2].trim(), indent });
+      i += 1;
+      continue;
+    }
+
+    // Ordered list (1. or 1))
+    const numbered = /^(\s*)(\d+)[.)]\s+(.+)$/.exec(rawLine);
+    if (numbered) {
+      flushParagraph();
+      const indent = Math.min(2, Math.floor(numbered[1].length / 2));
+      blocks.push({
+        kind: "numbered",
+        num: numbered[2],
+        text: numbered[3].trim(),
+        indent,
+      });
+      i += 1;
+      continue;
+    }
+
+    paragraph.push(rawLine);
+    i += 1;
   }
-  if (cursor < content.length) {
-    pushMarkdown(content.slice(cursor));
-  }
+
+  flushParagraph();
   return blocks;
 }
 
@@ -488,6 +692,101 @@ function NativeSpecChart({
   );
 }
 
+function NativeTable({
+  columns,
+  rows,
+  theme,
+  highlightLastColumn = false,
+}: {
+  columns: string[];
+  rows: string[][];
+  theme: LoopTheme;
+  highlightLastColumn?: boolean;
+}) {
+  const colWidths = useMemo(
+    () =>
+      columns.map((col, idx) => {
+        const longest = Math.max(
+          col.length,
+          ...rows.map((r) => (r[idx] ?? "").length),
+        );
+        return Math.min(
+          210,
+          Math.max(idx === 0 ? 120 : 92, longest * 7.8 + 24),
+        );
+      }),
+    [columns, rows],
+  );
+
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      style={[styles.tableScroll, { borderColor: theme.line }]}
+    >
+      <View>
+        <View
+          style={[
+            styles.tableRow,
+            {
+              backgroundColor: theme.attention,
+              borderBottomColor: theme.attentionLine,
+              borderBottomWidth: StyleSheet.hairlineWidth,
+            },
+          ]}
+        >
+          {columns.map((col, idx) => (
+            <View
+              key={idx}
+              style={[styles.tableCellWrap, { width: colWidths[idx] }]}
+            >
+              <InlineFormattedText
+                text={col}
+                theme={theme}
+                baseStyle={[styles.tableHeaderCell, { color: theme.brassText }]}
+              />
+            </View>
+          ))}
+        </View>
+        {rows.map((row, rowIdx) => (
+          <View
+            key={rowIdx}
+            style={[
+              styles.tableRow,
+              rowIdx < rows.length - 1 && {
+                borderBottomColor: theme.line,
+                borderBottomWidth: StyleSheet.hairlineWidth,
+              },
+              rowIdx % 2 === 1 && { backgroundColor: theme.raised },
+            ]}
+          >
+            {row.map((cell, cellIdx) => (
+              <View
+                key={cellIdx}
+                style={[styles.tableCellWrap, { width: colWidths[cellIdx] }]}
+              >
+                <InlineFormattedText
+                  text={cell}
+                  theme={theme}
+                  baseStyle={[
+                    styles.tableCell,
+                    cellIdx === 0 && styles.bold,
+                    highlightLastColumn &&
+                      cellIdx === columns.length - 1 && {
+                        color: theme.brassText,
+                        fontWeight: "700",
+                      },
+                  ]}
+                />
+              </View>
+            ))}
+          </View>
+        ))}
+      </View>
+    </ScrollView>
+  );
+}
+
 function SpecNode({
   nodeKey,
   spec,
@@ -602,76 +901,12 @@ function SpecNode({
         )
       : [];
     return (
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={[styles.tableScroll, { borderColor: theme.line }]}
-      >
-        <View>
-          <View
-            style={[
-              styles.tableRow,
-              {
-                backgroundColor: theme.attention,
-                borderBottomColor: theme.attentionLine,
-                borderBottomWidth: StyleSheet.hairlineWidth,
-              },
-            ]}
-          >
-            {columns.map((col, idx) => (
-              <Text
-                key={idx}
-                style={[
-                  styles.tableCell,
-                  styles.tableHeaderCell,
-                  {
-                    color: theme.brassText,
-                    width: idx === 0 ? 132 : 84,
-                  },
-                ]}
-              >
-                {col}
-              </Text>
-            ))}
-          </View>
-          {rows.map((row, rowIdx) => (
-            <View
-              key={rowIdx}
-              style={[
-                styles.tableRow,
-                rowIdx < rows.length - 1 && {
-                  borderBottomColor: theme.line,
-                  borderBottomWidth: StyleSheet.hairlineWidth,
-                },
-                rowIdx % 2 === 1 && { backgroundColor: theme.raised },
-              ]}
-            >
-              {row.map((cell, cellIdx) => (
-                <Text
-                  key={cellIdx}
-                  style={[
-                    styles.tableCell,
-                    cellIdx === 0 && styles.bold,
-                    cellIdx === columns.length - 1 && {
-                      color: theme.brassText,
-                      fontWeight: "700",
-                    },
-                    {
-                      color:
-                        cellIdx === columns.length - 1
-                          ? theme.brassText
-                          : theme.text,
-                      width: cellIdx === 0 ? 132 : 84,
-                    },
-                  ]}
-                >
-                  {cell}
-                </Text>
-              ))}
-            </View>
-          ))}
-        </View>
-      </ScrollView>
+      <NativeTable
+        columns={columns}
+        rows={rows}
+        theme={theme}
+        highlightLastColumn
+      />
     );
   }
 
@@ -710,7 +945,7 @@ function SpecNode({
           },
         ]}
       >
-        <ExternalLink size={13} color={theme.blue} />
+        <ExternalLink size={14} color={theme.blue} />
         <Text style={[styles.replySpecBtnText, { color: theme.blue }]}>
           {label}
         </Text>
@@ -737,7 +972,7 @@ function SpecNode({
           },
         ]}
       >
-        <CornerDownRight size={13} color={theme.brassText} />
+        <CornerDownRight size={14} color={theme.brassText} />
         <Text style={[styles.replySpecBtnText, { color: theme.brassText }]}>
           {label}
         </Text>
@@ -777,6 +1012,14 @@ export function RichContent({
     <View style={styles.container}>
       {blocks.map((block, idx) => {
         if (block.kind === "heading") {
+          const levelStyle =
+            block.level === 1
+              ? styles.h1
+              : block.level === 2
+                ? styles.h2
+                : block.level === 3
+                  ? styles.h3
+                  : styles.h4;
           return (
             <InlineFormattedText
               key={idx}
@@ -784,8 +1027,8 @@ export function RichContent({
               theme={theme}
               baseStyle={[
                 styles.heading,
-                block.level === 2 ? styles.h2 : styles.h3,
-                idx > 0 && { marginTop: 6 },
+                levelStyle,
+                idx > 0 && { marginTop: 8 },
               ]}
             />
           );
@@ -800,11 +1043,74 @@ export function RichContent({
             />
           );
         }
+        if (block.kind === "hr") {
+          return (
+            <View
+              key={idx}
+              style={[styles.hr, { backgroundColor: theme.line }]}
+            />
+          );
+        }
+        if (block.kind === "quote") {
+          return (
+            <View
+              key={idx}
+              style={[
+                styles.quoteBox,
+                {
+                  borderLeftColor: theme.brass,
+                  backgroundColor: theme.soft,
+                },
+              ]}
+            >
+              {block.lines.map((line, lIdx) => (
+                <InlineFormattedText
+                  key={lIdx}
+                  text={line}
+                  theme={theme}
+                  baseStyle={[styles.quoteText, { color: theme.muted }]}
+                />
+              ))}
+            </View>
+          );
+        }
+        if (block.kind === "task") {
+          return (
+            <View
+              key={idx}
+              style={[styles.listRow, { paddingLeft: 2 + block.indent * 16 }]}
+            >
+              <View style={styles.taskIconWrap}>
+                {block.checked ? (
+                  <CheckSquare size={16} color={theme.brassText} />
+                ) : (
+                  <Square size={16} color={theme.muted} />
+                )}
+              </View>
+              <View style={styles.listContent}>
+                <InlineFormattedText
+                  text={block.text}
+                  theme={theme}
+                  baseStyle={[
+                    styles.listText,
+                    block.checked && {
+                      textDecorationLine: "line-through",
+                      color: theme.muted,
+                    },
+                  ]}
+                />
+              </View>
+            </View>
+          );
+        }
         if (block.kind === "bullet") {
           return (
-            <View key={idx} style={styles.listRow}>
+            <View
+              key={idx}
+              style={[styles.listRow, { paddingLeft: 2 + block.indent * 16 }]}
+            >
               <Text style={[styles.listBullet, { color: theme.brassText }]}>
-                •
+                {block.indent > 0 ? "◦" : "•"}
               </Text>
               <View style={styles.listContent}>
                 <InlineFormattedText
@@ -818,7 +1124,10 @@ export function RichContent({
         }
         if (block.kind === "numbered") {
           return (
-            <View key={idx} style={styles.listRow}>
+            <View
+              key={idx}
+              style={[styles.listRow, { paddingLeft: 2 + block.indent * 16 }]}
+            >
               <Text style={[styles.listNum, { color: theme.brassText }]}>
                 {block.num}.
               </Text>
@@ -832,6 +1141,16 @@ export function RichContent({
             </View>
           );
         }
+        if (block.kind === "table") {
+          return (
+            <NativeTable
+              key={idx}
+              columns={block.headers}
+              rows={block.rows}
+              theme={theme}
+            />
+          );
+        }
         if (block.kind === "code") {
           return (
             <View
@@ -842,9 +1161,12 @@ export function RichContent({
               ]}
             >
               {block.lang ? (
-                <Text style={[styles.codeLang, { color: theme.muted }]}>
-                  {block.lang}
-                </Text>
+                <View style={styles.codeHead}>
+                  <FileCode2 size={12} color={theme.muted} />
+                  <Text style={[styles.codeLang, { color: theme.muted }]}>
+                    {block.lang}
+                  </Text>
+                </View>
               ) : null}
               <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                 <Text style={[styles.codeText, { color: theme.text }]}>
@@ -872,18 +1194,28 @@ export function RichContent({
 export function feedPreviewText(markdown: string): string {
   return markdown
     .replace(/```[\s\S]*?```/g, "")
-    .replace(/^#{1,3}\s+/gm, "")
+    .replace(/~~~[\s\S]*?~~~/g, "")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^\s*>\s?/gm, "")
+    .replace(/^\s*\|?[\s:|-]+\|[\s:|-]*$/gm, "")
+    .replace(/\|/g, " · ")
+    .replace(/\*\*\*([^*]+)\*\*\*/g, "$1")
     .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/~~([^~]+)~~/g, "$1")
+    .replace(/\*([^*\n]+)\*/g, "$1")
+    .replace(/(?<!\w)_([^_\n]+)_(?!\w)/g, "$1")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .replace(/^[-*]\s+/gm, "• ")
+    .replace(/^\s*[-*+]\s+\[[ xX]\]\s+/gm, "• ")
+    .replace(/^\s*[-*+]\s+/gm, "• ")
     .replace(/\s+/g, " ")
     .trim();
 }
 
 const styles = StyleSheet.create({
   container: {
-    gap: 10,
+    gap: 11,
   },
   avatar: {
     alignItems: "center",
@@ -894,19 +1226,27 @@ const styles = StyleSheet.create({
   },
   heading: {
     fontWeight: "700",
-    letterSpacing: -0.2,
+    letterSpacing: -0.25,
+  },
+  h1: {
+    fontSize: 22,
+    lineHeight: 28,
   },
   h2: {
-    fontSize: 17,
-    lineHeight: 23,
+    fontSize: 19,
+    lineHeight: 25.5,
   },
   h3: {
-    fontSize: 16,
-    lineHeight: 22,
+    fontSize: 17.5,
+    lineHeight: 24,
+  },
+  h4: {
+    fontSize: 16.5,
+    lineHeight: 22.5,
   },
   paragraph: {
-    fontSize: 15,
-    lineHeight: 22.5,
+    fontSize: 16.5,
+    lineHeight: 25,
   },
   bold: {
     fontWeight: "700",
@@ -914,64 +1254,90 @@ const styles = StyleSheet.create({
   italic: {
     fontStyle: "italic",
   },
+  strike: {
+    textDecorationLine: "line-through",
+  },
   inlineCode: {
     fontFamily: "Courier",
-    fontSize: 13.5,
+    fontSize: 14.5,
     borderRadius: 4,
+  },
+  hr: {
+    height: StyleSheet.hairlineWidth,
+    marginVertical: 4,
+  },
+  quoteBox: {
+    borderLeftWidth: 3,
+    borderRadius: 8,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    gap: 4,
+  },
+  quoteText: {
+    fontSize: 15.5,
+    lineHeight: 23,
+    fontStyle: "italic",
   },
   codeBlock: {
     borderRadius: 12,
     borderWidth: 1,
-    padding: 11,
+    padding: 12,
     gap: 6,
   },
+  codeHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
   codeLang: {
-    fontSize: 10.5,
+    fontSize: 11,
     fontWeight: "700",
     textTransform: "uppercase",
     letterSpacing: 0.5,
   },
   codeText: {
     fontFamily: "Courier",
-    fontSize: 12.5,
-    lineHeight: 18.5,
+    fontSize: 13.5,
+    lineHeight: 20,
   },
   listRow: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 8,
-    paddingLeft: 2,
+  },
+  taskIconWrap: {
+    paddingTop: 4,
   },
   listBullet: {
-    fontSize: 16,
-    lineHeight: 22,
+    fontSize: 17.5,
+    lineHeight: 24.5,
     fontWeight: "700",
-    width: 12,
+    width: 14,
     textAlign: "center",
   },
   listNum: {
-    fontSize: 14,
-    lineHeight: 22,
+    fontSize: 15.5,
+    lineHeight: 24.5,
     fontWeight: "700",
-    width: 18,
+    minWidth: 20,
     fontVariant: ["tabular-nums"],
   },
   listContent: {
     flex: 1,
   },
   listText: {
-    fontSize: 15,
-    lineHeight: 22,
+    fontSize: 16.5,
+    lineHeight: 24.5,
   },
   specCard: {
     borderRadius: 14,
     borderWidth: 1,
-    padding: 12,
+    padding: 13,
     gap: 10,
     marginTop: 2,
   },
   specCardTitle: {
-    fontSize: 14,
+    fontSize: 15.5,
     fontWeight: "700",
   },
   specChildren: {
@@ -987,15 +1353,15 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: 10,
     borderWidth: 1,
-    padding: 9,
+    padding: 10,
     gap: 3,
   },
   fieldLabel: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "600",
   },
   fieldValue: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: "700",
   },
   chartBox: {
@@ -1014,7 +1380,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   chartLabelText: {
-    fontSize: 10.5,
+    fontSize: 11,
     flex: 1,
     textAlign: "center",
   },
@@ -1022,7 +1388,7 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   chartToggleText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "600",
   },
   chartNumbers: {
@@ -1033,10 +1399,10 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   chartNumCat: {
-    fontSize: 12,
+    fontSize: 13,
   },
   chartNumVal: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "600",
     fontVariant: ["tabular-nums"],
   },
@@ -1047,15 +1413,19 @@ const styles = StyleSheet.create({
   },
   tableRow: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
   },
-  tableCell: {
-    fontSize: 12.5,
+  tableCellWrap: {
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
+  tableCell: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
   tableHeaderCell: {
-    fontSize: 11.5,
+    fontSize: 13,
+    lineHeight: 18,
     fontWeight: "700",
   },
   specActions: {
@@ -1067,13 +1437,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
-    paddingHorizontal: 11,
-    paddingVertical: 7,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     borderRadius: 999,
     borderWidth: 1,
   },
   replySpecBtnText: {
-    fontSize: 12.5,
+    fontSize: 13.5,
     fontWeight: "600",
   },
 });

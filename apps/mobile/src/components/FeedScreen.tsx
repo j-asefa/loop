@@ -43,11 +43,14 @@ import type { AgentRunSummary } from "./AgentProfileSheet";
 import { relativeTime, type FeedTab, type NativeResultCard } from "../fixtures";
 import { haptics } from "../haptics";
 import type { LoopTheme } from "../theme";
-import { AgentAvatar, feedPreviewText } from "./RichContent";
+import {
+  AgentAvatar,
+  feedPreviewText,
+  InlineFormattedText,
+} from "./RichContent";
 
 const TABS: Array<{ id: FeedTab; label: string }> = [
   { id: "done", label: "Done" },
-  { id: "working", label: "Working" },
   { id: "queued", label: "Queued" },
   { id: "replies", label: "Replies" },
 ];
@@ -919,9 +922,11 @@ function SwipeableStackCard({
               </Text>
             </View>
 
-            <Text style={[styles.cardTitle, { color: theme.text }]}>
-              {header.title}
-            </Text>
+            <InlineFormattedText
+              text={header.title}
+              theme={theme}
+              baseStyle={styles.cardTitle}
+            />
 
             {preview ? (
               <Text
@@ -1351,14 +1356,14 @@ const styles = StyleSheet.create({
     fontVariant: ["tabular-nums"],
   },
   cardTitle: {
-    fontSize: 18,
-    lineHeight: 23.5,
+    fontSize: 19,
+    lineHeight: 25,
     fontWeight: "700",
     letterSpacing: -0.25,
   },
   cardPreview: {
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 15.5,
+    lineHeight: 22,
   },
   cardFooterRow: {
     flexDirection: "row",
