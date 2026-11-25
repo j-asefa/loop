@@ -123,9 +123,28 @@ type InlineToken =
   | { kind: "boldItalic"; children: InlineToken[] }
   | { kind: "strike"; children: InlineToken[] }
   | { kind: "code"; text: string }
-  | { kind: "link"; label: string; url: string; isLocalFile?: boolean };
+  | {
+      kind: "link";
+      label: string;
+      children?: InlineToken[];
+      url: string;
+      isLocalFile?: boolean;
+    };
 
 const ESCAPABLE_CHARS = new Set(Array.from("\\`*_{}[]()#+-.!~|"));
+const URL_STOP_CHARS = new Set([
+  " ",
+  "\t",
+  "\n",
+  "\r",
+  "<",
+  ">",
+  "(",
+  ")",
+  '"',
+  "'",
+]);
+const URL_TRIM_CHARS = new Set([".", ",", ";", ":", "!", "?"]);
 
 function isWordChar(ch: string | undefined): boolean {
   if (!ch) return false;
@@ -210,7 +229,11 @@ function parseLinkAt(
   return { label, url, end: j };
 }
 
-function tokenizeInline(text: string, depth = 0): InlineToken[] {
+function tokenizeInline(
+  text: string,
+  depth = 0,
+  allowLinks = true,
+): InlineToken[] {
   if (!text || depth > 4) return text ? [{ kind: "text", text }] : [];
   const tokens: InlineToken[] = [];
   let i = 0;
@@ -256,15 +279,19 @@ function tokenizeInline(text: string, depth = 0): InlineToken[] {
     }
 
     // Markdown link [label](url)
-    if (ch === "[") {
+    if (allowLinks && ch === "[") {
       const link = parseLinkAt(text, i);
       if (link) {
         flushPlain();
+        const isLocalFile = link.url.startsWith("file://");
         tokens.push({
           kind: "link",
           label: link.label,
+          children: isLocalFile
+            ? undefined
+            : tokenizeInline(link.label, depth + 1, false),
           url: link.url,
-          isLocalFile: link.url.startsWith("file://"),
+          isLocalFile,
         });
         i = link.end;
         continue;
@@ -282,7 +309,11 @@ function tokenizeInline(text: string, depth = 0): InlineToken[] {
         flushPlain();
         tokens.push({
           kind: "boldItalic",
-          children: tokenizeInline(text.slice(i + 3, close), depth + 1),
+          children: tokenizeInline(
+            text.slice(i + 3, close),
+            depth + 1,
+            allowLinks,
+          ),
         });
         i = close + 3;
         continue;
@@ -300,7 +331,11 @@ function tokenizeInline(text: string, depth = 0): InlineToken[] {
         flushPlain();
         tokens.push({
           kind: "bold",
-          children: tokenizeInline(text.slice(i + 2, close), depth + 1),
+          children: tokenizeInline(
+            text.slice(i + 2, close),
+            depth + 1,
+            allowLinks,
+          ),
         });
         i = close + 2;
         continue;
@@ -314,7 +349,11 @@ function tokenizeInline(text: string, depth = 0): InlineToken[] {
         flushPlain();
         tokens.push({
           kind: "strike",
-          children: tokenizeInline(text.slice(i + 2, close), depth + 1),
+          children: tokenizeInline(
+            text.slice(i + 2, close),
+            depth + 1,
+            allowLinks,
+          ),
         });
         i = close + 2;
         continue;
@@ -338,7 +377,11 @@ function tokenizeInline(text: string, depth = 0): InlineToken[] {
         flushPlain();
         tokens.push({
           kind: "italic",
-          children: tokenizeInline(text.slice(i + 1, close), depth + 1),
+          children: tokenizeInline(
+            text.slice(i + 1, close),
+            depth + 1,
+            allowLinks,
+          ),
         });
         i = close + 1;
         continue;
@@ -347,14 +390,15 @@ function tokenizeInline(text: string, depth = 0): InlineToken[] {
 
     // Bare URLs (http:// or https://)
     if (
+      allowLinks &&
       ch === "h" &&
       (text.startsWith("https://", i) || text.startsWith("http://", i)) &&
       !isWordChar(text[i - 1])
     ) {
       let j = i;
-      while (j < text.length && !/[\s<>()"']/.test(text[j])) j++;
+      while (j < text.length && !URL_STOP_CHARS.has(text[j])) j++;
       let url = text.slice(i, j);
-      while (url.length > 0 && /[.,;:!?]/.test(url[url.length - 1])) {
+      while (url.length > 0 && URL_TRIM_CHARS.has(url[url.length - 1])) {
         url = url.slice(0, -1);
       }
       if (url.length > 8) {
@@ -450,7 +494,9 @@ function renderInlineTokens(
             void Linking.openURL(tok.url).catch(() => {});
           }}
         >
-          {renderInlineTokens(tokenizeInline(tok.label, 1), theme, `${key}-l-`)}
+          {tok.children
+            ? renderInlineTokens(tok.children, theme, `${key}-l-`)
+            : tok.label}
         </Text>
       );
     }
@@ -529,7 +575,14 @@ function isFenceStart(line: string): { marker: string; lang: string } | null {
 }
 
 function isHorizontalRule(line: string): boolean {
-  return /^(?:[-*_]\s*){3,}$/.test(line.trim());
+  const compact = line.replace(/\s+/g, "");
+  if (compact.length < 3) return false;
+  const ch = compact[0];
+  if (ch !== "-" && ch !== "*" && ch !== "_") return false;
+  for (let i = 1; i < compact.length; i++) {
+    if (compact[i] !== ch) return false;
+  }
+  return true;
 }
 
 function parseMarkdownBlocks(content: string): ContentBlock[] {
