@@ -39,6 +39,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  CornerUpLeft,
   Search,
   Sparkles,
   X,
@@ -807,6 +808,11 @@ export function SpotlightCarousel({
                       haptics.light();
                       scrollToSlide(index, true);
                     }}
+                    onPullToSearch={() => openSearch()}
+                    onReply={() => {
+                      haptics.light();
+                      replyInputRef.current?.focus();
+                    }}
                     onToggleSaved={() => {
                       haptics.medium();
                       onToggleSaved(slide);
@@ -814,10 +820,6 @@ export function SpotlightCarousel({
                     onRemind={() => {
                       haptics.light();
                       onRemind(slide);
-                    }}
-                    onQuick={() => {
-                      haptics.light();
-                      setQuickReplyOpen(true);
                     }}
                     onDone={() => {
                       haptics.success();
@@ -961,40 +963,22 @@ export function SpotlightCarousel({
             </View>
           )}
 
-          {/* Tactile Dot Rail (hidden while keyboard is up for breathing room) */}
+          {/* Sliding-Window Tactile Dot Rail (scales cleanly to large carousels) */}
           {slides.length > 1 && !keyboardVisible && (
-            <View style={styles.dotsRow}>
-              {slides.map((slide, index) => {
-                const active = index === safeIndex;
-                const isHit =
-                  Boolean(committedQuery) &&
-                  committedHits.some((h) => h.index === index);
-                return (
-                  <Pressable
-                    key={slide.id}
-                    hitSlop={8}
-                    onPress={() => {
-                      haptics.selection();
-                      scrollToSlide(index, true);
-                    }}
-                    style={[
-                      styles.dot,
-                      {
-                        width: active ? 22 : 7,
-                        backgroundColor: active
-                          ? theme.brass
-                          : isHit
-                            ? theme.attentionLine
-                            : theme.line,
-                      },
-                    ]}
-                  />
-                );
-              })}
-            </View>
+            <CarouselDotRail
+              total={slides.length}
+              activeIndex={safeIndex}
+              committedQuery={committedQuery}
+              hitIndexes={committedHits.map((h) => h.index)}
+              theme={theme}
+              onSelect={(index) => {
+                haptics.selection();
+                scrollToSlide(index, true);
+              }}
+            />
           )}
 
-          {/* Detached Floating Reply Pill (Concept A) */}
+          {/* Detached Floating Reply Pill (Concept A + Quick reply shortcut) */}
           <View style={styles.replyFloatWrap}>
             <View
               style={[
@@ -1005,6 +989,16 @@ export function SpotlightCarousel({
                 },
               ]}
             >
+              <Pressable
+                accessibilityLabel="Quick replies and snippets"
+                onPress={() => {
+                  haptics.light();
+                  setQuickReplyOpen(true);
+                }}
+                style={styles.replyQuickBtn}
+              >
+                <Zap size={16} color={theme.brassText} />
+              </Pressable>
               <TextInput
                 ref={replyInputRef}
                 value={draft}
@@ -1162,9 +1156,10 @@ function FloatingCarouselCard({
   scrollX,
   theme,
   onSelectNeighbor,
+  onPullToSearch,
+  onReply,
   onToggleSaved,
   onRemind,
-  onQuick,
   onDone,
   onReplyButton,
 }: {
@@ -1178,12 +1173,18 @@ function FloatingCarouselCard({
   scrollX: SharedValue<number>;
   theme: LoopTheme;
   onSelectNeighbor: () => void;
+  onPullToSearch: () => void;
+  onReply: () => void;
   onToggleSaved: () => void;
   onRemind: () => void;
-  onQuick: () => void;
   onDone: () => void;
   onReplyButton: (prompt: string) => void;
 }) {
+  const [pullHint, setPullHint] = useState<"idle" | "pulling" | "ready">(
+    "idle",
+  );
+  const pullArmedRef = useRef(false);
+  const lastPullYRef = useRef(0);
   const animatedCardStyle = useAnimatedStyle(() => {
     const inputRange = [
       (index - 1) * snapInterval,
@@ -1243,6 +1244,22 @@ function FloatingCarouselCard({
       {/* Card Eyebrow (never crowds the title) */}
       <View style={styles.cardEyebrow}>
         <View style={styles.cardBadges}>
+          {(slide.tab === "working" || slide.statusLabel === "Working") && (
+            <View
+              style={[
+                styles.badgeSaved,
+                {
+                  backgroundColor: theme.blueSoft,
+                  borderColor: theme.blue,
+                },
+              ]}
+            >
+              <Sparkles size={11} color={theme.blue} />
+              <Text style={[styles.badgeSavedText, { color: theme.blue }]}>
+                Working
+              </Text>
+            </View>
+          )}
           {slide.saved && (
             <View
               style={[
@@ -1298,12 +1315,74 @@ function FloatingCarouselCard({
         </Text>
       </View>
 
-      {/* Scrollable Card Body with smart 3-line expandable title + pure native content */}
+      {/* Pull-down-to-search tactile indicator */}
+      {pullHint !== "idle" && (
+        <View style={styles.pullSearchBar}>
+          <View
+            style={[
+              styles.pullSearchPill,
+              {
+                backgroundColor:
+                  pullHint === "ready" ? theme.attention : theme.soft,
+                borderColor: pullHint === "ready" ? theme.brass : theme.line,
+              },
+            ]}
+          >
+            <Search
+              size={12}
+              color={pullHint === "ready" ? theme.brassText : theme.muted}
+            />
+            <Text
+              style={[
+                styles.pullSearchText,
+                {
+                  color: pullHint === "ready" ? theme.brassText : theme.muted,
+                },
+              ]}
+            >
+              {pullHint === "ready"
+                ? "Release to search thread"
+                : "Pull down to search…"}
+            </Text>
+          </View>
+        </View>
+      )}
+
+      {/* Scrollable Card Body with pull-down-to-search + smart 3-line expandable title */}
       <ScrollView
         style={styles.cardScroll}
         contentContainerStyle={styles.cardScrollContent}
         showsVerticalScrollIndicator={false}
+        bounces
+        alwaysBounceVertical
         nestedScrollEnabled
+        scrollEventThrottle={16}
+        onScroll={(e) => {
+          const y = e.nativeEvent.contentOffset.y;
+          lastPullYRef.current = y;
+          if (y < -62) {
+            if (!pullArmedRef.current) {
+              pullArmedRef.current = true;
+              haptics.light();
+              setPullHint("ready");
+            }
+          } else if (y < -20) {
+            pullArmedRef.current = false;
+            if (pullHint !== "pulling") setPullHint("pulling");
+          } else if (pullHint !== "idle") {
+            pullArmedRef.current = false;
+            setPullHint("idle");
+          }
+        }}
+        onScrollEndDrag={() => {
+          const shouldSearch =
+            pullArmedRef.current || lastPullYRef.current < -62;
+          pullArmedRef.current = false;
+          setPullHint("idle");
+          if (shouldSearch) {
+            onPullToSearch();
+          }
+        }}
       >
         <CarouselCardTitle
           title={header.title}
@@ -1325,7 +1404,7 @@ function FloatingCarouselCard({
         />
       </ScrollView>
 
-      {/* Per-card discrete action footer */}
+      {/* Per-card discrete action footer: Reply | Save | Remind | Done */}
       <View
         style={[
           styles.cardFooter,
@@ -1335,6 +1414,23 @@ function FloatingCarouselCard({
           },
         ]}
       >
+        <Pressable
+          onPress={onReply}
+          style={({ pressed }) => [
+            styles.chipBtn,
+            {
+              backgroundColor: theme.attention,
+              borderColor: theme.attentionLine,
+              transform: [{ scale: pressed ? 0.95 : 1 }],
+            },
+          ]}
+        >
+          <CornerUpLeft size={13} color={theme.brassText} />
+          <Text style={[styles.chipText, { color: theme.brassText }]}>
+            Reply
+          </Text>
+        </Pressable>
+
         <Pressable
           onPress={onToggleSaved}
           style={({ pressed }) => [
@@ -1377,21 +1473,6 @@ function FloatingCarouselCard({
         </Pressable>
 
         <Pressable
-          onPress={onQuick}
-          style={({ pressed }) => [
-            styles.chipBtn,
-            {
-              backgroundColor: theme.soft,
-              borderColor: theme.line,
-              transform: [{ scale: pressed ? 0.95 : 1 }],
-            },
-          ]}
-        >
-          <Zap size={13} color={theme.text} />
-          <Text style={[styles.chipText, { color: theme.text }]}>Quick</Text>
-        </Pressable>
-
-        <Pressable
           onPress={onDone}
           style={({ pressed }) => [
             styles.chipBtn,
@@ -1408,6 +1489,78 @@ function FloatingCarouselCard({
         </Pressable>
       </View>
     </Animated.View>
+  );
+}
+
+function CarouselDotRail({
+  total,
+  activeIndex,
+  committedQuery,
+  hitIndexes,
+  theme,
+  onSelect,
+}: {
+  total: number;
+  activeIndex: number;
+  committedQuery: string;
+  hitIndexes: number[];
+  theme: LoopTheme;
+  onSelect: (index: number) => void;
+}) {
+  const MAX_VISIBLE = 7;
+  let start = 0;
+  let end = total - 1;
+  if (total > MAX_VISIBLE) {
+    const half = Math.floor(MAX_VISIBLE / 2);
+    start = Math.max(0, Math.min(activeIndex - half, total - MAX_VISIBLE));
+    end = start + MAX_VISIBLE - 1;
+  }
+
+  const indices: number[] = [];
+  for (let i = start; i <= end; i++) indices.push(i);
+
+  const hasMoreLeft = start > 0;
+  const hasMoreRight = end < total - 1;
+
+  return (
+    <View style={styles.dotsRow}>
+      {indices.map((index) => {
+        const active = index === activeIndex;
+        const isHit = Boolean(committedQuery) && hitIndexes.includes(index);
+        const isFarEdge =
+          (hasMoreLeft && index === start) || (hasMoreRight && index === end);
+        const isNearEdge =
+          (hasMoreLeft && index === start + 1) ||
+          (hasMoreRight && index === end - 1);
+        const dotSize = active ? 7 : isFarEdge ? 4 : isNearEdge ? 5.5 : 7;
+        const dotWidth = active ? 22 : dotSize;
+        const opacity = active ? 1 : isFarEdge ? 0.4 : isNearEdge ? 0.72 : 1;
+
+        return (
+          <Pressable
+            key={index}
+            hitSlop={8}
+            onPress={() => onSelect(index)}
+            style={{
+              width: dotWidth,
+              height: dotSize,
+              borderRadius: dotSize / 2,
+              opacity,
+              backgroundColor: active
+                ? theme.brass
+                : isHit
+                  ? theme.attentionLine
+                  : theme.line,
+            }}
+          />
+        );
+      })}
+      {total > MAX_VISIBLE && (
+        <Text style={[styles.dotsCounter, { color: theme.muted }]}>
+          {activeIndex + 1}/{total}
+        </Text>
+      )}
+    </View>
   );
 }
 
@@ -1911,6 +2064,35 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 7,
     paddingVertical: 8,
+  },
+  dotsCounter: {
+    marginLeft: 6,
+    fontSize: 11,
+    fontWeight: "700",
+    fontVariant: ["tabular-nums"],
+  },
+  pullSearchBar: {
+    alignItems: "center",
+    paddingBottom: 6,
+  },
+  pullSearchPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  pullSearchText: {
+    fontSize: 11.5,
+    fontWeight: "600",
+  },
+  replyQuickBtn: {
+    width: 30,
+    height: 34,
+    alignItems: "center",
+    justifyContent: "center",
   },
   dot: {
     height: 7,

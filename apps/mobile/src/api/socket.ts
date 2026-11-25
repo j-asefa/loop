@@ -8,9 +8,51 @@ type RNWebSocketConstructor = new (
   options?: { headers?: Record<string, string> },
 ) => WebSocket;
 
+const IGNORED_TYPES = new Set([
+  "ping",
+  "pong",
+  "hello",
+  "ack",
+  "clock",
+  "heartbeat",
+  "activity",
+  "trace",
+  "traces",
+  "cursor",
+]);
+
+function shouldRefreshForFrame(raw: unknown): boolean {
+  if (typeof raw !== "string" || !raw) return false;
+  try {
+    const parsed = JSON.parse(raw) as {
+      type?: string;
+      kind?: string;
+      event?: { type?: string; kind?: string };
+      events?: Array<{ type?: string; kind?: string }>;
+    };
+    const topType = (parsed.type || parsed.kind || "").toLowerCase();
+    if (topType && IGNORED_TYPES.has(topType)) return false;
+    if (Array.isArray(parsed.events) && parsed.events.length > 0) {
+      return parsed.events.some((ev) => {
+        const t = (ev.type || ev.kind || "").toLowerCase();
+        return Boolean(t && !IGNORED_TYPES.has(t));
+      });
+    }
+    const innerType = (
+      parsed.event?.type ||
+      parsed.event?.kind ||
+      ""
+    ).toLowerCase();
+    if (innerType && IGNORED_TYPES.has(innerType)) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Connects to Loop's paired WebSocket event stream (`wss://<host>/ws?v=3`) with
- * exponential backoff reconnection and coalesced update callbacks.
+ * exponential backoff reconnection, heartbeat filtering, and coalesced silent refreshes.
  */
 export class LoopEventSocket {
   private session: PairedSession;
@@ -21,6 +63,7 @@ export class LoopEventSocket {
   private attempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastEmitAt = 0;
 
   constructor(
     session: PairedSession,
@@ -62,10 +105,13 @@ export class LoopEventSocket {
 
   private scheduleRefresh() {
     if (this.debounceTimer) return;
+    const elapsed = Date.now() - this.lastEmitAt;
+    const delay = Math.max(850, 1600 - elapsed);
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = null;
+      this.lastEmitAt = Date.now();
       this.onEvent();
-    }, 280);
+    }, delay);
   }
 
   private connect() {
@@ -90,8 +136,10 @@ export class LoopEventSocket {
         this.onStatus("live");
       };
 
-      ws.onmessage = () => {
-        if (!this.stopped) this.scheduleRefresh();
+      ws.onmessage = (event) => {
+        if (!this.stopped && shouldRefreshForFrame(event.data)) {
+          this.scheduleRefresh();
+        }
       };
 
       ws.onerror = () => {

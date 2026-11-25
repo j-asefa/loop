@@ -71,7 +71,7 @@ type FeedScreenProps = {
   onRefresh: () => void;
   onSelectTab: (tab: FeedTab) => void;
   onOpenPairing: () => void;
-  onOpenAgent: (agent: ApiAgent) => void;
+  onOpenAgent: (agent: ApiAgent, workingRun?: AgentRunSummary) => void;
   onOpenAgentByName: (
     agentId: string | null | undefined,
     agentName: string,
@@ -186,13 +186,16 @@ export function FeedScreen({
     return active
       .map((agent, index) => {
         const myRuns = activeRuns.filter((r) => r.agent_id === agent.id);
-        const workingAt = myRuns.reduce<number | null>(
-          (latest, r) =>
-            WORKING_STATES.has(r.state)
-              ? Math.max(latest ?? -Infinity, r.created_at)
-              : latest,
-          null,
-        );
+        const workingRuns = myRuns
+          .filter((r) => WORKING_STATES.has(r.state))
+          .sort((a, b) => {
+            const aConv = a.conversation_id ? 1 : 0;
+            const bConv = b.conversation_id ? 1 : 0;
+            if (aConv !== bConv) return bConv - aConv;
+            return b.created_at - a.created_at;
+          });
+        const workingRun = workingRuns[0];
+        const workingAt = workingRun ? workingRun.created_at : null;
         const status = myRuns.some((r) => NEEDS_STATES.has(r.state))
           ? ("Needs you" as const)
           : workingAt !== null
@@ -200,7 +203,7 @@ export function FeedScreen({
             : myRuns.some((r) => r.state === "queued")
               ? ("Queued" as const)
               : ("Ready" as const);
-        return { agent, index, workingAt, status };
+        return { agent, index, workingAt, workingRun, status };
       })
       .sort((a, b) => {
         if (a.workingAt !== null && b.workingAt !== null) {
@@ -400,7 +403,7 @@ export function FeedScreen({
               </Text>
             </Pressable>
 
-            {orderedAgents.map(({ agent, status }) => {
+            {orderedAgents.map(({ agent, status, workingRun }) => {
               const dotColor =
                 status === "Needs you"
                   ? theme.orange
@@ -417,8 +420,13 @@ export function FeedScreen({
                 <Pressable
                   key={agent.id}
                   onPress={() => {
-                    haptics.light();
-                    onOpenAgent(agent);
+                    if (status === "Working" && workingRun) {
+                      haptics.medium();
+                      onOpenAgent(agent, workingRun);
+                    } else {
+                      haptics.light();
+                      onOpenAgent(agent);
+                    }
                   }}
                   style={({ pressed }) => [
                     styles.agentShortcut,

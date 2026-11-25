@@ -144,6 +144,9 @@ function LoopShell() {
   const [openConversationId, setOpenConversationId] = useState<string | null>(
     null,
   );
+  const [carouselOverrideCards, setCarouselOverrideCards] = useState<
+    NativeResultCard[] | null
+  >(null);
   const [profileAgent, setProfileAgent] = useState<ApiAgent | null>(null);
   const [threadOverlay, setThreadOverlay] = useState<{
     conversationId: string;
@@ -206,12 +209,26 @@ function LoopShell() {
     [session, handleUnauthorized],
   );
 
+  const feedTabRef = useRef<FeedTab>(feedTab);
+  feedTabRef.current = feedTab;
+  const loadingInFlightRef = useRef(false);
+  const sessionRefreshedRef = useRef(false);
+
   const loadWorkspace = useCallback(
-    async (tabToLoad: FeedTab = feedTab) => {
+    async (
+      tabToLoad: FeedTab = feedTabRef.current,
+      options?: { silent?: boolean },
+    ) => {
       if (!client) return;
-      setRefreshing(true);
+      const silent = options?.silent ?? true;
+      if (silent && loadingInFlightRef.current) return;
+      loadingInFlightRef.current = true;
+      if (!silent) setRefreshing(true);
       try {
-        await client.refreshSession().catch(() => {});
+        if (!sessionRefreshedRef.current || !silent) {
+          await client.refreshSession().catch(() => {});
+          sessionRefreshedRef.current = true;
+        }
         const [boot, feedPage, appList, decList, snipList, runList] =
           await Promise.all([
             client.bootstrap(),
@@ -221,6 +238,8 @@ function LoopShell() {
             client.snippets().catch(() => [] as ApiSnippet[]),
             client.runs(true).catch(() => [] as AgentRunSummary[]),
           ]);
+        // Drop stale response if user already switched feed tabs while loading
+        if (tabToLoad !== feedTabRef.current) return;
         setAgents(boot.agents);
         setFolders(boot.folders);
         setEnvironmentName(boot.environmentName || "");
@@ -233,19 +252,24 @@ function LoopShell() {
         setSnippets(snipList);
         setActiveRuns(runList);
       } catch (err) {
-        if (err instanceof Error && !err.message.includes("401")) {
+        if (!silent && err instanceof Error && !err.message.includes("401")) {
           showToast(err.message);
         }
       } finally {
-        setRefreshing(false);
+        loadingInFlightRef.current = false;
+        if (!silent) setRefreshing(false);
       }
     },
-    [client, feedTab, showToast],
+    [client, showToast],
   );
 
-  // Fetch on session or tab change
+  const loadWorkspaceRef = useRef(loadWorkspace);
+  loadWorkspaceRef.current = loadWorkspace;
+
+  // Fetch silently on session or tab change (never triggers pull-to-refresh spinner)
   useEffect(() => {
     if (!client) {
+      sessionRefreshedRef.current = false;
       setAgents(DEMO_AGENTS);
       setFolders([]);
       setApprovals([]);
@@ -255,27 +279,62 @@ function LoopShell() {
       setSocketStatus("offline");
       return;
     }
-    void loadWorkspace(feedTab);
-  }, [client, feedTab]);
+    void loadWorkspace(feedTab, { silent: true });
+  }, [client, feedTab, loadWorkspace]);
 
-  // Live WebSocket updates when paired
+  // Live WebSocket updates when paired — stable across tab switches
   useEffect(() => {
     if (!session || !client) return;
     const sock = new LoopEventSocket(
       session,
-      () => void loadWorkspace(feedTab),
+      () => void loadWorkspaceRef.current(feedTabRef.current, { silent: true }),
       setSocketStatus,
     );
     sock.start();
     return () => sock.stop();
-  }, [session, client, feedTab, loadWorkspace]);
+  }, [session, client]);
 
   const activeCards = client ? liveCards : demoCards;
 
+  const effectiveActiveRuns = useMemo<AgentRunSummary[]>(() => {
+    if (client) return activeRuns;
+    return demoCards
+      .filter((c) => c.tab === "working" && c.agentId)
+      .map((c) => ({
+        id: c.id,
+        agent_id: c.agentId!,
+        conversation_id: c.conversationId,
+        state: "running",
+        input: c.prompt,
+        created_at: c.createdAt,
+      }));
+  }, [client, activeRuns, demoCards]);
+
   const openCarouselCards = useMemo(() => {
     if (!openConversationId) return [];
-    return activeCards.filter((c) => c.conversationId === openConversationId);
-  }, [activeCards, openConversationId]);
+    const overrides = (carouselOverrideCards ?? []).filter(
+      (c) => c.conversationId === openConversationId,
+    );
+    const matching = activeCards.filter(
+      (c) => c.conversationId === openConversationId,
+    );
+    if (overrides.length === 0) return matching;
+    const seenIds = new Set(overrides.map((c) => c.id));
+    const seenMsgs = new Set(
+      overrides.map((c) => c.messageId).filter((m): m is string => Boolean(m)),
+    );
+    const seenRuns = new Set(
+      overrides.map((c) => c.runId).filter((r): r is string => Boolean(r)),
+    );
+    const merged = [...overrides];
+    for (const c of matching) {
+      if (seenIds.has(c.id)) continue;
+      if (c.messageId && seenMsgs.has(c.messageId)) continue;
+      if (c.tab === "working" && c.runId && seenRuns.has(c.runId)) continue;
+      merged.push(c);
+    }
+    return merged;
+  }, [activeCards, carouselOverrideCards, openConversationId]);
 
   const handleMarkRead = useCallback(
     (card: NativeResultCard) => {
@@ -521,6 +580,93 @@ function LoopShell() {
     [agents],
   );
 
+  const handleOpenAgent = useCallback(
+    (agent: ApiAgent, workingRun?: AgentRunSummary) => {
+      if (!workingRun) {
+        setProfileAgent(agent);
+        return;
+      }
+
+      const convId = workingRun.conversation_id;
+      const projectName =
+        folders.find((f) => f.id === agent.folder_id)?.name || "Workspace";
+
+      if (convId) {
+        const existing = activeCards.find(
+          (c) => c.conversationId === convId && c.tab === "working",
+        );
+        const cardId = existing?.id ?? `working:${workingRun.id || convId}`;
+        const initialCard: NativeResultCard = existing ?? {
+          id: cardId,
+          conversationId: convId,
+          tab: "working",
+          agentId: agent.id,
+          agentName: agent.name,
+          projectName,
+          model: agent.model || "",
+          prompt: workingRun.input || `Working with @${agent.name}`,
+          fallbackTitle: workingRun.input || `@${agent.name} is working`,
+          body: "Working on your request… Live output will appear here as it arrives.",
+          createdAt: workingRun.created_at || Date.now(),
+          saved: false,
+          unread: false,
+          statusLabel: "Working",
+          runId: workingRun.id,
+          runState: workingRun.state,
+        };
+        setCarouselOverrideCards([initialCard]);
+        setOpenConversationId(convId);
+
+        if (client) {
+          void client
+            .feed("working", { agent: agent.id })
+            .then((page) => {
+              const match =
+                page.items.find(
+                  (item) =>
+                    item.conversation_id === convId ||
+                    (workingRun.id && item.run?.id === workingRun.id),
+                ) ?? page.items[0];
+              if (!match) return;
+              const liveCard = feedItemToNativeCard(match, "working");
+              const hydratedCard: NativeResultCard = {
+                ...liveCard,
+                id: cardId,
+                body: liveCard.body.trim() ? liveCard.body : initialCard.body,
+              };
+              setCarouselOverrideCards((prev) =>
+                prev && prev[0]?.id === cardId ? [hydratedCard] : prev,
+              );
+            })
+            .catch(() => {});
+        }
+        return;
+      }
+
+      if (client) {
+        void client
+          .feed("working", { agent: agent.id })
+          .then((page) => {
+            const match =
+              page.items.find(
+                (item) => workingRun.id && item.run?.id === workingRun.id,
+              ) ?? page.items[0];
+            if (match?.conversation_id) {
+              const liveCard = feedItemToNativeCard(match, "working");
+              setCarouselOverrideCards([liveCard]);
+              setOpenConversationId(match.conversation_id);
+            } else {
+              setProfileAgent(agent);
+            }
+          })
+          .catch(() => setProfileAgent(agent));
+      } else {
+        setProfileAgent(agent);
+      }
+    },
+    [activeCards, client, folders],
+  );
+
   const feedBadgeCount = useMemo(() => {
     if (client && summary) {
       return (
@@ -557,7 +703,7 @@ function LoopShell() {
         <FeedScreen
           cards={activeCards}
           agents={agents}
-          activeRuns={activeRuns}
+          activeRuns={effectiveActiveRuns}
           activeTab={feedTab}
           summary={summary}
           approvals={approvals}
@@ -569,7 +715,7 @@ function LoopShell() {
           theme={theme}
           scrollRef={feedScrollRef}
           onRefresh={() => {
-            if (client) void loadWorkspace(feedTab);
+            if (client) void loadWorkspace(feedTab, { silent: false });
             else {
               setDemoCards(createInitialCards());
               showToast("Demo deck refreshed");
@@ -577,16 +723,17 @@ function LoopShell() {
           }}
           onSelectTab={setFeedTab}
           onOpenPairing={() => setPairingOpen(true)}
-          onOpenAgent={(agent) => setProfileAgent(agent)}
+          onOpenAgent={handleOpenAgent}
           onOpenAgentByName={openAgentByName}
           onNewAgent={() => {
             setComposeAgentId(undefined);
             setComposeFolderId(null);
             setComposeOpen(true);
           }}
-          onOpenStack={(conversationId) =>
-            setOpenConversationId(conversationId)
-          }
+          onOpenStack={(conversationId) => {
+            setCarouselOverrideCards(null);
+            setOpenConversationId(conversationId);
+          }}
           onSwipeDone={handleDismissCard}
           onSwipeSave={handleToggleSaved}
           onDecideApproval={handleDecideApproval}
@@ -768,13 +915,18 @@ function LoopShell() {
           client={client}
           snippets={snippets}
           theme={theme}
-          onClose={() => setOpenConversationId(null)}
+          onClose={() => {
+            setOpenConversationId(null);
+            setCarouselOverrideCards(null);
+          }}
           onOpenAgent={(agentId, agentName) => {
             setOpenConversationId(null);
+            setCarouselOverrideCards(null);
             openAgentByName(agentId, agentName);
           }}
           onOpenThread={(card) => {
             setOpenConversationId(null);
+            setCarouselOverrideCards(null);
             setThreadOverlay({
               conversationId: card.conversationId,
               title: card.fallbackTitle,
@@ -849,7 +1001,7 @@ function LoopShell() {
           agent={profileAgent}
           client={client}
           folders={folders}
-          activeRuns={activeRuns}
+          activeRuns={effectiveActiveRuns}
           allCards={activeCards}
           theme={theme}
           onClose={() => setProfileAgent(null)}
@@ -861,6 +1013,7 @@ function LoopShell() {
           }}
           onOpenStack={(conversationId) => {
             setProfileAgent(null);
+            setCarouselOverrideCards(null);
             setOpenConversationId(conversationId);
           }}
           onOpenThread={(conv) => {
