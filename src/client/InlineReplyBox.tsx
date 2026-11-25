@@ -8,6 +8,7 @@ import {
   threadDraft,
 } from "./drafts";
 import { viewOwner } from "./viewCache";
+import { proseEntry } from "./textEntry";
 
 type Echo = {
   text: string;
@@ -181,7 +182,9 @@ export function InlineReplyBox({
             ref={box}
             rows={1}
             value={text}
-            aria-label={`Reply${agentName ? ` to @${agentName}` : ""}`}
+            {...proseEntry}
+            // No "@" handle here: iOS reads it as an email field (textEntry).
+            aria-label="Reply"
             placeholder={echo ? "Reply again" : "Reply"}
             onChange={(event) => {
               setText(event.target.value);
