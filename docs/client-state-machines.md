@@ -29,7 +29,7 @@ Owner: [`ownerSession.ts`](../src/client/ownerSession.ts), whose header states i
 
 ## Composer send receipt
 
-Owner: [`sendIntent.ts`](../src/client/sendIntent.ts) with the owner/source/thread-scoped [`sendReceiptStore.ts`](../src/client/sendReceiptStore.ts). Empty → pending (new key) → cleared on 2xx, refused (key kept) below 500, unchanged on 5xx or no response; the files' comments state the resend, locking and eviction rules. Fleet sends also use the IndexedDB journal in [`fleetCommand.ts`](../src/client/fleetCommand.ts).
+Owner: [`sendIntent.ts`](../src/client/sendIntent.ts) with the owner/source/thread-scoped [`sendReceiptStore.ts`](../src/client/sendReceiptStore.ts). Empty → pending (new key) → cleared on 2xx, refused (key kept) below 500, unchanged on 5xx or no response; the files' comments state the resend, locking and eviction rules. Fleet sends also use the IndexedDB journal in [`fleetCommand.ts`](../src/client/fleetCommand.ts). A Feed card's inline reply ([`inlineSend.ts`](../src/client/inlineSend.ts)) records its receipt in the same slot under the composer's `sendSignature`, so a retry from the card or the thread's composer repeats the first request's key; its echo is display only.
 
 ## Continuation requests
 

@@ -62,7 +62,7 @@ import {
   sameDraft,
   threadDraft as readThreadDraft,
 } from "../drafts";
-import { settleFailure, type SendReceipt } from "../sendIntent";
+import { sendSignature, settleFailure, type SendReceipt } from "../sendIntent";
 import {
   prepareStoredSend,
   settleStoredSend,
@@ -760,15 +760,15 @@ export function useComposerSend({
                 ? composerData.teams.find((t) => t.id === teamSelection[0])!
                     .conversation_id || undefined
                 : undefined);
-        const signature = JSON.stringify([
-          recipient.id,
-          draft,
-          folderChoice,
+        const signature = sendSignature({
+          agentId: recipient.id,
+          text: draft,
+          folder: folderChoice,
           conversationId,
-          reply?.messageId,
-          reply?.excerpt ? reply.content : null,
-          attachments.map((file) => file.id),
-        ]);
+          replyToMessageId: reply?.messageId,
+          excerpt: reply?.excerpt ? reply.content : null,
+          attachmentIds: attachments.map((file) => file.id),
+        });
         // The send's mode and exact time travel with its key: a retry after a
         // lost response repeats the same request rather than a changed one.
         // Another tab, or this app before a restart, may hold this exact

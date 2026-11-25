@@ -7,6 +7,7 @@ import { expect, it, vi } from "vitest";
 import {
   omitsReplyTarget,
   planSend,
+  sendSignature,
   settleFailure,
 } from "../src/client/sendIntent";
 
@@ -177,4 +178,28 @@ it("leaves out a reply target as the composer showed, and repeats that on retry"
   expect(
     omitsReplyTarget(quoted, planSend(quoted, "reply", now, newKey), true),
   ).toBe(false);
+});
+
+it("keeps the signature format that stored receipts compare against", () => {
+  // Receipts written by released versions hold this exact string; a card's
+  // inline reply and the composer must produce it for the same message.
+  expect(
+    sendSignature({
+      agentId: "a1",
+      text: "Ship it",
+      conversationId: "c1",
+      replyToMessageId: "m1",
+      attachmentIds: [],
+    }),
+  ).toBe(JSON.stringify(["a1", "Ship it", undefined, "c1", "m1", null, []]));
+  expect(
+    sendSignature({
+      agentId: "a1",
+      text: "x",
+      folder: "",
+      conversationId: undefined,
+      excerpt: "quoted",
+      attachmentIds: ["f1"],
+    }),
+  ).toBe('["a1","x","",null,null,"quoted",["f1"]]');
 });
