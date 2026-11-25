@@ -2137,15 +2137,22 @@ export function Feed({
   const resultsList = useRef<HTMLUListElement>(null);
   const cardPlaces = useRef<CardPlaces | null>(null);
   const slideNextChange = () => {
-    cardPlaces.current = captureCardPlaces(resultsList.current);
+    const places = captureCardPlaces(resultsList.current);
+    cardPlaces.current = places;
+    // The change commits in this task; places left after a frame belong to
+    // a change that never rendered and must not move a later one.
+    requestAnimationFrame(() => {
+      if (cardPlaces.current === places) cardPlaces.current = null;
+    });
   };
   useLayoutEffect(() => {
     if (!cardPlaces.current) return;
     slideCards(cardPlaces.current);
     cardPlaces.current = null;
   });
-  // The selected tab's bar slides between tabs; placed directly, so moving
-  // it costs no render.
+  // The selected tab's bar slides between tabs. It is placed directly after
+  // each Feed commit (reading the selected tab's offset) and when the tab
+  // row resizes, so moving it costs no render.
   const tabList = useRef<HTMLDivElement>(null);
   const tabIndicator = useRef<HTMLSpanElement>(null);
   const placeTabIndicator = useRef(() => {});
@@ -2168,11 +2175,16 @@ export function Feed({
   useLayoutEffect(() => {
     placeTabIndicator.current();
   });
+  const tabRow = !hideFilters;
   useEffect(() => {
-    const place = () => placeTabIndicator.current();
-    addEventListener("resize", place);
-    return () => removeEventListener("resize", place);
-  }, []);
+    const list = tabList.current;
+    if (!list || typeof ResizeObserver !== "function") return;
+    const observer = new ResizeObserver(() => placeTabIndicator.current());
+    observer.observe(list);
+    for (const tab of list.querySelectorAll('[role="tab"]'))
+      observer.observe(tab);
+    return () => observer.disconnect();
+  }, [tabRow]);
   // Cards show relative times; they re-render at most once a minute for them.
   const clockMinute = Math.floor(Date.now() / 60_000);
   const grouping = useDoneThreads(

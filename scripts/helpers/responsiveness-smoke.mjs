@@ -584,14 +584,23 @@ export async function responsivenessSmoke(page, fixture, engine) {
       const beforeOpen = await page.evaluate(() => ({
         ...window.__loopCommitProbe,
       }));
-      const openMs = await openCard.locator(".feed-row").evaluate(
+      const opened = await openCard.locator(".feed-row").evaluate(
         (row) =>
           new Promise((resolve) => {
             const card = row.closest("article");
             const started = performance.now();
+            // Whether the card below is sliding, read in the frame the card
+            // opens: the slide lasts 240 ms.
+            const belowSliding = () => {
+              const below = card.closest("li")?.nextElementSibling;
+              return below ? below.getAnimations().length > 0 : null;
+            };
             const check = () =>
               card.dataset.expanded === "true"
-                ? resolve(performance.now() - started)
+                ? resolve({
+                    ms: performance.now() - started,
+                    slid: belowSliding(),
+                  })
                 : requestAnimationFrame(check);
             row.click();
             requestAnimationFrame(check);
@@ -599,17 +608,6 @@ export async function responsivenessSmoke(page, fixture, engine) {
           }),
       );
       await expect(openCard).toHaveAttribute("data-expanded", "true");
-      // The card below slid to its new place rather than jumping (D6).
-      const slid = await page.evaluate(() => {
-        const cards = [
-          ...document.querySelectorAll(".feed-results .feed-item-wrap"),
-        ];
-        const open = cards.findIndex((card) =>
-          card.querySelector('[data-expanded="true"]'),
-        );
-        const below = cards[open + 1];
-        return below ? below.getAnimations().length > 0 : null;
-      });
       await expect(openCard.locator(".feed-expanded-body")).toBeVisible();
       await expect(page.locator("dialog[open]")).toHaveCount(0);
       // The full answer replaces the preview's fetch of it.
@@ -652,10 +650,11 @@ export async function responsivenessSmoke(page, fixture, engine) {
         );
       }
       report.openInPlace = {
-        openMs: openMs === null ? null : Math.round(openMs),
+        openMs: opened === null ? null : Math.round(opened.ms),
         cardRenders: afterOpen.cardRenders - beforeOpen.cardRenders,
         noSheet: true,
-        cardBelowSlid: slid,
+        // The card below slid to its new place rather than jumping (D6).
+        cardBelowSlid: opened?.slid ?? null,
         saveToggles: canSave ? true : "no answer message in fixture",
       };
 

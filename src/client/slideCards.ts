@@ -25,6 +25,9 @@ export function captureCardPlaces(list: Element | null): CardPlaces {
 export function slideCards(places: CardPlaces) {
   for (const [card, before] of places) {
     if (!card.isConnected) continue;
+    // A slide still running was part of where the card was seen (`before`);
+    // stop it so the new one starts from there, not with a jump.
+    for (const running of card.getAnimations()) running.cancel();
     const moved = before - card.getBoundingClientRect().top;
     // Off-screen moves are not seen; skip them and sub-pixel noise.
     if (Math.abs(moved) < 1 || Math.abs(moved) > innerHeight * 2) continue;
