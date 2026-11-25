@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
 import { seedCheckout } from "./checkout-fixture.mjs";
+import { openCardReading } from "./open-card.mjs";
 
 export async function feedReadingSmoke(page, fixture, capture) {
   const done = fixture.conversations.find((item) => item.state === "completed");
@@ -111,7 +112,7 @@ export async function feedReadingSmoke(page, fixture, capture) {
         "End of the full result.",
       );
     }
-    await card.locator(".feed-row").click();
+    await openCardReading(card.locator(".feed-row"));
     await expect(reader).toBeVisible();
     await expect(thread).toHaveCount(0);
     await expect(reader.locator(".result-identity")).toBeVisible();
@@ -198,10 +199,9 @@ export async function feedReadingSmoke(page, fixture, capture) {
       json: { error: "Fixture message unavailable" },
     }),
   );
-  await page
-    .locator(".feed-results .feed-row")
-    .filter({ hasText: done.title })
-    .click();
+  await openCardReading(
+    page.locator(".feed-results .feed-row").filter({ hasText: done.title }),
+  );
   // Cards already contains the full body; opening it needs no per-message read.
   await expect(reader.getByRole("alert")).toHaveCount(0);
   await expect(reader.locator(".artifact-body")).toContainText(
@@ -226,10 +226,9 @@ export async function feedReadingSmoke(page, fixture, capture) {
     { owner: fixture.owner, id: done.id, draft },
   );
   await page.reload({ waitUntil: "networkidle" });
-  await page
-    .locator(".feed-results .feed-row")
-    .filter({ hasText: done.title })
-    .click();
+  await openCardReading(
+    page.locator(".feed-results .feed-row").filter({ hasText: done.title }),
+  );
   const draftPreview = reader.getByRole("region", { name: "Draft message" });
   await expect(draftPreview).toContainText(draft.replace(/\s+/g, " "));
   await expect(reader).not.toContainText("Private draft");

@@ -210,10 +210,9 @@ for (const engine of selectedEngines()) {
       });
       await fallback.goto(fixture.base);
       await failed;
-      await fallback
-        .locator(".feed-row")
-        .filter({ hasText: done.title })
-        .click();
+      await openCardReading(
+        fallback.locator(".feed-row").filter({ hasText: done.title }),
+      );
       const fallbackReader = fallback.locator(
         "dialog.feed-reading-sheet[open]",
       );

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
+import { openCardReading } from "./open-card.mjs";
 
 export async function steeringRepliesSmoke(page, fixture, _engine, capture) {
   const target = fixture.conversations.find(
@@ -100,9 +101,9 @@ export async function steeringRepliesSmoke(page, fixture, _engine, capture) {
   }
   await page.setViewportSize({ width: 390, height: 844 });
   const firstRow = rows.filter({ hasText: "The reconnect race is isolated." });
-  await firstRow
-    .getByRole("button", { name: "Read reply", exact: true })
-    .click();
+  await openCardReading(
+    firstRow.getByRole("button", { name: "Read reply", exact: true }),
+  );
   const sheet = page.locator("dialog.feed-reading-sheet[open]");
   await expect(
     sheet.getByText("Full reply ending.", { exact: false }),
@@ -130,9 +131,9 @@ export async function steeringRepliesSmoke(page, fixture, _engine, capture) {
   await originalThread
     .getByRole("button", { name: "Close", exact: true })
     .click();
-  await firstRow
-    .getByRole("button", { name: "Read reply", exact: true })
-    .click();
+  await openCardReading(
+    firstRow.getByRole("button", { name: "Read reply", exact: true }),
+  );
   await expect
     .poll(
       () =>

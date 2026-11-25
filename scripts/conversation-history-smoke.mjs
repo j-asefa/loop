@@ -1612,11 +1612,12 @@ async function snapshotRecovery(engine) {
     const openConversation = async () => {
       await openTab(page, "Feed");
       await page.getByRole("tab", { name: "Threads", exact: true }).click();
-      await page
-        .locator(".feed-row")
-        .filter({ hasText: conversation.title })
-        .first()
-        .click();
+      await openCardReading(
+        page
+          .locator(".feed-row")
+          .filter({ hasText: conversation.title })
+          .first(),
+      );
       await expect
         .poll(() =>
           page

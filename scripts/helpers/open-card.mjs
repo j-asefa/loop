@@ -10,10 +10,12 @@ export async function openCardReading(row) {
   const card = row.locator(
     "xpath=ancestor-or-self::article[contains(@class,'feed-item-card')][1]",
   );
+  // Held before the tap: a card that leaves the page (its tap navigated)
+  // is then read from its detached element at once, not waited for.
+  const element = await card.elementHandle();
   await row.click();
-  // React commits the open state within a frame or two of the tap. A card
-  // that navigated away is gone, and there is nothing more to do.
-  const opened = await card
+  // React commits the open state within a frame or two of the tap.
+  const opened = await element
     .evaluate(
       (element) =>
         new Promise((resolve) =>

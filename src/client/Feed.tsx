@@ -2161,6 +2161,11 @@ export function Feed({
   const [aggregate, setAggregate] = useState<ThreadSelection | null>(null);
   const [combineFrom, setCombineFrom] = useState<string | null>(null);
   const [selectedCards, setSelectedCards] = useState<string[] | null>(null);
+  // Selecting cards closes the one open in place.
+  const selecting = selectedCards !== null;
+  useEffect(() => {
+    if (selecting) setExpandedCard(null);
+  }, [selecting]);
   const [bulkReadBusy, setBulkReadBusy] = useState(false);
   const [readingCard, setReadingCard] = useState<{
     item: FeedItem;
@@ -4892,7 +4897,7 @@ export function Feed({
         )}
         canQuickReply={Boolean(onReply && feedReplyQuote(item))}
         canInlineReply={Boolean(onReply)}
-        expanded={expandedCard === slot}
+        expanded={!selectedCards && expandedCard === slot}
         draftText={
           threadDraft(sourceDraftId(item.conversation_id, source)).text
         }

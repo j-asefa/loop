@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
 import { runReceipt } from "./run-receipt.mjs";
+import { openCardReading } from "./open-card.mjs";
 
 // The real app, with independent source APIs (no provider calls). Request
 // destinations and document identity are observed across actual user actions.
@@ -180,10 +181,9 @@ export async function sourceConversationBrowser(
   };
   try {
     // Reply keeps the card source even when conversation ids collide.
-    await page
-      .locator(".feed-row")
-      .filter({ hasText: remote.thread.title })
-      .click();
+    await openCardReading(
+      page.locator(".feed-row").filter({ hasText: remote.thread.title }),
+    );
     const reading = page.locator("dialog.feed-reading-sheet[open]");
     await expect(reading.locator(".artifact-body")).toHaveText(
       `Full reading view for ${remote.agent.name}`,
