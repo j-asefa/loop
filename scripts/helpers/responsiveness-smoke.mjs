@@ -32,9 +32,16 @@ const { WORKING_RUN_DISPLAY_STATES } = await tsImport(
 // work in a commit; each card counts at most once per commit.
 function installCommitProbe() {
   const state = { commits: 0, cardRenders: 0 };
+  // The component's outermost element, depth first: a wrapper component may
+  // render something without an element before it.
   const firstHost = (fiber) => {
-    for (let node = fiber.child; node; node = node.child)
+    const stack = [fiber.child];
+    while (stack.length) {
+      const node = stack.pop();
+      if (!node) continue;
       if (node.tag === 5) return node.stateNode;
+      stack.push(node.sibling, node.child);
+    }
     return null;
   };
   const visit = (fiber, cards) => {
@@ -551,6 +558,25 @@ export async function responsivenessSmoke(page, fixture, engine) {
         cardWrappers: await page.locator(".feed-item-wrap").count(),
       };
 
+      console.log("responsiveness: tab indicator");
+      // The bar sits under the selected tab once it has slid there.
+      await page.waitForTimeout(300);
+      const barOffset = await page.evaluate(() => {
+        const bar = document.querySelector(".feed-tab-indicator");
+        const tab = document.querySelector(
+          '.feed-tabs [role="tab"][aria-selected="true"]',
+        );
+        if (!bar || !tab || bar.hidden) return null;
+        return (
+          bar.getBoundingClientRect().left - tab.getBoundingClientRect().left
+        );
+      });
+      if (barOffset === null || Math.abs(barOffset - 12) > 2)
+        throw new Error(
+          `The tab bar is not under the selected tab: ${barOffset}`,
+        );
+      report.tabIndicator = { offset: Math.round(barOffset) };
+
       console.log("responsiveness: open in place");
       // B3: tapping a Done result opens it in place, with no sheet, within
       // 100 ms, re-rendering only that card; a second card closes the first.
@@ -573,6 +599,17 @@ export async function responsivenessSmoke(page, fixture, engine) {
           }),
       );
       await expect(openCard).toHaveAttribute("data-expanded", "true");
+      // The card below slid to its new place rather than jumping (D6).
+      const slid = await page.evaluate(() => {
+        const cards = [
+          ...document.querySelectorAll(".feed-results .feed-item-wrap"),
+        ];
+        const open = cards.findIndex((card) =>
+          card.querySelector('[data-expanded="true"]'),
+        );
+        const below = cards[open + 1];
+        return below ? below.getAnimations().length > 0 : null;
+      });
       await expect(openCard.locator(".feed-expanded-body")).toBeVisible();
       await expect(page.locator("dialog[open]")).toHaveCount(0);
       // The full answer replaces the preview's fetch of it.
@@ -618,6 +655,7 @@ export async function responsivenessSmoke(page, fixture, engine) {
         openMs: openMs === null ? null : Math.round(openMs),
         cardRenders: afterOpen.cardRenders - beforeOpen.cardRenders,
         noSheet: true,
+        cardBelowSlid: slid,
         saveToggles: canSave ? true : "no answer message in fixture",
       };
 
@@ -796,7 +834,7 @@ export async function responsivenessSmoke(page, fixture, engine) {
           page.locator(".feed-results .feed-item-card").first(),
         );
         await expect(row).toHaveCount(0, { timeout: 300 });
-        const notSaved = page.getByText("Archive not saved.");
+        const notSaved = page.getByText("Archive not confirmed.");
         await expect(notSaved).toBeVisible();
         await expect(notSaved).toHaveCount(0, { timeout: 8000 });
         await expect(row).toHaveCount(1);
@@ -1320,6 +1358,8 @@ export async function responsivenessSmoke(page, fixture, engine) {
   // Open in place (B3): within 100 ms of the tap, re-rendering the opened
   // card and its full answer (at most 3 card renders), never every card.
   ran(Number.isFinite(report.openInPlace?.openMs), "open in place");
+  if (report.openInPlace.cardBelowSlid === false)
+    throw new Error("The card below an opened card jumped instead of sliding");
   if (
     !(report.openInPlace.openMs < 100) ||
     !(report.openInPlace.cardRenders <= 3)

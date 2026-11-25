@@ -324,7 +324,6 @@ a:focus-visible {
   color: var(--brass-text);
   font-weight: 650;
 }
-.feed-tabs .chip[aria-selected="true"]::after,
 .profile-tabs button.selected::after,
 .my-profile-tabs button[aria-selected="true"]::after,
 .project-tabs button.selected::after {
@@ -336,6 +335,29 @@ a:focus-visible {
   height: 3px;
   border-radius: 4px 4px 0 0;
   background: var(--brass);
+}
+/* The selected feed tab's bar, placed and slid by Feed. */
+.feed-tabs {
+  position: relative;
+}
+.feed-tab-indicator {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  border-radius: 4px 4px 0 0;
+  background: var(--brass);
+  pointer-events: none;
+}
+.feed-tab-indicator.ready {
+  transition:
+    transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    width 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .feed-tab-indicator.ready {
+    transition: none;
+  }
 }
 .feed-tabs [data-filter="done"] .chip-count,
 .feed-tabs [data-filter="working"] .chip-count,
