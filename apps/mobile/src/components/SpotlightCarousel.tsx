@@ -1557,18 +1557,6 @@ function FloatingCarouselCard({
   const viewportHeightRef = useRef(0);
   const contentHeightRef = useRef(0);
 
-  const longPressGesture = useMemo(
-    () =>
-      Gesture.LongPress()
-        .enabled(isActive)
-        .minDuration(380)
-        .maxDistance(12)
-        .onStart(() => {
-          runOnJS(onLongPress)();
-        }),
-    [isActive, onLongPress],
-  );
-
   const animatedCardStyle = useAnimatedStyle(() => {
     const inputRange = [
       (index - 1) * snapInterval,
@@ -1626,7 +1614,11 @@ function FloatingCarouselCard({
       )}
 
       {/* Card Eyebrow (never crowds the title) */}
-      <View style={styles.cardEyebrow}>
+      <Pressable
+        delayLongPress={420}
+        onLongPress={isActive ? onLongPress : undefined}
+        style={styles.cardEyebrow}
+      >
         <View style={styles.cardBadges}>
           {(slide.tab === "working" || slide.statusLabel === "Working") && (
             <View
@@ -1697,7 +1689,7 @@ function FloatingCarouselCard({
         <Text style={[styles.cardModelTag, { color: theme.muted }]}>
           {slide.model}
         </Text>
-      </View>
+      </Pressable>
 
       {/* Pull-down-to-search tactile indicator */}
       {pullHint !== "idle" && (
@@ -1733,41 +1725,41 @@ function FloatingCarouselCard({
       )}
 
       {/* Scrollable Card Body: pull down to search, pull up to reply, long-press for Save/Remind */}
-      <GestureDetector gesture={longPressGesture}>
-        <ScrollView
-          style={styles.cardScroll}
-          contentContainerStyle={styles.cardScrollContent}
-          showsVerticalScrollIndicator={false}
-          bounces
-          alwaysBounceVertical
-          nestedScrollEnabled
-          scrollEventThrottle={16}
-          onLayout={(e) => {
-            viewportHeightRef.current = e.nativeEvent.layout.height;
-          }}
-          onContentSizeChange={(_w, h) => {
-            contentHeightRef.current = h;
-          }}
-          onScroll={(e) => {
-            const y = e.nativeEvent.contentOffset.y;
-            lastPullYRef.current = y;
+      <ScrollView
+        style={styles.cardScroll}
+        contentContainerStyle={styles.cardScrollContent}
+        showsVerticalScrollIndicator={false}
+        bounces
+        alwaysBounceVertical
+        nestedScrollEnabled
+        scrollEventThrottle={16}
+        onLayout={(e) => {
+          viewportHeightRef.current = e.nativeEvent.layout.height;
+        }}
+        onContentSizeChange={(_w, h) => {
+          contentHeightRef.current = h;
+        }}
+        onScroll={(e) => {
+          const y = e.nativeEvent.contentOffset.y;
+          lastPullYRef.current = y;
 
-            // Pull down at top -> search thread
-            if (y < -62) {
-              if (!pullArmedRef.current) {
-                pullArmedRef.current = true;
-                haptics.light();
-                setPullHint("ready");
-              }
-            } else if (y < -20) {
-              pullArmedRef.current = false;
-              if (pullHint !== "pulling") setPullHint("pulling");
-            } else if (pullHint !== "idle") {
-              pullArmedRef.current = false;
-              setPullHint("idle");
+          // Pull down at top -> search thread
+          if (y < -62) {
+            if (!pullArmedRef.current) {
+              pullArmedRef.current = true;
+              haptics.light();
+              setPullHint("ready");
             }
+          } else if (y < -20) {
+            pullArmedRef.current = false;
+            if (pullHint !== "pulling") setPullHint("pulling");
+          } else if (pullHint !== "idle") {
+            pullArmedRef.current = false;
+            setPullHint("idle");
+          }
 
-            // Pull up at bottom -> open reply box & bottom controls
+          // Pull up at bottom -> open reply box & bottom controls
+          if (viewportHeightRef.current > 0 && contentHeightRef.current > 0) {
             const maxScroll = Math.max(
               0,
               contentHeightRef.current - viewportHeightRef.current,
@@ -1787,22 +1779,28 @@ function FloatingCarouselCard({
               pullUpArmedRef.current = false;
               setPullUpHint("idle");
             }
-          }}
-          onScrollEndDrag={() => {
-            const shouldSearch =
-              pullArmedRef.current || lastPullYRef.current < -62;
-            const shouldReply =
-              pullUpArmedRef.current || lastBottomPullRef.current > 54;
-            pullArmedRef.current = false;
-            pullUpArmedRef.current = false;
-            setPullHint("idle");
-            setPullUpHint("idle");
-            if (shouldSearch) {
-              onPullToSearch();
-            } else if (shouldReply) {
-              onPullUpToReply();
-            }
-          }}
+          }
+        }}
+        onScrollEndDrag={() => {
+          const shouldSearch =
+            pullArmedRef.current || lastPullYRef.current < -62;
+          const shouldReply =
+            pullUpArmedRef.current || lastBottomPullRef.current > 54;
+          pullArmedRef.current = false;
+          pullUpArmedRef.current = false;
+          lastBottomPullRef.current = 0;
+          setPullHint("idle");
+          setPullUpHint("idle");
+          if (shouldSearch) {
+            onPullToSearch();
+          } else if (shouldReply) {
+            onPullUpToReply();
+          }
+        }}
+      >
+        <Pressable
+          delayLongPress={420}
+          onLongPress={isActive ? onLongPress : undefined}
         >
           <CarouselCardTitle
             title={header.title}
@@ -1822,8 +1820,8 @@ function FloatingCarouselCard({
               header.titleSource === "heading" ? header.title : undefined
             }
           />
-        </ScrollView>
-      </GestureDetector>
+        </Pressable>
+      </ScrollView>
 
       {/* Pull-up-to-reply tactile indicator */}
       {pullUpHint !== "idle" && (
