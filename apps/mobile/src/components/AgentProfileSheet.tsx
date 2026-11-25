@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -98,9 +104,12 @@ export function AgentProfileSheet({
           r.agent_id === agent.id &&
           [
             "running",
+            "pausing",
             "queued",
             "awaiting_approval",
             "paused",
+            "failed",
+            "interrupted",
             "waiting_children",
           ].includes(r.state),
       ),
@@ -140,42 +149,54 @@ export function AgentProfileSheet({
     return folders.find((f) => f.id === agent.folder_id)?.name || "Workspace";
   }, [folders, agent.folder_id]);
 
-  const loadAgent = useCallback(async () => {
-    if (!client) {
-      const mine = allCards.filter(
-        (c) =>
-          c.agentId === agent.id ||
-          c.agentName.toLowerCase() === agent.name.toLowerCase(),
-      );
-      setAgentResults(mine);
-      const seen = new Set<string>();
-      setConversations(
-        mine
-          .filter((c) => {
-            if (seen.has(c.conversationId)) return false;
-            seen.add(c.conversationId);
-            return true;
-          })
-          .map((c) => ({
-            id: c.conversationId,
-            title: c.fallbackTitle,
-            created_at: c.createdAt,
-          })),
-      );
-      setLoading(false);
-      return;
-    }
+  const allCardsRef = useRef(allCards);
+  allCardsRef.current = allCards;
 
+  // Demo mode: keep local results synced without re-fetching in live mode
+  useEffect(() => {
+    if (client) return;
+    const mine = allCards.filter(
+      (c) =>
+        c.agentId === agent.id ||
+        c.agentName.toLowerCase() === agent.name.toLowerCase(),
+    );
+    setAgentResults(mine);
+    const seen = new Set<string>();
+    setConversations(
+      mine
+        .filter((c) => {
+          if (seen.has(c.conversationId)) return false;
+          seen.add(c.conversationId);
+          return true;
+        })
+        .map((c) => ({
+          id: c.conversationId,
+          title: c.fallbackTitle,
+          created_at: c.createdAt,
+        })),
+    );
+    setLoading(false);
+  }, [client, agent.id, agent.name, allCards]);
+
+  // Live mode: load once per agent/client without blanking lists on background WS refreshes
+  useEffect(() => {
+    if (!client) return;
+    let cancelled = false;
     setLoading(true);
-    try {
-      const [detail, feedPage] = await Promise.all([
-        client.agentDetail(agent.id),
-        client.feed("done", { agent: agent.id }).catch(() => null),
-      ]);
-      setConversations(detail.conversations);
-      if (feedPage) {
+    void Promise.all([
+      client.agentDetail(agent.id),
+      client.doneCards({ agent: agent.id }).catch(() => null),
+      client.feed("done", { agent: agent.id }).catch(() => null),
+    ])
+      .then(([detail, doneCardItems, feedPage]) => {
+        if (cancelled) return;
+        setConversations(detail.conversations);
+        const sourceItems =
+          doneCardItems && doneCardItems.length > 0
+            ? doneCardItems
+            : (feedPage?.items ?? []);
         setAgentResults(
-          feedPage.items.map((item) => ({
+          sourceItems.map((item) => ({
             id:
               item.done_card_key ??
               item.last_message?.id ??
@@ -193,21 +214,21 @@ export function AgentProfileSheet({
             createdAt: item.last_message?.created_at ?? item.last_activity_at,
             saved: Boolean(item.last_message?.saved),
             unread: item.read_at === null,
+            doneUnread: item.read_at === null,
             messageId: item.last_message?.id,
             doneCardKey: item.done_card_key,
+            unreadVersion: item.unread_version,
           })),
         );
-      }
-    } catch {
-      // keep existing
-    } finally {
-      setLoading(false);
-    }
-  }, [client, agent, allCards, projectName]);
-
-  useEffect(() => {
-    void loadAgent();
-  }, [loadAgent]);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [client, agent.id, agent.name, agent.model, projectName]);
 
   useEffect(() => {
     if (tab !== "traces" || !client) return;

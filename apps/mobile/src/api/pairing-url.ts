@@ -21,14 +21,24 @@ export function isLocalHost(hostname: string): boolean {
     host === "127.0.0.1" ||
     host === "::1" ||
     host === "[::1]" ||
-    host.endsWith(".local")
+    host.endsWith(".local") ||
+    !host.includes(".")
   ) {
     return true;
   }
   if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
   if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
-  const m = /^172\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/.exec(host);
-  if (m && Number(m[1]) >= 16 && Number(m[1]) <= 31) return true;
+  const rfc1918 = /^172\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/.exec(host);
+  if (rfc1918 && Number(rfc1918[1]) >= 16 && Number(rfc1918[1]) <= 31) {
+    return true;
+  }
+  // Tailscale / CGNAT 100.64.0.0/10
+  const cgnat = /^100\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/.exec(host);
+  if (cgnat && Number(cgnat[1]) >= 64 && Number(cgnat[1]) <= 127) {
+    return true;
+  }
+  // IPv6 Unique Local Addresses (fc00::/7)
+  if (/^\[?f[cd][0-9a-f]{2}:/i.test(host)) return true;
   return false;
 }
 
@@ -97,7 +107,12 @@ export function tryParsePairingLink(rawInput: string): {
   const hashParams = new URLSearchParams(hash);
 
   const pairSecret = hashParams.get("pair");
-  if (pairSecret && /^[A-Za-z0-9_-]{32,128}$/.test(pairSecret)) {
+  if (pairSecret !== null) {
+    if (!/^[A-Za-z0-9_-]{32,128}$/.test(pairSecret)) {
+      throw new Error(
+        "Invalid `#pair=` token. Run `loop pair` on your machine for a fresh link.",
+      );
+    }
     return {
       origin: url.origin,
       pairing: { origin: url.origin, secret: pairSecret },
@@ -105,24 +120,36 @@ export function tryParsePairingLink(rawInput: string): {
   }
 
   const fleetEncoded = hashParams.get("fleet");
-  if (fleetEncoded) {
-    let payload: {
-      kind?: string;
-      origin?: string;
-      device?: string;
-      ceremonyId?: string;
-    };
+  if (fleetEncoded !== null) {
+    let rawPayload: unknown;
     try {
-      payload = JSON.parse(decodeBase64Url(fleetEncoded));
+      rawPayload = JSON.parse(decodeBase64Url(fleetEncoded));
     } catch {
       throw new Error("This fleet pairing link could not be decoded.");
     }
-    if (payload.kind !== "combined" || !payload.device) {
+    if (
+      !rawPayload ||
+      typeof rawPayload !== "object" ||
+      Array.isArray(rawPayload)
+    ) {
+      throw new Error("This fleet pairing link payload is invalid.");
+    }
+    const payload = rawPayload as {
+      kind?: unknown;
+      origin?: unknown;
+      device?: unknown;
+      ceremonyId?: unknown;
+    };
+    if (
+      payload.kind !== "combined" ||
+      typeof payload.device !== "string" ||
+      !/^[A-Za-z0-9_-]{32,128}$/.test(payload.device)
+    ) {
       throw new Error(
         "This link enrolls a machine, not a phone. Run `loop pair` for a phone link.",
       );
     }
-    if (payload.origin && payload.origin !== url.origin) {
+    if (typeof payload.origin === "string" && payload.origin !== url.origin) {
       throw new Error("The pairing link origin does not match its payload.");
     }
     return {
@@ -130,7 +157,10 @@ export function tryParsePairingLink(rawInput: string): {
       pairing: {
         origin: url.origin,
         secret: payload.device,
-        ceremonyId: payload.ceremonyId,
+        ceremonyId:
+          typeof payload.ceremonyId === "string"
+            ? payload.ceremonyId
+            : undefined,
       },
     };
   }

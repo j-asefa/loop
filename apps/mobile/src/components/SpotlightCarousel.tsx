@@ -256,6 +256,7 @@ export function SpotlightCarousel({
     useState<NativeResultCard | null>(null);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [replyError, setReplyError] = useState("");
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const replyAttachments = useAttachments(client, {
     agentId: activeCard?.agentId,
@@ -522,7 +523,7 @@ export function SpotlightCarousel({
     setTimeout(() => replyInputRef.current?.focus(), 60);
   }, []);
 
-  const submitReply = useCallback(() => {
+  const submitReply = useCallback(async () => {
     const trimmed = draft.trim();
     const { readyIds, readyNames, uploading, clearAttachments } =
       replyAttachments;
@@ -541,14 +542,20 @@ export function SpotlightCarousel({
         : `Attached ${readyNames.length} files`);
     haptics.medium();
     setSending(true);
-    setDraft("");
-    clearAttachments();
-    Keyboard.dismiss();
-    Promise.resolve(onSendReply(activeCard, finalPrompt, readyIds))
-      .catch(() => {})
-      .finally(() => {
-        setTimeout(() => setSending(false), client ? 350 : 1150);
-      });
+    setReplyError("");
+    try {
+      await Promise.resolve(onSendReply(activeCard, finalPrompt, readyIds));
+      setDraft("");
+      clearAttachments();
+      Keyboard.dismiss();
+    } catch (err) {
+      haptics.warning();
+      setReplyError(
+        err instanceof Error ? err.message : "Could not send reply. Try again.",
+      );
+    } finally {
+      setTimeout(() => setSending(false), client ? 250 : 1150);
+    }
   }, [draft, sending, activeCard, onSendReply, client, replyAttachments]);
 
   const handleSelectNeighbor = useCallback(
@@ -1089,6 +1096,14 @@ export function SpotlightCarousel({
 
           {/* Detached Floating Reply Pill along the bottom */}
           <View style={styles.replyFloatWrap}>
+            {replyError ? (
+              <Text
+                style={[styles.replyErrorText, { color: theme.orange }]}
+                numberOfLines={2}
+              >
+                {replyError}
+              </Text>
+            ) : null}
             <AttachmentChipStrip
               attachments={replyAttachments.attachments}
               theme={theme}
@@ -1165,7 +1180,7 @@ export function SpotlightCarousel({
                   replyAttachments.uploading ||
                   sending
                 }
-                onPress={submitReply}
+                onPress={() => void submitReply()}
                 style={({ pressed }) => [
                   styles.replySendBtn,
                   {
@@ -1456,35 +1471,39 @@ export function SpotlightCarousel({
                 </View>
               </Pressable>
 
-              <Pressable
-                onPress={() => {
-                  const target = actionSheetCard;
-                  setActionSheetCard(null);
-                  haptics.success();
-                  onDismissCard(target);
-                }}
-                style={({ pressed }) => [
-                  styles.quickOption,
-                  {
-                    backgroundColor: pressed ? theme.greenSoft : theme.soft,
-                    borderColor: theme.line,
-                  },
-                ]}
-              >
-                <Check size={18} color={theme.green} />
-                <View style={styles.quickOptionText}>
-                  <Text
-                    style={[styles.quickOptionLabel, { color: theme.text }]}
-                  >
-                    Mark done
-                  </Text>
-                  <Text
-                    style={[styles.quickOptionHint, { color: theme.muted }]}
-                  >
-                    Clear this card from Done
-                  </Text>
-                </View>
-              </Pressable>
+              {(Boolean(actionSheetCard.doneCardKey) ||
+                Boolean(actionSheetCard.replyCardKey) ||
+                !client) && (
+                <Pressable
+                  onPress={() => {
+                    const target = actionSheetCard;
+                    setActionSheetCard(null);
+                    haptics.success();
+                    onDismissCard(target);
+                  }}
+                  style={({ pressed }) => [
+                    styles.quickOption,
+                    {
+                      backgroundColor: pressed ? theme.greenSoft : theme.soft,
+                      borderColor: theme.line,
+                    },
+                  ]}
+                >
+                  <Check size={18} color={theme.green} />
+                  <View style={styles.quickOptionText}>
+                    <Text
+                      style={[styles.quickOptionLabel, { color: theme.text }]}
+                    >
+                      Mark done
+                    </Text>
+                    <Text
+                      style={[styles.quickOptionHint, { color: theme.muted }]}
+                    >
+                      Clear this card from Done
+                    </Text>
+                  </View>
+                </Pressable>
+              )}
 
               {onOpenThread && (
                 <Pressable
@@ -2563,6 +2582,12 @@ const styles = StyleSheet.create({
   replyFloatWrap: {
     paddingHorizontal: 16,
     paddingTop: 2,
+  },
+  replyErrorText: {
+    fontSize: 12.5,
+    fontWeight: "600",
+    paddingHorizontal: 8,
+    paddingBottom: 6,
   },
   replyPill: {
     flexDirection: "row",

@@ -17,6 +17,8 @@ export type NativeResultCard = {
   createdAt: number;
   saved: boolean;
   unread: boolean;
+  doneUnread?: boolean;
+  replyUnread?: boolean;
   statusLabel?: string;
   /** Live companion identifiers for mutations (read, dismiss, save, reply). */
   messageId?: string;
@@ -81,6 +83,8 @@ export function feedItemToNativeCard(
         : tab === "replies"
           ? item.reply?.read_at === null
           : false,
+    doneUnread: tab === "done" ? item.read_at === null : false,
+    replyUnread: tab === "replies" ? item.reply?.read_at === null : false,
     statusLabel,
     messageId: msg?.id ?? item.reply?.message_id,
     doneCardKey: item.done_card_key,
@@ -121,6 +125,8 @@ export function mergeUnifiedFeedCards(
       unified[existingIdx] = {
         ...existing,
         unread: existing.unread || asFeedCard.unread,
+        doneUnread: Boolean(existing.doneUnread),
+        replyUnread: Boolean(asFeedCard.replyUnread),
         replyCardKey: asFeedCard.replyCardKey ?? existing.replyCardKey,
         statusLabel: asFeedCard.statusLabel ?? existing.statusLabel,
         createdAt: Math.max(existing.createdAt, asFeedCard.createdAt),

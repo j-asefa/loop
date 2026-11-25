@@ -315,6 +315,7 @@ function LoopShell() {
     setCarouselOverrideCards(null);
     setProfileAgent(null);
     setThreadOverlay(null);
+    setComposeOpen(false);
     setRemindCard(null);
     if (!client) {
       setAgents(DEMO_AGENTS);
@@ -393,24 +394,37 @@ function LoopShell() {
 
   const handleMarkRead = useCallback(
     (card: NativeResultCard) => {
-      if (client) {
-        setLiveCards((prev) =>
-          prev.map((c) => (c.id === card.id ? { ...c, unread: false } : c)),
+      const clearRead = (prev: NativeResultCard[]) =>
+        prev.map((c) =>
+          c.id === card.id
+            ? { ...c, unread: false, doneUnread: false, replyUnread: false }
+            : c,
         );
+      if (client) {
+        const markDone = Boolean(
+          card.doneCardKey && (card.doneUnread ?? !card.replyCardKey),
+        );
+        const markReply = Boolean(
+          card.replyCardKey &&
+          card.messageId &&
+          (card.replyUnread ?? !card.doneCardKey),
+        );
+        setLiveCards(clearRead);
+        setCarouselOverrideCards((prev) => (prev ? clearRead(prev) : prev));
         setSummary((prev) =>
           prev
             ? {
                 ...prev,
-                done_unread: card.doneCardKey
+                done_unread: markDone
                   ? Math.max(0, (prev.done_unread ?? 0) - 1)
                   : prev.done_unread,
-                replies_unread: card.replyCardKey
+                replies_unread: markReply
                   ? Math.max(0, (prev.replies_unread ?? 0) - 1)
                   : prev.replies_unread,
               }
             : prev,
         );
-        if (card.doneCardKey) {
+        if (markDone && card.doneCardKey) {
           void client
             .markDoneRead(
               card.conversationId,
@@ -419,16 +433,15 @@ function LoopShell() {
             )
             .catch(() => {});
         }
-        if (card.replyCardKey && card.messageId) {
+        if (markReply && card.messageId) {
           void client
             .setReplyState(card.messageId, { read: true })
             .catch(() => {});
         }
         return;
       }
-      setDemoCards((prev) =>
-        prev.map((c) => (c.id === card.id ? { ...c, unread: false } : c)),
-      );
+      setDemoCards(clearRead);
+      setCarouselOverrideCards((prev) => (prev ? clearRead(prev) : prev));
     },
     [client],
   );
@@ -440,6 +453,7 @@ function LoopShell() {
         prev.map((c) => (c.id === card.id ? { ...c, saved: nextSaved } : c));
       if (client) {
         setLiveCards(updater);
+        setCarouselOverrideCards((prev) => (prev ? updater(prev) : prev));
         if (card.messageId) {
           void client
             .setSaved(card.messageId, nextSaved)
@@ -451,6 +465,7 @@ function LoopShell() {
         return;
       }
       setDemoCards(updater);
+      setCarouselOverrideCards((prev) => (prev ? updater(prev) : prev));
       showToast(nextSaved ? "Saved card" : "Removed from Saved");
     },
     [client, showToast],
@@ -458,8 +473,14 @@ function LoopShell() {
 
   const handleDismissCard = useCallback(
     (card: NativeResultCard) => {
+      const removeCard = (prev: NativeResultCard[]) =>
+        prev.filter((c) => c.id !== card.id);
       if (client) {
-        setLiveCards((prev) => prev.filter((c) => c.id !== card.id));
+        if (!card.doneCardKey && !(card.replyCardKey && card.messageId)) {
+          return;
+        }
+        setLiveCards(removeCard);
+        setCarouselOverrideCards((prev) => (prev ? removeCard(prev) : prev));
         if (card.doneCardKey) {
           void client
             .setDoneHidden(card.conversationId, card.doneCardKey, true)
@@ -483,7 +504,8 @@ function LoopShell() {
         }
         return;
       }
-      setDemoCards((prev) => prev.filter((c) => c.id !== card.id));
+      setDemoCards(removeCard);
+      setCarouselOverrideCards((prev) => (prev ? removeCard(prev) : prev));
       showToast(`Marked @${card.agentName} card done`, () => {
         haptics.light();
         setDemoCards((prev) => [card, ...prev]);
@@ -528,8 +550,7 @@ function LoopShell() {
           agents.find((a) => a.name === card.agentName)?.id ||
           agents[0]?.id;
         if (!agentId) {
-          showToast("No agent available to receive this reply");
-          return;
+          throw new Error("No agent available to receive this reply.");
         }
         await client.submitRun({
           agentId,

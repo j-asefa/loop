@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Linking,
@@ -85,21 +85,34 @@ export function ProfileScreen({
   const [stories, setStories] = useState<ApiSocialStory[]>([]);
   const [profile, setProfile] = useState<ApiPersonalProfile | null>(null);
 
+  const localCardsRef = useRef(localCards);
+  localCardsRef.current = localCards;
+
+  // Reset all profile state on workspace switch or sign-out and guard against stale responses
   useEffect(() => {
-    if (!client) {
-      setProfile(null);
-      return;
-    }
+    setProfile(null);
+    setSaved([]);
+    setReminders([]);
+    setScheduled([]);
+    setFiles([]);
+    setStories([]);
+    if (!client) return;
+    let cancelled = false;
     void client
       .personalProfile()
-      .then(setProfile)
+      .then((next) => {
+        if (!cancelled) setProfile(next);
+      })
       .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, [client]);
 
   const loadSection = useCallback(async () => {
     if (!client) {
       setSaved(
-        localCards
+        localCardsRef.current
           .filter((c) => c.saved)
           .map((c) => ({
             kind: "message",
@@ -118,6 +131,10 @@ export function ProfileScreen({
             },
           })),
       );
+      setReminders([]);
+      setScheduled([]);
+      setFiles([]);
+      setStories([]);
       return;
     }
 
@@ -134,11 +151,51 @@ export function ProfileScreen({
     } finally {
       setLoading(false);
     }
-  }, [client, section, localCards]);
+  }, [client, section]);
 
   useEffect(() => {
-    void loadSection();
-  }, [loadSection]);
+    let cancelled = false;
+    const run = async () => {
+      if (!client) {
+        await loadSection();
+        return;
+      }
+      setLoading(true);
+      try {
+        if (section === "saved") {
+          const data = await client.savedList();
+          if (!cancelled) setSaved(data);
+        } else if (section === "reminders") {
+          const data = await client.laterList();
+          if (!cancelled) setReminders(data);
+        } else if (section === "scheduled") {
+          const data = await client.scheduledList();
+          if (!cancelled) setScheduled(data);
+        } else if (section === "files") {
+          const data = await client.personalFiles();
+          if (!cancelled) setFiles(data);
+        } else if (section === "social") {
+          const data = await client.socialStories();
+          if (!cancelled) setStories(data);
+        }
+      } catch {
+        // keep existing
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [client, section, loadSection]);
+
+  // Keep demo Saved list synced when local demo cards change
+  useEffect(() => {
+    if (!client) {
+      void loadSection();
+    }
+  }, [client, localCards, loadSection]);
 
   const statusColor =
     socketStatus === "live"

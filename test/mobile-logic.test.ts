@@ -100,7 +100,7 @@ describe("mobile pairing URL security", () => {
     ).toThrow(/fragment/i);
   });
 
-  it("requires https:// for public hosts while allowing http:// for localhost and LAN", () => {
+  it("requires https:// for public hosts while allowing http:// for localhost, LAN, Tailscale, and single-label hosts", () => {
     expect(() => normalizeWorkspaceUrl("http://example.com")).toThrow(
       /https:\/\//i,
     );
@@ -110,6 +110,23 @@ describe("mobile pairing URL security", () => {
     expect(normalizeWorkspaceUrl("http://192.168.1.42:3131").origin).toBe(
       "http://192.168.1.42:3131",
     );
+    expect(normalizeWorkspaceUrl("http://100.64.12.9:3131").origin).toBe(
+      "http://100.64.12.9:3131",
+    );
+    expect(normalizeWorkspaceUrl("http://mybox:3131").origin).toBe(
+      "http://mybox:3131",
+    );
+  });
+
+  it("rejects malformed #fleet= JSON and invalid #pair= tokens with clear errors", () => {
+    // base64url("null") === "bnVsbA"
+    expect(() =>
+      tryParsePairingLink("https://example.trycloudflare.com/#fleet=bnVsbA"),
+    ).toThrow(/payload is invalid/i);
+
+    expect(() =>
+      tryParsePairingLink("https://example.trycloudflare.com/#pair=too-short"),
+    ).toThrow(/invalid `#pair=` token/i);
   });
 
   it("rejects redirected or cross-origin probe responses", () => {
@@ -187,10 +204,13 @@ describe("mobile unified feed merging & truncation detection", () => {
     expect(merged).toHaveLength(2);
     expect(merged[0].conversationId).toBe("conv-shared");
     expect(merged[0].unread).toBe(true);
+    expect(merged[0].doneUnread).toBe(false);
+    expect(merged[0].replyUnread).toBe(true);
     expect(merged[0].doneCardKey).toBe("done:shared");
     expect(merged[0].replyCardKey).toBe("reply:m-shared");
     expect(merged[1].conversationId).toBe("conv-old");
     expect(merged[1].unread).toBe(false);
+    expect(merged[1].doneUnread).toBe(false);
   });
 
   it("flags 1000-char reply previews as truncated so carousel hydrates full content", () => {
