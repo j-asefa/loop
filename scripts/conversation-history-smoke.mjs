@@ -20,6 +20,7 @@ import {
 } from "./helpers/browser-errors.mjs";
 import { conversationFilesSmoke } from "./helpers/conversation-files-smoke.mjs";
 import { undiscoveredCapabilities } from "../src/shared/agent-activities.ts";
+import { openCardReading } from "./helpers/open-card.mjs";
 
 for (const engine of selectedEngines()) {
   await localRequestRefusal(engine);
@@ -449,7 +450,7 @@ for (const engine of selectedEngines()) {
           source ? { has: remoteEnvironment } : { hasNot: remoteEnvironment },
         )
         .first();
-      await card.locator(".feed-row").click();
+      await openCardReading(card.locator(".feed-row"));
       await expect
         .poll(() =>
           page

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { expect } from "@playwright/test";
 import { mockViewportCoordinates } from "./mock-viewport.mjs";
+import { openCardReading } from "./open-card.mjs";
 
 export async function swipeBackSmoke(page, fixture, engine, capture) {
   await mockViewportCoordinates(page);
@@ -164,7 +165,7 @@ export async function swipeBackSmoke(page, fixture, engine, capture) {
     );
     await expect(visibleTitle).toBeInViewport();
     const readingPosition = await page.evaluate(() => scrollY);
-    await visibleTitle.click();
+    await openCardReading(visibleTitle);
     await expect(page.locator("dialog.feed-reading-sheet[open]")).toBeVisible();
     await swipe(dialog().locator(".sheet-head"));
     await expect(page.locator("dialog[open]")).toHaveCount(0);

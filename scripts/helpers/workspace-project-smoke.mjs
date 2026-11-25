@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
 import { tsImport } from "tsx/esm/api";
+import { openCardReading } from "./open-card.mjs";
 
 const { publishCompletedRunResult } = await tsImport(
   "../../src/server/result-publication.ts",
@@ -81,10 +82,11 @@ export async function workspaceProjectSmoke(page, fixture, _engine, capture) {
     "aria-selected",
     "true",
   );
-  await page
-    .locator(".feed-results .feed-list")
-    .getByRole("button", { name: title })
-    .click();
+  await openCardReading(
+    page
+      .locator(".feed-results .feed-list")
+      .getByRole("button", { name: title }),
+  );
   const reading = page.locator("dialog.feed-reading-sheet[open]");
   await expect(reading).toContainText("Workspace notes are ready.");
   await reading.getByRole("button", { name: "Close", exact: true }).click();

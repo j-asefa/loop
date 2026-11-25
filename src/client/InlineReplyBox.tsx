@@ -44,14 +44,18 @@ function keepAsDraft(value: string, draftId: string, owner?: string) {
 export function InlineReplyBox({
   reply,
   agentName,
+  autoFocus = true,
   onOpenThread,
   onClose,
 }: {
   reply: Omit<InlineReply, "text">;
+  /** Focus (and bring into view) on open; not when shown in an open card. */
+  autoFocus?: boolean;
   agentName?: string;
   /** The thread's full composer, for files, scheduling and long replies. */
   onOpenThread: () => void;
-  onClose: () => void;
+  /** Absent while the box belongs to a card open in place. */
+  onClose?: () => void;
 }) {
   const [text, setText] = useState("");
   const [echo, setEcho] = useState<Echo | null>(null);
@@ -76,9 +80,11 @@ export function InlineReplyBox({
   };
   useEffect(() => {
     mounted.current = true;
-    box.current?.focus({ preventScroll: true });
-    // Clear of the bottom bar and the new-message button (scroll-margin).
-    root.current?.scrollIntoView({ block: "nearest" });
+    if (autoFocus) {
+      box.current?.focus({ preventScroll: true });
+      // Clear of the bottom bar and the new-message button (scroll-margin).
+      root.current?.scrollIntoView({ block: "nearest" });
+    }
     return () => {
       mounted.current = false;
       keepUnaccepted();
@@ -90,7 +96,7 @@ export function InlineReplyBox({
   const close = () => {
     // Saved before the card renders without the box, so it shows the draft.
     keepUnaccepted();
-    onClose();
+    onClose?.();
   };
 
   const send = async (message: string) => {
@@ -230,16 +236,18 @@ export function InlineReplyBox({
               onOpenThread();
             }}
           >
-            Open full thread <ArrowUpRight size={14} aria-hidden="true" />
+            Reply in thread <ArrowUpRight size={14} aria-hidden="true" />
           </button>
-          <button
-            type="button"
-            className="text-button"
-            aria-label="Close reply"
-            onClick={close}
-          >
-            <X size={14} aria-hidden="true" />
-          </button>
+          {onClose && (
+            <button
+              type="button"
+              className="text-button"
+              aria-label="Close reply"
+              onClick={close}
+            >
+              <X size={14} aria-hidden="true" />
+            </button>
+          )}
         </div>
       )}
     </div>
