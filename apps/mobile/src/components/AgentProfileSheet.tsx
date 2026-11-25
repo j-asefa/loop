@@ -63,7 +63,7 @@ export function AgentProfileSheet({
   theme: LoopTheme;
   onClose: () => void;
   onMessageAgent: (agent: ApiAgent) => void;
-  onOpenStack: (conversationId: string) => void;
+  onOpenStack: (conversationId: string, seedCard?: NativeResultCard) => void;
   onOpenThread: (input: {
     conversationId: string;
     title: string;
@@ -487,7 +487,7 @@ export function AgentProfileSheet({
                     key={card.id}
                     onPress={() => {
                       haptics.medium();
-                      onOpenStack(card.conversationId);
+                      onOpenStack(card.conversationId, card);
                     }}
                     style={[
                       styles.itemCard,

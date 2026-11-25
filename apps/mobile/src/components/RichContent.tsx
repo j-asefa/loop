@@ -223,7 +223,8 @@ function parseLinkAt(
   }
   if (parenDepth !== 0) return null;
   const url = text.slice(i + 1, j - 1);
-  if (!/^(https?:\/\/|exps:\/\/|file:\/\/|mailto:)/i.test(url)) {
+  // Only accept http(s) links (tappable) or file:// references (rendered as non-tappable code chips).
+  if (!/^(https?:\/\/|file:\/\/)/i.test(url)) {
     return null;
   }
   return { label, url, end: j };
@@ -283,7 +284,7 @@ function tokenizeInline(
       const link = parseLinkAt(text, i);
       if (link) {
         flushPlain();
-        const isLocalFile = link.url.startsWith("file://");
+        const isLocalFile = link.url.toLowerCase().startsWith("file://");
         tokens.push({
           kind: "link",
           label: link.label,
@@ -469,7 +470,7 @@ function renderInlineTokens(
       );
     }
     if (tok.kind === "link") {
-      if (tok.isLocalFile) {
+      if (tok.isLocalFile || !/^https?:\/\//i.test(tok.url)) {
         return (
           <Text
             key={key}

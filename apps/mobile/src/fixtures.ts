@@ -92,6 +92,51 @@ export function feedItemToNativeCard(
   };
 }
 
+/**
+ * Merges canonical Done cards and Reply cards into one newest-first feed deck,
+ * preserving unread state and both card keys when a message appears in both.
+ */
+export function mergeUnifiedFeedCards(
+  doneItems: ApiFeedItem[],
+  replyItems: ApiFeedItem[],
+): NativeResultCard[] {
+  const unified = doneItems.map((item) => feedItemToNativeCard(item, "done"));
+  const byMessageId = new Map<string, number>();
+  unified.forEach((c, idx) => {
+    if (c.messageId) byMessageId.set(c.messageId, idx);
+  });
+
+  for (const replyItem of replyItems) {
+    const replyCard = feedItemToNativeCard(replyItem, "replies");
+    const asFeedCard: NativeResultCard = {
+      ...replyCard,
+      tab: "done",
+    };
+    const existingIdx =
+      asFeedCard.messageId !== undefined
+        ? byMessageId.get(asFeedCard.messageId)
+        : undefined;
+    if (existingIdx !== undefined) {
+      const existing = unified[existingIdx];
+      unified[existingIdx] = {
+        ...existing,
+        unread: existing.unread || asFeedCard.unread,
+        replyCardKey: asFeedCard.replyCardKey ?? existing.replyCardKey,
+        statusLabel: asFeedCard.statusLabel ?? existing.statusLabel,
+        createdAt: Math.max(existing.createdAt, asFeedCard.createdAt),
+      };
+    } else {
+      if (asFeedCard.messageId) {
+        byMessageId.set(asFeedCard.messageId, unified.length);
+      }
+      unified.push(asFeedCard);
+    }
+  }
+
+  unified.sort((a, b) => b.createdAt - a.createdAt);
+  return unified;
+}
+
 export type QuickReplyOption = {
   id: string;
   label: string;

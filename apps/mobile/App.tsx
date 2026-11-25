@@ -58,6 +58,7 @@ import {
   buildSimulatedReply,
   createInitialCards,
   feedItemToNativeCard,
+  mergeUnifiedFeedCards,
   type NativeResultCard,
 } from "./src/fixtures";
 import { haptics } from "./src/haptics";
@@ -176,11 +177,7 @@ function LoopShell() {
     });
     const inspectUrl = (incoming: string | null | undefined) => {
       if (!incoming) return;
-      if (
-        incoming.includes("#pair=") ||
-        incoming.includes("?pair=") ||
-        incoming.includes("#fleet=")
-      ) {
+      if (incoming.includes("#pair=") || incoming.includes("#fleet=")) {
         setPairingInitialUrl(incoming);
         setPairingOpen(true);
       }
@@ -207,19 +204,32 @@ function LoopShell() {
     [session, handleUnauthorized],
   );
 
+  const workspaceGenRef = useRef(0);
   const loadingInFlightRef = useRef(false);
+  const pendingRefreshRef = useRef<{ silent: boolean } | null>(null);
   const sessionRefreshedRef = useRef(false);
+  const initialLoadDoneRef = useRef(false);
 
   const loadWorkspace = useCallback(
     async (options?: { silent?: boolean }) => {
       if (!client) return;
       const silent = options?.silent ?? true;
-      if (silent && loadingInFlightRef.current) return;
+      const gen = workspaceGenRef.current;
+      if (loadingInFlightRef.current) {
+        // Coalesce concurrent refresh requests instead of dropping them
+        const prev = pendingRefreshRef.current;
+        pendingRefreshRef.current = {
+          silent: (prev?.silent ?? true) && silent,
+        };
+        return;
+      }
       loadingInFlightRef.current = true;
+      const showErrors = !silent || !initialLoadDoneRef.current;
       if (!silent) setRefreshing(true);
       try {
         if (!sessionRefreshedRef.current || !silent) {
           await client.refreshSession().catch(() => {});
+          if (gen !== workspaceGenRef.current) return;
           sessionRefreshedRef.current = true;
         }
         const [
@@ -241,64 +251,42 @@ function LoopShell() {
           client.snippets().catch(() => [] as ApiSnippet[]),
           client.runs(true).catch(() => [] as AgentRunSummary[]),
         ]);
+        // Drop stale results if workspace switched or signed out mid-flight
+        if (gen !== workspaceGenRef.current) return;
+        initialLoadDoneRef.current = true;
         setAgents(boot.agents);
         setFolders(boot.folders);
         setEnvironmentName(boot.environmentName || "");
         setSummary(feedPage.summary);
 
-        // Merge canonical Done cards (with read_at/unread_version) + Replies into one unified feed
         const doneSource =
           doneCardItems && doneCardItems.length > 0
             ? doneCardItems
             : feedPage.items;
-        const unified = doneSource.map((item) =>
-          feedItemToNativeCard(item, "done"),
-        );
-        const byMessageId = new Map<string, number>();
-        unified.forEach((c, idx) => {
-          if (c.messageId) byMessageId.set(c.messageId, idx);
-        });
-
-        for (const replyItem of replyPage?.items ?? []) {
-          const replyCard = feedItemToNativeCard(replyItem, "replies");
-          const asFeedCard: NativeResultCard = {
-            ...replyCard,
-            tab: "done",
-          };
-          const existingIdx =
-            asFeedCard.messageId !== undefined
-              ? byMessageId.get(asFeedCard.messageId)
-              : undefined;
-          if (existingIdx !== undefined) {
-            const existing = unified[existingIdx];
-            unified[existingIdx] = {
-              ...existing,
-              unread: existing.unread || asFeedCard.unread,
-              replyCardKey: asFeedCard.replyCardKey ?? existing.replyCardKey,
-              statusLabel: asFeedCard.statusLabel ?? existing.statusLabel,
-              createdAt: Math.max(existing.createdAt, asFeedCard.createdAt),
-            };
-          } else {
-            if (asFeedCard.messageId) {
-              byMessageId.set(asFeedCard.messageId, unified.length);
-            }
-            unified.push(asFeedCard);
-          }
-        }
-
-        unified.sort((a, b) => b.createdAt - a.createdAt);
-        setLiveCards(unified);
+        setLiveCards(mergeUnifiedFeedCards(doneSource, replyPage?.items ?? []));
         setApprovals(appList);
         setDecisions(decList);
         setSnippets(snipList);
         setActiveRuns(runList);
       } catch (err) {
-        if (!silent && err instanceof Error && !err.message.includes("401")) {
+        if (
+          gen === workspaceGenRef.current &&
+          showErrors &&
+          err instanceof Error &&
+          !err.message.includes("401")
+        ) {
           showToast(err.message);
         }
       } finally {
-        loadingInFlightRef.current = false;
-        if (!silent) setRefreshing(false);
+        if (gen === workspaceGenRef.current) {
+          loadingInFlightRef.current = false;
+          if (!silent) setRefreshing(false);
+          const next = pendingRefreshRef.current;
+          pendingRefreshRef.current = null;
+          if (next) {
+            void loadWorkspaceRef.current(next);
+          }
+        }
       }
     },
     [client, showToast],
@@ -307,19 +295,33 @@ function LoopShell() {
   const loadWorkspaceRef = useRef(loadWorkspace);
   loadWorkspaceRef.current = loadWorkspace;
 
-  // Fetch silently on session change (never triggers pull-to-refresh spinner)
+  // Reset workspace state cleanly on every client switch (including A -> B) and fetch silently
   useEffect(() => {
+    workspaceGenRef.current += 1;
+    loadingInFlightRef.current = false;
+    pendingRefreshRef.current = null;
+    sessionRefreshedRef.current = false;
+    initialLoadDoneRef.current = false;
+    setRefreshing(false);
+    setLiveCards([]);
+    setFolders([]);
+    setApprovals([]);
+    setDecisions([]);
+    setSnippets([]);
+    setActiveRuns([]);
+    setSummary(null);
+    setEnvironmentName("");
+    setOpenConversationId(null);
+    setCarouselOverrideCards(null);
+    setProfileAgent(null);
+    setThreadOverlay(null);
+    setRemindCard(null);
     if (!client) {
-      sessionRefreshedRef.current = false;
       setAgents(DEMO_AGENTS);
-      setFolders([]);
-      setApprovals([]);
-      setDecisions([]);
-      setSnippets([]);
-      setSummary(null);
       setSocketStatus("offline");
       return;
     }
+    setAgents([]);
     void loadWorkspace({ silent: true });
   }, [client, loadWorkspace]);
 
@@ -376,6 +378,18 @@ function LoopShell() {
     }
     return merged;
   }, [activeCards, carouselOverrideCards, openConversationId]);
+
+  const isCarouselOpen = Boolean(
+    openConversationId && openCarouselCards.length > 0,
+  );
+
+  // Never leave openConversationId dangling if its cards disappear (e.g. dismissed or filtered out)
+  useEffect(() => {
+    if (openConversationId && openCarouselCards.length === 0) {
+      setOpenConversationId(null);
+      setCarouselOverrideCards(null);
+    }
+  }, [openConversationId, openCarouselCards.length]);
 
   const handleMarkRead = useCallback(
     (card: NativeResultCard) => {
@@ -706,20 +720,22 @@ function LoopShell() {
         setOpenConversationId(convId);
 
         if (client) {
+          const gen = workspaceGenRef.current;
           void client
             .feed("working", { agent: agent.id })
             .then((page) => {
-              const match =
-                page.items.find(
-                  (item) =>
-                    item.conversation_id === convId ||
-                    (workingRun.id && item.run?.id === workingRun.id),
-                ) ?? page.items[0];
+              if (gen !== workspaceGenRef.current) return;
+              const match = page.items.find(
+                (item) =>
+                  item.conversation_id === convId ||
+                  (workingRun.id && item.run?.id === workingRun.id),
+              );
               if (!match) return;
               const liveCard = feedItemToNativeCard(match, "working");
               const hydratedCard: NativeResultCard = {
                 ...liveCard,
                 id: cardId,
+                conversationId: convId,
                 body: liveCard.body.trim() ? liveCard.body : initialCard.body,
               };
               setCarouselOverrideCards((prev) =>
@@ -732,13 +748,14 @@ function LoopShell() {
       }
 
       if (client) {
+        const gen = workspaceGenRef.current;
         void client
           .feed("working", { agent: agent.id })
           .then((page) => {
-            const match =
-              page.items.find(
-                (item) => workingRun.id && item.run?.id === workingRun.id,
-              ) ?? page.items[0];
+            if (gen !== workspaceGenRef.current) return;
+            const match = workingRun.id
+              ? page.items.find((item) => item.run?.id === workingRun.id)
+              : page.items[0];
             if (match?.conversation_id) {
               const liveCard = feedItemToNativeCard(match, "working");
               setCarouselOverrideCards([liveCard]);
@@ -889,7 +906,7 @@ function LoopShell() {
       )}
 
       {/* Floating + New Task Button */}
-      {!openConversationId &&
+      {!isCarouselOpen &&
         !profileAgent &&
         !threadOverlay &&
         !composeOpen &&
@@ -916,7 +933,7 @@ function LoopShell() {
         )}
 
       {/* Frosted Native 5-Tab Bottom Bar (hidden while Spotlight Carousel is open) */}
-      {!openConversationId && (
+      {!isCarouselOpen && (
         <View
           style={[
             styles.tabBarOuter,
@@ -1117,9 +1134,9 @@ function LoopShell() {
             setComposeFolderId(agent.folder_id ?? null);
             setComposeOpen(true);
           }}
-          onOpenStack={(conversationId) => {
+          onOpenStack={(conversationId, seedCard) => {
             setProfileAgent(null);
-            setCarouselOverrideCards(null);
+            setCarouselOverrideCards(seedCard ? [seedCard] : null);
             setOpenConversationId(conversationId);
           }}
           onOpenThread={(conv) => {

@@ -21,20 +21,32 @@ const IGNORED_TYPES = new Set([
   "cursor",
 ]);
 
-function shouldRefreshForFrame(raw: unknown): boolean {
+export function shouldRefreshForFrame(raw: unknown): boolean {
   if (typeof raw !== "string" || !raw) return false;
   try {
     const parsed = JSON.parse(raw) as {
       type?: string;
       kind?: string;
       event?: { type?: string; kind?: string };
-      events?: Array<{ type?: string; kind?: string }>;
+      events?: Array<{
+        id?: number;
+        type?: string;
+        kind?: string;
+        event?: { type?: string; kind?: string };
+      }>;
     };
     const topType = (parsed.type || parsed.kind || "").toLowerCase();
     if (topType && IGNORED_TYPES.has(topType)) return false;
-    if (Array.isArray(parsed.events) && parsed.events.length > 0) {
-      return parsed.events.some((ev) => {
-        const t = (ev.type || ev.kind || "").toLowerCase();
+    if (Array.isArray(parsed.events)) {
+      if (parsed.events.length === 0) return false;
+      return parsed.events.some((entry) => {
+        const t = (
+          entry.event?.type ||
+          entry.event?.kind ||
+          entry.type ||
+          entry.kind ||
+          ""
+        ).toLowerCase();
         return Boolean(t && !IGNORED_TYPES.has(t));
       });
     }

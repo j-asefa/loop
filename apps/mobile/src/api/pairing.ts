@@ -1,116 +1,25 @@
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
+import {
+  assertSameOriginResponse,
+  extractSessionCookie,
+  normalizeWorkspaceUrl,
+  parsePairingLink,
+  tryParsePairingLink,
+  type ParsedPairingLink,
+} from "./pairing-url";
 import type { PairedSession } from "./types";
 
-const SESSION_KEY = "loop.paired.session.v1";
-
-export type ParsedPairingLink = {
-  origin: string;
-  secret: string;
-  ceremonyId?: string;
+export {
+  assertSameOriginResponse,
+  extractSessionCookie,
+  normalizeWorkspaceUrl,
+  parsePairingLink,
+  tryParsePairingLink,
+  type ParsedPairingLink,
 };
 
-function decodeBase64Url(input: string): string {
-  const normalized = input.replace(/-/g, "+").replace(/_/g, "/");
-  const padLen = (4 - (normalized.length % 4)) % 4;
-  const padded = normalized + "=".repeat(padLen);
-  if (typeof atob === "function") {
-    return atob(padded);
-  }
-  throw new Error("Base64 decoding is unavailable on this runtime.");
-}
-
-export function normalizeWorkspaceUrl(rawInput: string): URL {
-  const trimmed = rawInput.trim();
-  if (!trimmed || trimmed.length > 4096) {
-    throw new Error("Enter a Loop workspace URL or `loop pair` link.");
-  }
-  const withScheme = /^https?:\/\//i.test(trimmed)
-    ? trimmed
-    : `https://${trimmed}`;
-  let url: URL;
-  try {
-    url = new URL(withScheme);
-  } catch {
-    throw new Error("That does not look like a valid URL.");
-  }
-  if (url.protocol !== "https:" && url.protocol !== "http:") {
-    throw new Error("Workspace URLs must use http:// or https://.");
-  }
-  return url;
-}
-
-/**
- * Parses a `loop pair` link (`https://host/#pair=<secret>`, `?pair=<secret>`,
- * or `/#fleet=<base64url-json>`). Returns `null` if the URL is a valid bare
- * workspace URL without a pairing token.
- */
-export function tryParsePairingLink(rawInput: string): {
-  origin: string;
-  pairing: ParsedPairingLink | null;
-} {
-  const url = normalizeWorkspaceUrl(rawInput);
-  const hash = url.hash.startsWith("#") ? url.hash.slice(1) : url.hash;
-  const hashParams = new URLSearchParams(hash);
-  const queryParams = url.searchParams;
-
-  const pairSecret = hashParams.get("pair") || queryParams.get("pair");
-  if (pairSecret && /^[A-Za-z0-9_-]{32,128}$/.test(pairSecret)) {
-    return {
-      origin: url.origin,
-      pairing: { origin: url.origin, secret: pairSecret },
-    };
-  }
-
-  const fleetEncoded = hashParams.get("fleet") || queryParams.get("fleet");
-  if (fleetEncoded) {
-    let payload: {
-      kind?: string;
-      origin?: string;
-      device?: string;
-      ceremonyId?: string;
-    };
-    try {
-      payload = JSON.parse(decodeBase64Url(fleetEncoded));
-    } catch {
-      throw new Error("This fleet pairing link could not be decoded.");
-    }
-    if (payload.kind !== "combined" || !payload.device) {
-      throw new Error(
-        "This link enrolls a machine, not a phone. Run `loop pair` for a phone link.",
-      );
-    }
-    if (payload.origin && payload.origin !== url.origin) {
-      throw new Error("The pairing link origin does not match its payload.");
-    }
-    return {
-      origin: url.origin,
-      pairing: {
-        origin: url.origin,
-        secret: payload.device,
-        ceremonyId: payload.ceremonyId,
-      },
-    };
-  }
-
-  return { origin: url.origin, pairing: null };
-}
-
-export function parsePairingLink(rawInput: string): ParsedPairingLink {
-  const { pairing } = tryParsePairingLink(rawInput);
-  if (!pairing) {
-    throw new Error(
-      "Missing `#pair=` token. Run `loop pair` on your machine and paste the full link or pairing code.",
-    );
-  }
-  return pairing;
-}
-
-function extractSessionCookie(setCookieHeader: string | null): string | null {
-  if (!setCookieHeader) return null;
-  const match = /(loop_device(?:_[a-f0-9]+)?=[^;,\s]+)/i.exec(setCookieHeader);
-  return match ? match[1] : null;
-}
+const SESSION_KEY = "loop.paired.session.v1";
 
 /**
  * Checks whether a bare workspace URL is a reachable Loop server and whether
@@ -124,7 +33,9 @@ export async function probeWorkspaceUrl(rawUrl: string): Promise<{
   const capRes = await fetch(`${origin}/api/capabilities`, {
     method: "GET",
     headers: { Accept: "application/json", Origin: origin },
+    redirect: "error",
   });
+  assertSameOriginResponse(capRes, origin);
   if (!capRes.ok) {
     throw new Error(
       `Reached ${origin}, but it did not respond as a Loop workspace (HTTP ${capRes.status}).`,
@@ -135,16 +46,20 @@ export async function probeWorkspaceUrl(rawUrl: string): Promise<{
     method: "GET",
     headers: { Accept: "application/json", Origin: origin },
     credentials: "include",
+    redirect: "error",
   });
+  assertSameOriginResponse(sessionRes, origin);
   if (sessionRes.ok) {
     const data = (await sessionRes.json().catch(() => ({}))) as {
       csrf?: string;
       device?: { id?: string; name?: string };
     };
     if (data.csrf) {
+      const cookie =
+        extractSessionCookie(sessionRes.headers.get("set-cookie")) ?? "";
       const session: PairedSession = {
         origin,
-        cookie: "",
+        cookie,
         csrf: data.csrf,
         deviceId: data.device?.id,
         deviceName: data.device?.name || "Loop iPhone",
@@ -167,12 +82,14 @@ async function redeemPairing(
       "Content-Type": "application/json",
       Origin: parsed.origin,
     },
+    redirect: "error",
     body: JSON.stringify({
       secret: parsed.secret,
       name: deviceName,
       ...(parsed.ceremonyId ? { ceremonyId: parsed.ceremonyId } : {}),
     }),
   });
+  assertSameOriginResponse(pairRes, parsed.origin);
 
   const pairJson = (await pairRes.json().catch(() => ({}))) as {
     paired?: boolean;
@@ -198,7 +115,9 @@ async function redeemPairing(
     method: "GET",
     headers: sessionHeaders,
     credentials: "include",
+    redirect: "error",
   });
+  assertSameOriginResponse(sessionRes, parsed.origin);
   const sessionJson = (await sessionRes.json().catch(() => ({}))) as {
     csrf?: string;
     device?: { id?: string; name?: string };
@@ -235,19 +154,25 @@ export async function pairWithOriginAndToken(
   rawToken: string,
   deviceName?: string,
 ): Promise<PairedSession> {
+  const expectedUrl = normalizeWorkspaceUrl(rawOrigin);
   const trimmedToken = rawToken.trim();
-  // Allow user to paste a full link into the token field too
+  // Allow user to paste a full link into the token field too, but require it to match the verified origin.
   if (trimmedToken.includes("#pair=") || trimmedToken.includes("#fleet=")) {
-    return pairWithCompanion(trimmedToken, deviceName);
+    const parsed = parsePairingLink(trimmedToken);
+    if (parsed.origin !== expectedUrl.origin) {
+      throw new Error(
+        `That pairing link is for ${parsed.origin}, not ${expectedUrl.origin}.`,
+      );
+    }
+    return redeemPairing(parsed, deviceName);
   }
-  const url = normalizeWorkspaceUrl(rawOrigin);
   if (!/^[A-Za-z0-9_-]{32,128}$/.test(trimmedToken)) {
     throw new Error(
       "Paste the full `loop pair` URL or the pairing token after `#pair=`.",
     );
   }
   return redeemPairing(
-    { origin: url.origin, secret: trimmedToken },
+    { origin: expectedUrl.origin, secret: trimmedToken },
     deviceName,
   );
 }
