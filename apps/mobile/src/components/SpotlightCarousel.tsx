@@ -503,9 +503,10 @@ export function SpotlightCarousel({
   }, []);
 
   const handleCardBottomChange = useCallback(
-    (atBottom: boolean) => {
-      if (atBottom) {
-        setControlsVisible((prev) => (prev ? prev : true));
+    (reveal: boolean) => {
+      if (reveal) {
+        haptics.medium();
+        setControlsVisible(true);
       } else if (
         !keyboardVisible &&
         !draft.trim() &&
@@ -516,6 +517,17 @@ export function SpotlightCarousel({
     },
     [keyboardVisible, draft, replyAttachments.attachments.length],
   );
+
+  // When swiping to a different card, keep the reply bar hidden unless the user is actively typing/attaching
+  useEffect(() => {
+    if (
+      !keyboardVisible &&
+      !draft.trim() &&
+      replyAttachments.attachments.length === 0
+    ) {
+      setControlsVisible(false);
+    }
+  }, [safeIndex]);
 
   const bottomPullUpGesture = useMemo(
     () =>
@@ -1185,22 +1197,7 @@ export function SpotlightCarousel({
                 </View>
               </View>
             </View>
-          ) : (
-            <GestureDetector gesture={bottomPullUpGesture}>
-              <Pressable
-                accessibilityLabel="Pull up to reply"
-                onPress={() => openReplyControls(true)}
-                style={styles.bottomEdgeZone}
-              >
-                <View
-                  style={[
-                    styles.bottomEdgePill,
-                    { backgroundColor: theme.line },
-                  ]}
-                />
-              </Pressable>
-            </GestureDetector>
-          )}
+          ) : null}
         </Animated.View>
       </KeyboardAvoidingView>
 
@@ -1562,46 +1559,17 @@ function FloatingCarouselCard({
   const [pullHint, setPullHint] = useState<"idle" | "pulling" | "ready">(
     "idle",
   );
+  const [bottomHint, setBottomHint] = useState<"idle" | "pulling" | "ready">(
+    "idle",
+  );
   const pullArmedRef = useRef(false);
+  const bottomArmedRef = useRef(false);
+  const dragStartAtTopRef = useRef(false);
+  const dragStartAtBottomRef = useRef(false);
   const lastPullYRef = useRef(0);
+  const lastBottomPullRef = useRef(0);
   const viewportHeightRef = useRef(0);
   const contentHeightRef = useRef(0);
-  const lastAtBottomRef = useRef<boolean | null>(null);
-
-  const reportBottom = useCallback(
-    (next: boolean) => {
-      if (!isActive) return;
-      if (lastAtBottomRef.current === next) return;
-      lastAtBottomRef.current = next;
-      onBottomChange(next);
-    },
-    [isActive, onBottomChange],
-  );
-
-  // Sync bottom state whenever this card becomes active or finishes measuring
-  const evaluateInitialBottom = useCallback(() => {
-    if (!isActive) return;
-    if (viewportHeightRef.current <= 0 || contentHeightRef.current <= 0) return;
-    const maxScroll = Math.max(
-      0,
-      contentHeightRef.current - viewportHeightRef.current,
-    );
-    const y = lastPullYRef.current;
-    // Short cards fit on screen so you're already at the bottom; long cards wait until scrolled down.
-    if (maxScroll <= 24 || y >= maxScroll - 32) {
-      reportBottom(true);
-    } else if (lastAtBottomRef.current === null) {
-      reportBottom(false);
-    }
-  }, [isActive, reportBottom]);
-
-  useEffect(() => {
-    if (!isActive) {
-      lastAtBottomRef.current = null;
-      return;
-    }
-    evaluateInitialBottom();
-  }, [isActive, evaluateInitialBottom]);
 
   const animatedCardStyle = useAnimatedStyle(() => {
     const inputRange = [
@@ -1770,7 +1738,7 @@ function FloatingCarouselCard({
         </View>
       )}
 
-      {/* Scrollable Card Body: pull down to search, reach bottom for reply bar, long-press for Save/Remind */}
+      {/* Scrollable Card Body: deliberate overscroll at top searches; deliberate overscroll while already at bottom reveals reply bar */}
       <ScrollView
         style={styles.cardScroll}
         contentContainerStyle={styles.cardScrollContent}
@@ -1781,33 +1749,49 @@ function FloatingCarouselCard({
         scrollEventThrottle={16}
         onLayout={(e) => {
           viewportHeightRef.current = e.nativeEvent.layout.height;
-          evaluateInitialBottom();
         }}
         onContentSizeChange={(_w, h) => {
           contentHeightRef.current = h;
-          evaluateInitialBottom();
+        }}
+        onScrollBeginDrag={(e) => {
+          const y = e.nativeEvent.contentOffset.y;
+          const maxScroll =
+            viewportHeightRef.current > 0 && contentHeightRef.current > 0
+              ? Math.max(
+                  0,
+                  contentHeightRef.current - viewportHeightRef.current,
+                )
+              : 0;
+          // Only arm top/bottom actions if this drag STARTED already resting at that edge.
+          dragStartAtTopRef.current = y <= 8;
+          dragStartAtBottomRef.current =
+            viewportHeightRef.current > 0 && y >= maxScroll - 8;
+          pullArmedRef.current = false;
+          bottomArmedRef.current = false;
+          lastBottomPullRef.current = 0;
         }}
         onScroll={(e) => {
           const prevY = lastPullYRef.current;
           const y = e.nativeEvent.contentOffset.y;
           lastPullYRef.current = y;
 
-          // Pull down at top -> search thread
-          if (y < -62) {
-            if (!pullArmedRef.current) {
-              pullArmedRef.current = true;
-              haptics.light();
-              setPullHint("ready");
+          // Pull down while already at top -> search thread
+          if (dragStartAtTopRef.current) {
+            if (y < -62) {
+              if (!pullArmedRef.current) {
+                pullArmedRef.current = true;
+                haptics.light();
+                setPullHint("ready");
+              }
+            } else if (y < -20) {
+              pullArmedRef.current = false;
+              if (pullHint !== "pulling") setPullHint("pulling");
+            } else if (pullHint !== "idle") {
+              pullArmedRef.current = false;
+              setPullHint("idle");
             }
-          } else if (y < -20) {
-            pullArmedRef.current = false;
-            if (pullHint !== "pulling") setPullHint("pulling");
-          } else if (pullHint !== "idle") {
-            pullArmedRef.current = false;
-            setPullHint("idle");
           }
 
-          // Reaching bottom of card reveals the reply box & controls bar
           if (
             isActive &&
             viewportHeightRef.current > 0 &&
@@ -1817,20 +1801,48 @@ function FloatingCarouselCard({
               0,
               contentHeightRef.current - viewportHeightRef.current,
             );
-            if (maxScroll <= 24 || y >= maxScroll - 32) {
-              reportBottom(true);
-            } else if (y < prevY - 1 && y < maxScroll - 160) {
-              reportBottom(false);
+
+            // Deliberate scroll further while ALREADY resting at the bottom -> reveal reply box
+            if (dragStartAtBottomRef.current) {
+              const bottomPull = y - maxScroll;
+              lastBottomPullRef.current = bottomPull;
+              if (bottomPull > 44) {
+                if (!bottomArmedRef.current) {
+                  bottomArmedRef.current = true;
+                  haptics.light();
+                  setBottomHint("ready");
+                }
+              } else if (bottomPull > 16) {
+                bottomArmedRef.current = false;
+                if (bottomHint !== "pulling") setBottomHint("pulling");
+              } else if (bottomHint !== "idle") {
+                bottomArmedRef.current = false;
+                setBottomHint("idle");
+              }
+            } else if (y < prevY - 1 && y < maxScroll - 140) {
+              // Scrolling meaningfully back up tucks the reply bar away
+              onBottomChange(false);
             }
           }
         }}
         onScrollEndDrag={() => {
           const shouldSearch =
-            pullArmedRef.current || lastPullYRef.current < -62;
+            dragStartAtTopRef.current &&
+            (pullArmedRef.current || lastPullYRef.current < -62);
+          const shouldRevealReply =
+            dragStartAtBottomRef.current &&
+            (bottomArmedRef.current || lastBottomPullRef.current > 44);
+          dragStartAtTopRef.current = false;
+          dragStartAtBottomRef.current = false;
           pullArmedRef.current = false;
+          bottomArmedRef.current = false;
+          lastBottomPullRef.current = 0;
           setPullHint("idle");
+          setBottomHint("idle");
           if (shouldSearch) {
             onPullToSearch();
+          } else if (shouldRevealReply) {
+            onBottomChange(true);
           }
         }}
       >
@@ -1858,6 +1870,39 @@ function FloatingCarouselCard({
           />
         </Pressable>
       </ScrollView>
+
+      {/* Tactile indicator only during a deliberate scroll past the bottom */}
+      {bottomHint !== "idle" && (
+        <View style={styles.pullReplyBar} pointerEvents="none">
+          <View
+            style={[
+              styles.pullSearchPill,
+              {
+                backgroundColor:
+                  bottomHint === "ready" ? theme.attention : theme.soft,
+                borderColor: bottomHint === "ready" ? theme.brass : theme.line,
+              },
+            ]}
+          >
+            <CornerUpLeft
+              size={12}
+              color={bottomHint === "ready" ? theme.brassText : theme.muted}
+            />
+            <Text
+              style={[
+                styles.pullSearchText,
+                {
+                  color: bottomHint === "ready" ? theme.brassText : theme.muted,
+                },
+              ]}
+            >
+              {bottomHint === "ready"
+                ? "Release to reply"
+                : "Scroll further to reply…"}
+            </Text>
+          </View>
+        </View>
+      )}
     </Animated.View>
   );
 }
