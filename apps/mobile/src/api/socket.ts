@@ -15,10 +15,17 @@ const IGNORED_TYPES = new Set([
   "ack",
   "clock",
   "heartbeat",
+  "cursor",
+  "progress",
+  "import.progress",
   "activity",
+  "activity.updated",
   "trace",
   "traces",
-  "cursor",
+  "trace.updated",
+  "message.delta",
+  "native.usage",
+  "provider.receipt",
 ]);
 
 export function shouldRefreshForFrame(raw: unknown): boolean {

@@ -20,7 +20,7 @@ import {
   Sparkles,
 } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { LoopClient } from "../api/client";
+import { randomUuid, type LoopClient } from "../api/client";
 import type { ApiMessage } from "../api/types";
 import { relativeTime, type NativeResultCard } from "../fixtures";
 import { haptics } from "../haptics";
@@ -58,6 +58,7 @@ export function ThreadSheet({
     agentName: string;
     text: string;
     attachmentIds?: string[];
+    idempotencyKey?: string;
   }) => Promise<void>;
   onToggleSaved: (messageId: string, currentlySaved: boolean) => Promise<void>;
 }) {
@@ -74,9 +75,15 @@ export function ThreadSheet({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
+  const sendKeyRef = useRef<string | null>(null);
   const replyAttachments = useAttachments(client, {
     agentId: resolvedAgentId,
   });
+
+  const attSig = replyAttachments.readyIds.join(",");
+  useEffect(() => {
+    sendKeyRef.current = null;
+  }, [attSig]);
 
   const load = useCallback(async () => {
     if (!client) {
@@ -143,6 +150,8 @@ export function ThreadSheet({
       (readyNames.length === 1
         ? `Attached ${readyNames[0]}`
         : `Attached ${readyNames.length} files`);
+    if (!sendKeyRef.current) sendKeyRef.current = randomUuid();
+    const idempotencyKey = sendKeyRef.current;
     haptics.medium();
     setSending(true);
     setError("");
@@ -153,7 +162,9 @@ export function ThreadSheet({
         agentName,
         text: finalText,
         attachmentIds: readyIds,
+        idempotencyKey,
       });
+      sendKeyRef.current = null;
       setDraft("");
       clearAttachments();
       if (client) {
@@ -378,7 +389,10 @@ export function ThreadSheet({
             </Pressable>
             <TextInput
               value={draft}
-              onChangeText={setDraft}
+              onChangeText={(next) => {
+                sendKeyRef.current = null;
+                setDraft(next);
+              }}
               placeholder={`Reply to @${agentName}…`}
               placeholderTextColor={theme.muted}
               style={[styles.composerInput, { color: theme.text }]}

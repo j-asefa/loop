@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Keyboard,
@@ -14,7 +14,7 @@ import {
 import { BlurView } from "expo-blur";
 import { ArrowUp, Folder, Paperclip, Sparkles, X } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { LoopClient } from "../api/client";
+import { randomUuid, type LoopClient } from "../api/client";
 import type { ApiAgent, ApiFolder, ApiSnippet } from "../api/types";
 import { QUICK_REPLIES } from "../fixtures";
 import { haptics } from "../haptics";
@@ -51,6 +51,7 @@ export function ComposeSheet({
     folderId?: string | null;
     text: string;
     attachmentIds?: string[];
+    idempotencyKey?: string;
   }) => Promise<void>;
 }) {
   const insets = useSafeAreaInsets();
@@ -71,10 +72,16 @@ export function ComposeSheet({
   const selectedAgent =
     activeAgents.find((a) => a.id === selectedAgentId) ?? activeAgents[0];
 
+  const sendKeyRef = useRef<string | null>(null);
   const composeAttachments = useAttachments(client, {
     agentId: selectedAgent?.id,
     folderId: selectedFolderId,
   });
+
+  const attSig = composeAttachments.readyIds.join(",");
+  useEffect(() => {
+    sendKeyRef.current = null;
+  }, [selectedAgent?.id, selectedFolderId, attSig]);
 
   const projects = useMemo(
     () => folders.filter((f) => f.kind === "project" || f.is_workspace),
@@ -98,6 +105,8 @@ export function ComposeSheet({
       (readyNames.length === 1
         ? `Attached ${readyNames[0]}`
         : `Attached ${readyNames.length} files`);
+    if (!sendKeyRef.current) sendKeyRef.current = randomUuid();
+    const idempotencyKey = sendKeyRef.current;
     haptics.medium();
     setBusy(true);
     setError("");
@@ -108,7 +117,9 @@ export function ComposeSheet({
         folderId: selectedFolderId,
         text: finalText,
         attachmentIds: readyIds,
+        idempotencyKey,
       });
+      sendKeyRef.current = null;
       clearAttachments();
       onClose();
     } catch (err) {
@@ -350,7 +361,10 @@ export function ComposeSheet({
               </Pressable>
               <TextInput
                 value={text}
-                onChangeText={setText}
+                onChangeText={(next) => {
+                  sendKeyRef.current = null;
+                  setText(next);
+                }}
                 placeholder={
                   selectedAgent
                     ? `Ask @${selectedAgent.name} anything…`

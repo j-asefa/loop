@@ -143,6 +143,22 @@ export function mergeUnifiedFeedCards(
   return unified;
 }
 
+/**
+ * Returns every server-side dismiss/archive target that belongs to a card
+ * (both halves when a Done card and Reply card were merged into one entry).
+ */
+export function getCardDismissTargets(card: NativeResultCard): {
+  doneKey?: string;
+  replyMessageId?: string;
+} {
+  return {
+    ...(card.doneCardKey ? { doneKey: card.doneCardKey } : {}),
+    ...(card.replyCardKey && card.messageId
+      ? { replyMessageId: card.messageId }
+      : {}),
+  };
+}
+
 export type QuickReplyOption = {
   id: string;
   label: string;

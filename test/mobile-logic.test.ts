@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 import { shouldRefreshForFrame } from "../apps/mobile/src/api/socket.js";
 import {
   assertSameOriginResponse,
+  extractSessionCookie,
   normalizeWorkspaceUrl,
   tryParsePairingLink,
 } from "../apps/mobile/src/api/pairing-url.js";
 import {
   feedItemToNativeCard,
+  getCardDismissTargets,
   mergeUnifiedFeedCards,
 } from "../apps/mobile/src/fixtures.js";
 import type { ApiFeedItem } from "../apps/mobile/src/api/types.js";
@@ -49,13 +51,15 @@ describe("mobile socket frame filtering", () => {
     expect(shouldRefreshForFrame(frame)).toBe(true);
   });
 
-  it("ignores v3 events frames containing only noisy activity/trace/clock events", () => {
+  it("ignores v3 events frames containing only noisy streaming events (activity.updated, trace.updated, message.delta)", () => {
     const frame = JSON.stringify({
       v: 3,
       type: "events",
       events: [
-        { id: 42, event: { type: "activity" } },
-        { id: 43, event: { type: "trace" } },
+        { id: 42, event: { type: "activity.updated" } },
+        { id: 43, event: { type: "trace.updated" } },
+        { id: 44, event: { type: "message.delta" } },
+        { id: 45, event: { type: "native.usage" } },
       ],
     });
     expect(shouldRefreshForFrame(frame)).toBe(false);
@@ -66,16 +70,25 @@ describe("mobile socket frame filtering", () => {
     ).toBe(false);
   });
 
-  it("refreshes when a batch mixes ignored and meaningful events or sends reset", () => {
+  it("refreshes on production v3 state-change events (completed, feed.card, message.completed, reset)", () => {
     const mixed = JSON.stringify({
       v: 3,
       type: "events",
       events: [
-        { id: 1, event: { type: "activity" } },
-        { id: 2, event: { type: "message_created" } },
+        { id: 1, event: { type: "activity.updated" } },
+        { id: 2, event: { type: "feed.card" } },
       ],
     });
     expect(shouldRefreshForFrame(mixed)).toBe(true);
+    expect(
+      shouldRefreshForFrame(
+        JSON.stringify({
+          v: 3,
+          type: "events",
+          events: [{ id: 3, event: { type: "completed" } }],
+        }),
+      ),
+    ).toBe(true);
     expect(shouldRefreshForFrame(JSON.stringify({ v: 3, type: "reset" }))).toBe(
       true,
     );
@@ -115,6 +128,27 @@ describe("mobile pairing URL security", () => {
     );
     expect(normalizeWorkspaceUrl("http://mybox:3131").origin).toBe(
       "http://mybox:3131",
+    );
+  });
+
+  it("rejects cleartext http:// for public IPv6 literals while allowing ::1 and IPv6 ULA", () => {
+    expect(() =>
+      normalizeWorkspaceUrl("http://[2606:4700:4700::1111]:3131"),
+    ).toThrow(/https:\/\//i);
+    expect(normalizeWorkspaceUrl("http://[::1]:3131").origin).toBe(
+      "http://[::1]:3131",
+    );
+    expect(normalizeWorkspaceUrl("http://[fd12:3456::1]:3131").origin).toBe(
+      "http://[fd12:3456::1]:3131",
+    );
+  });
+
+  it("extracts Loop session cookies (__Host-loop and loop_local)", () => {
+    expect(
+      extractSessionCookie("__Host-loop=abc123; Path=/; HttpOnly; Secure"),
+    ).toBe("__Host-loop=abc123");
+    expect(extractSessionCookie("loop_local=xyz789; Path=/; HttpOnly")).toBe(
+      "loop_local=xyz789",
     );
   });
 
@@ -208,6 +242,10 @@ describe("mobile unified feed merging & truncation detection", () => {
     expect(merged[0].replyUnread).toBe(true);
     expect(merged[0].doneCardKey).toBe("done:shared");
     expect(merged[0].replyCardKey).toBe("reply:m-shared");
+    expect(getCardDismissTargets(merged[0])).toEqual({
+      doneKey: "done:shared",
+      replyMessageId: "m-shared",
+    });
     expect(merged[1].conversationId).toBe("conv-old");
     expect(merged[1].unread).toBe(false);
     expect(merged[1].doneUnread).toBe(false);

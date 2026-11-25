@@ -16,14 +16,19 @@ function decodeBase64Url(input: string): string {
 
 export function isLocalHost(hostname: string): boolean {
   const host = hostname.toLowerCase();
-  if (
-    host === "localhost" ||
-    host === "127.0.0.1" ||
-    host === "::1" ||
-    host === "[::1]" ||
-    host.endsWith(".local") ||
-    !host.includes(".")
-  ) {
+  // IPv6 literals contain ":" and have no dots — check them explicitly BEFORE the single-label check.
+  if (host.includes(":")) {
+    const bare =
+      host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
+    if (bare === "::1" || bare === "0:0:0:0:0:0:0:1") return true;
+    // IPv6 Unique Local Addresses (fc00::/7)
+    return /^f[cd][0-9a-f]{2}:/i.test(bare);
+  }
+  if (host === "localhost" || host === "127.0.0.1" || host.endsWith(".local")) {
+    return true;
+  }
+  // Single-label local LAN hostnames (e.g. "mybox")
+  if (!host.includes(".") && /^[a-z0-9-]+$/.test(host)) {
     return true;
   }
   if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
@@ -37,8 +42,6 @@ export function isLocalHost(hostname: string): boolean {
   if (cgnat && Number(cgnat[1]) >= 64 && Number(cgnat[1]) <= 127) {
     return true;
   }
-  // IPv6 Unique Local Addresses (fc00::/7)
-  if (/^\[?f[cd][0-9a-f]{2}:/i.test(host)) return true;
   return false;
 }
 
@@ -182,6 +185,9 @@ export function extractSessionCookie(
   setCookieHeader: string | null,
 ): string | null {
   if (!setCookieHeader) return null;
-  const match = /(loop_device(?:_[a-f0-9]+)?=[^;,\s]+)/i.exec(setCookieHeader);
+  const match =
+    /((?:__Host-loop|loop_local|loop_device(?:_[a-f0-9]+)?)=[^;,\s]+)/i.exec(
+      setCookieHeader,
+    );
   return match ? match[1] : null;
 }

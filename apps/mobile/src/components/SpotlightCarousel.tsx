@@ -55,7 +55,7 @@ import {
   stepMatchIndex,
   type SearchableThreadCard,
 } from "../../../../src/shared/done-stack";
-import type { LoopClient } from "../api/client";
+import { randomUuid, type LoopClient } from "../api/client";
 import type { ApiSnippet } from "../api/types";
 import type { AgentRunSummary } from "./AgentProfileSheet";
 import {
@@ -93,6 +93,7 @@ type SpotlightCarouselProps = {
     card: NativeResultCard,
     prompt: string,
     attachmentIds?: string[],
+    idempotencyKey?: string,
   ) => Promise<void> | void;
 };
 
@@ -258,9 +259,16 @@ export function SpotlightCarousel({
   const [sending, setSending] = useState(false);
   const [replyError, setReplyError] = useState("");
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const replyIdempotencyKeyRef = useRef<string | null>(null);
   const replyAttachments = useAttachments(client, {
     agentId: activeCard?.agentId,
   });
+
+  // Invalidate pending retry idempotency key when the user changes card or attachment list
+  const attachmentKeySig = replyAttachments.readyIds.join(",");
+  useEffect(() => {
+    replyIdempotencyKeyRef.current = null;
+  }, [activeCard?.id, attachmentKeySig]);
 
   const scrollRef = useRef<Animated.ScrollView>(null);
   const replyInputRef = useRef<React.ComponentRef<typeof TextInput>>(null);
@@ -540,11 +548,19 @@ export function SpotlightCarousel({
       (readyNames.length === 1
         ? `Attached ${readyNames[0]}`
         : `Attached ${readyNames.length} files`);
+    // Keep one durable idempotency key per unsent draft so retries after uncertain failures never duplicate runs
+    if (!replyIdempotencyKeyRef.current) {
+      replyIdempotencyKeyRef.current = randomUuid();
+    }
+    const idempotencyKey = replyIdempotencyKeyRef.current;
     haptics.medium();
     setSending(true);
     setReplyError("");
     try {
-      await Promise.resolve(onSendReply(activeCard, finalPrompt, readyIds));
+      await Promise.resolve(
+        onSendReply(activeCard, finalPrompt, readyIds, idempotencyKey),
+      );
+      replyIdempotencyKeyRef.current = null;
       setDraft("");
       clearAttachments();
       Keyboard.dismiss();
@@ -1153,7 +1169,11 @@ export function SpotlightCarousel({
               <TextInput
                 ref={replyInputRef}
                 value={draft}
-                onChangeText={setDraft}
+                onChangeText={(next) => {
+                  replyIdempotencyKeyRef.current = null;
+                  if (replyError) setReplyError("");
+                  setDraft(next);
+                }}
                 placeholder={`Reply to @${agentName}…`}
                 placeholderTextColor={theme.muted}
                 style={[styles.replyInput, { color: theme.text }]}

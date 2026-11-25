@@ -58,6 +58,7 @@ import {
   buildSimulatedReply,
   createInitialCards,
   feedItemToNativeCard,
+  getCardDismissTargets,
   mergeUnifiedFeedCards,
   type NativeResultCard,
 } from "./src/fixtures";
@@ -191,17 +192,28 @@ function LoopShell() {
     return () => sub.remove();
   }, []);
 
-  const handleUnauthorized = useCallback(() => {
-    void clearPairedSession();
-    setSession(null);
-    setSocketStatus("offline");
-    setPairingOpen(true);
-    showToast("Session expired — pair this phone again");
-  }, [showToast]);
+  const activeSessionRef = useRef<PairedSession | null>(null);
+  activeSessionRef.current = session;
+
+  const handleUnauthorizedForSession = useCallback(
+    (expiredSession: PairedSession) => {
+      // Ignore stale 401s from a previous workspace after switching workspaces
+      if (activeSessionRef.current !== expiredSession) return;
+      void clearPairedSession();
+      setSession(null);
+      setSocketStatus("offline");
+      setPairingOpen(true);
+      showToast("Session expired — pair this phone again");
+    },
+    [showToast],
+  );
 
   const client = useMemo(
-    () => (session ? new LoopClient(session, handleUnauthorized) : null),
-    [session, handleUnauthorized],
+    () =>
+      session
+        ? new LoopClient(session, () => handleUnauthorizedForSession(session))
+        : null,
+    [session, handleUnauthorizedForSession],
   );
 
   const workspaceGenRef = useRef(0);
@@ -216,7 +228,8 @@ function LoopShell() {
       const silent = options?.silent ?? true;
       const gen = workspaceGenRef.current;
       if (loadingInFlightRef.current) {
-        // Coalesce concurrent refresh requests instead of dropping them
+        // Coalesce concurrent refresh requests; show spinner immediately if user pulled to refresh
+        if (!silent) setRefreshing(true);
         const prev = pendingRefreshRef.current;
         pendingRefreshRef.current = {
           silent: (prev?.silent ?? true) && silent,
@@ -294,6 +307,14 @@ function LoopShell() {
 
   const loadWorkspaceRef = useRef(loadWorkspace);
   loadWorkspaceRef.current = loadWorkspace;
+
+  const scheduleSilentRefresh = useCallback((delayMs: number, gen: number) => {
+    setTimeout(() => {
+      if (gen === workspaceGenRef.current) {
+        void loadWorkspaceRef.current({ silent: true });
+      }
+    }, delayMs);
+  }, []);
 
   // Reset workspace state cleanly on every client switch (including A -> B) and fetch silently
   useEffect(() => {
@@ -476,32 +497,44 @@ function LoopShell() {
       const removeCard = (prev: NativeResultCard[]) =>
         prev.filter((c) => c.id !== card.id);
       if (client) {
-        if (!card.doneCardKey && !(card.replyCardKey && card.messageId)) {
-          return;
-        }
+        const { doneKey, replyMessageId } = getCardDismissTargets(card);
+        if (!doneKey && !replyMessageId) return;
+        const gen = workspaceGenRef.current;
         setLiveCards(removeCard);
         setCarouselOverrideCards((prev) => (prev ? removeCard(prev) : prev));
-        if (card.doneCardKey) {
+        if (doneKey) {
           void client
-            .setDoneHidden(card.conversationId, card.doneCardKey, true)
+            .setDoneHidden(card.conversationId, doneKey, true)
             .catch(() => {});
-          showToast("Marked done", () => {
-            haptics.light();
-            void client
-              .setDoneHidden(card.conversationId, card.doneCardKey!, false)
-              .then(() => void loadWorkspace({ silent: true }));
-          });
-        } else if (card.replyCardKey && card.messageId) {
-          void client
-            .setReplyState(card.messageId, { archived: true })
-            .catch(() => {});
-          showToast("Archived reply", () => {
-            haptics.light();
-            void client
-              .setReplyState(card.messageId!, { archived: false })
-              .then(() => void loadWorkspace({ silent: true }));
-          });
         }
+        if (replyMessageId) {
+          void client
+            .setReplyState(replyMessageId, { archived: true })
+            .catch(() => {});
+        }
+        showToast(doneKey ? "Marked done" : "Archived reply", () => {
+          haptics.light();
+          const restores: Promise<unknown>[] = [];
+          if (doneKey) {
+            restores.push(
+              client
+                .setDoneHidden(card.conversationId, doneKey, false)
+                .catch(() => {}),
+            );
+          }
+          if (replyMessageId) {
+            restores.push(
+              client
+                .setReplyState(replyMessageId, { archived: false })
+                .catch(() => {}),
+            );
+          }
+          void Promise.all(restores).then(() => {
+            if (gen === workspaceGenRef.current) {
+              void loadWorkspaceRef.current({ silent: true });
+            }
+          });
+        });
         return;
       }
       setDemoCards(removeCard);
@@ -511,7 +544,7 @@ function LoopShell() {
         setDemoCards((prev) => [card, ...prev]);
       });
     },
-    [client, loadWorkspace, showToast],
+    [client, showToast],
   );
 
   const handlePickReminder = useCallback(
@@ -543,8 +576,10 @@ function LoopShell() {
       card: NativeResultCard,
       prompt: string,
       attachmentIds?: string[],
+      idempotencyKey?: string,
     ) => {
       if (client) {
+        const gen = workspaceGenRef.current;
         const agentId =
           card.agentId ||
           agents.find((a) => a.name === card.agentName)?.id ||
@@ -558,13 +593,14 @@ function LoopShell() {
           replyToMessageId: card.messageId,
           input: prompt,
           attachmentIds,
+          idempotencyKey,
         });
         showToast(
           attachmentIds?.length
             ? `Sent to @${card.agentName} with ${attachmentIds.length} ${attachmentIds.length === 1 ? "file" : "files"}`
             : `Sent to @${card.agentName}`,
         );
-        setTimeout(() => void loadWorkspace({ silent: true }), 450);
+        scheduleSilentRefresh(450, gen);
         return;
       }
       setTimeout(() => {
@@ -579,7 +615,7 @@ function LoopShell() {
         haptics.success();
       }, 1100);
     },
-    [client, agents, loadWorkspace, showToast],
+    [client, agents, scheduleSilentRefresh, showToast],
   );
 
   const handleComposeSend = useCallback(
@@ -589,13 +625,16 @@ function LoopShell() {
       folderId?: string | null;
       text: string;
       attachmentIds?: string[];
+      idempotencyKey?: string;
     }) => {
       if (client) {
+        const gen = workspaceGenRef.current;
         await client.submitRun({
           agentId: input.agentId,
           folderId: input.folderId,
           input: input.text,
           attachmentIds: input.attachmentIds,
+          idempotencyKey: input.idempotencyKey,
         });
         showToast(
           input.attachmentIds?.length
@@ -603,7 +642,7 @@ function LoopShell() {
             : `Sent to @${input.agentName}`,
         );
         setAppTab("feed");
-        setTimeout(() => void loadWorkspace({ silent: true }), 400);
+        scheduleSilentRefresh(400, gen);
         return;
       }
       const nextCard = buildSimulatedReply(
@@ -618,37 +657,45 @@ function LoopShell() {
       haptics.success();
       showToast(`@${input.agentName} answered`);
     },
-    [client, loadWorkspace, showToast],
+    [client, scheduleSilentRefresh, showToast],
   );
 
   const handleDecideApproval = useCallback(
     (id: string, decision: "approve" | "reject") => {
       if (!client) return;
+      const gen = workspaceGenRef.current;
       setApprovals((prev) => prev.filter((a) => a.id !== id));
       void client
         .decideApproval(id, decision)
         .then(() => {
           showToast(decision === "approve" ? "Approved" : "Denied");
-          setTimeout(() => void loadWorkspace({ silent: true }), 400);
+          scheduleSilentRefresh(400, gen);
         })
-        .catch((err) => showToast((err as Error).message));
+        .catch((err) => {
+          showToast((err as Error).message);
+          scheduleSilentRefresh(100, gen);
+        });
     },
-    [client, loadWorkspace, showToast],
+    [client, scheduleSilentRefresh, showToast],
   );
 
   const handleAnswerDecision = useCallback(
     (id: string, answer: Record<string, unknown>) => {
       if (!client) return;
+      const gen = workspaceGenRef.current;
       setDecisions((prev) => prev.filter((d) => d.id !== id));
       void client
         .answerNativeDecision(id, answer)
         .then(() => {
           showToast("Response sent");
-          setTimeout(() => void loadWorkspace({ silent: true }), 400);
+          scheduleSilentRefresh(400, gen);
         })
-        .catch((err) => showToast((err as Error).message));
+        .catch((err) => {
+          showToast((err as Error).message);
+          scheduleSilentRefresh(100, gen);
+        });
     },
-    [client, loadWorkspace, showToast],
+    [client, scheduleSilentRefresh, showToast],
   );
 
   const handleCancelQueuedRun = useCallback(
@@ -658,16 +705,25 @@ function LoopShell() {
         showToast("Cancelled queued message");
         return;
       }
+      const gen = workspaceGenRef.current;
+      const priorRun = activeRuns.find((r) => r.id === runId);
       setActiveRuns((prev) => prev.filter((r) => r.id !== runId));
       void client
         .runAction(runId, "cancel")
         .then(() => {
           showToast("Cancelled queued message");
-          setTimeout(() => void loadWorkspace({ silent: true }), 350);
+          scheduleSilentRefresh(350, gen);
         })
-        .catch((err) => showToast((err as Error).message));
+        .catch((err) => {
+          if (gen === workspaceGenRef.current && priorRun) {
+            setActiveRuns((prev) =>
+              prev.some((r) => r.id === runId) ? prev : [...prev, priorRun],
+            );
+          }
+          showToast((err as Error).message);
+        });
     },
-    [client, loadWorkspace, showToast],
+    [activeRuns, client, scheduleSilentRefresh, showToast],
   );
 
   const handleSignOut = useCallback(async () => {
@@ -1106,6 +1162,7 @@ function LoopShell() {
                 conversationId: input.conversationId,
                 input: input.text,
                 attachmentIds: input.attachmentIds,
+                idempotencyKey: input.idempotencyKey,
               });
               showToast(
                 input.attachmentIds?.length
