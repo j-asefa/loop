@@ -16,7 +16,7 @@ import {
   Cpu,
   Folder,
   Layers,
-  MessageSquarePlus,
+  Plus,
   Search,
   Terminal,
 } from "lucide-react-native";
@@ -284,6 +284,7 @@ export function AgentProfileSheet({
             </View>
 
             <Pressable
+              accessibilityLabel={`Message @${agent.name}`}
               onPress={() => {
                 haptics.medium();
                 onMessageAgent(agent);
@@ -292,14 +293,11 @@ export function AgentProfileSheet({
                 styles.messageBtn,
                 {
                   backgroundColor: theme.brass,
-                  transform: [{ scale: pressed ? 0.96 : 1 }],
+                  transform: [{ scale: pressed ? 0.92 : 1 }],
                 },
               ]}
             >
-              <MessageSquarePlus size={16} color={theme.onBrass} />
-              <Text style={[styles.messageBtnText, { color: theme.onBrass }]}>
-                Message @{agent.name}
-              </Text>
+              <Plus size={22} color={theme.onBrass} strokeWidth={2.5} />
             </Pressable>
           </View>
 
@@ -680,17 +678,17 @@ const styles = StyleSheet.create({
     borderWidth: 3,
   },
   messageBtn: {
-    flexDirection: "row",
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: "center",
-    gap: 7,
-    paddingHorizontal: 15,
-    paddingVertical: 10,
-    borderRadius: 999,
+    justifyContent: "center",
     marginBottom: 4,
-  },
-  messageBtnText: {
-    fontSize: 13.5,
-    fontWeight: "700",
+    shadowColor: "#000",
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 5,
   },
   nameBlock: {
     gap: 8,
