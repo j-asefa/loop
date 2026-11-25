@@ -27,6 +27,14 @@ export class LoopApiError extends Error {
   }
 }
 
+export type UploadedAttachment = {
+  id: string;
+  objectId: string;
+  name: string;
+  mime: string;
+  size: number;
+};
+
 export function randomUuid(): string {
   // RFC4122 v4 UUID using Web Crypto when available, safe fallback otherwise.
   if (
@@ -222,12 +230,67 @@ export class LoopClient {
     return Array.isArray(data) ? data : (data.items ?? []);
   }
 
+  async uploadFile(
+    file: { uri: string; name: string; mimeType?: string },
+    opts?: { agentId?: string; folderId?: string | null },
+  ): Promise<UploadedAttachment> {
+    const form = new FormData();
+    if (opts?.agentId) form.append("agentId", opts.agentId);
+    if (opts?.folderId) form.append("folderId", opts.folderId);
+    form.append("file", {
+      uri: file.uri,
+      name: file.name || "attachment",
+      type: file.mimeType || "application/octet-stream",
+    } as unknown as Blob);
+
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+      Origin: this.session.origin,
+      "X-Loop-CSRF": this.session.csrf,
+    };
+    if (this.session.cookie) {
+      headers.Cookie = this.session.cookie;
+    }
+
+    const res = await fetch(`${this.session.origin}/api/uploads`, {
+      method: "POST",
+      headers,
+      credentials: "include",
+      body: form,
+    });
+
+    if (res.status === 401) {
+      this.onUnauthorized?.();
+      throw new LoopApiError(401, "Session expired — pair this phone again.");
+    }
+
+    const text = await res.text();
+    let parsed: unknown = {};
+    if (text) {
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        parsed = { error: text };
+      }
+    }
+
+    if (!res.ok) {
+      const msg =
+        (parsed as { error?: string; detail?: string })?.error ||
+        (parsed as { detail?: string })?.detail ||
+        `Upload failed (${res.status})`;
+      throw new LoopApiError(res.status, msg);
+    }
+    return parsed as UploadedAttachment;
+  }
+
   submitRun(input: {
     agentId: string;
     conversationId?: string;
     replyToMessageId?: string;
     folderId?: string | null;
     input: string;
+    attachmentIds?: string[];
     idempotencyKey?: string;
   }): Promise<{ id: string; conversation_id?: string }> {
     return this.request("POST", "/api/runs", {
@@ -238,7 +301,7 @@ export class LoopClient {
         : {}),
       ...(input.folderId ? { folderId: input.folderId } : {}),
       input: input.input,
-      attachmentIds: [],
+      attachmentIds: input.attachmentIds ?? [],
       idempotencyKey: input.idempotencyKey ?? randomUuid(),
     });
   }

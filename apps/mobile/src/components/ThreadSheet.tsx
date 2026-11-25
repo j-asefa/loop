@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -15,6 +16,7 @@ import {
   ArrowUp,
   Bookmark,
   BookmarkCheck,
+  Paperclip,
   Sparkles,
 } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -23,6 +25,11 @@ import type { ApiMessage } from "../api/types";
 import { relativeTime, type NativeResultCard } from "../fixtures";
 import { haptics } from "../haptics";
 import type { LoopTheme } from "../theme";
+import {
+  AttachmentChipStrip,
+  AttachmentSourceSheet,
+  useAttachments,
+} from "./AttachmentTray";
 import { AgentAvatar, RichContent } from "./RichContent";
 
 export function ThreadSheet({
@@ -50,6 +57,7 @@ export function ThreadSheet({
     agentId: string;
     agentName: string;
     text: string;
+    attachmentIds?: string[];
   }) => Promise<void>;
   onToggleSaved: (messageId: string, currentlySaved: boolean) => Promise<void>;
 }) {
@@ -66,6 +74,9 @@ export function ThreadSheet({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
+  const replyAttachments = useAttachments(client, {
+    agentId: resolvedAgentId,
+  });
 
   const load = useCallback(async () => {
     if (!client) {
@@ -124,7 +135,14 @@ export function ThreadSheet({
 
   async function handleSend() {
     const trimmed = draft.trim();
-    if (!trimmed || sending) return;
+    const { readyIds, readyNames, uploading, clearAttachments } =
+      replyAttachments;
+    if ((!trimmed && readyIds.length === 0) || uploading || sending) return;
+    const finalText =
+      trimmed ||
+      (readyNames.length === 1
+        ? `Attached ${readyNames[0]}`
+        : `Attached ${readyNames.length} files`);
     haptics.medium();
     setSending(true);
     setError("");
@@ -133,9 +151,11 @@ export function ThreadSheet({
         conversationId,
         agentId: resolvedAgentId || "",
         agentName,
-        text: trimmed,
+        text: finalText,
+        attachmentIds: readyIds,
       });
       setDraft("");
+      clearAttachments();
       if (client) {
         setTimeout(() => void load(), 500);
       }
@@ -323,12 +343,39 @@ export function ThreadSheet({
             },
           ]}
         >
+          <AttachmentChipStrip
+            attachments={replyAttachments.attachments}
+            theme={theme}
+            onRemove={replyAttachments.removeAttachment}
+          />
           <View
             style={[
               styles.composerPill,
               { backgroundColor: theme.bg, borderColor: theme.line },
             ]}
           >
+            <Pressable
+              accessibilityLabel="Attach photo or file"
+              disabled={!replyAttachments.canAddMore}
+              onPress={() => {
+                haptics.light();
+                Keyboard.dismiss();
+                replyAttachments.setPickerOpen(true);
+              }}
+              style={[
+                styles.attachBtn,
+                !replyAttachments.canAddMore && { opacity: 0.4 },
+              ]}
+            >
+              <Paperclip
+                size={17}
+                color={
+                  replyAttachments.attachments.length > 0
+                    ? theme.brassText
+                    : theme.muted
+                }
+              />
+            </Pressable>
             <TextInput
               value={draft}
               onChangeText={setDraft}
@@ -338,13 +385,22 @@ export function ThreadSheet({
               multiline
             />
             <Pressable
-              disabled={!draft.trim() || sending}
+              disabled={
+                (!draft.trim() && replyAttachments.readyIds.length === 0) ||
+                replyAttachments.uploading ||
+                sending
+              }
               onPress={() => void handleSend()}
               style={[
                 styles.sendBtn,
                 {
                   backgroundColor: theme.brass,
-                  opacity: !draft.trim() || sending ? 0.36 : 1,
+                  opacity:
+                    (!draft.trim() && replyAttachments.readyIds.length === 0) ||
+                    replyAttachments.uploading ||
+                    sending
+                      ? 0.36
+                      : 1,
                 },
               ]}
             >
@@ -353,6 +409,15 @@ export function ThreadSheet({
           </View>
         </View>
       </KeyboardAvoidingView>
+
+      <AttachmentSourceSheet
+        visible={replyAttachments.pickerOpen}
+        theme={theme}
+        onClose={() => replyAttachments.setPickerOpen(false)}
+        onPickPhotos={() => void replyAttachments.pickFromPhotos()}
+        onTakePhoto={() => void replyAttachments.takePhoto()}
+        onPickFile={() => void replyAttachments.pickDocument()}
+      />
     </View>
   );
 }
@@ -446,9 +511,15 @@ const styles = StyleSheet.create({
     gap: 8,
     borderRadius: 24,
     borderWidth: 1,
-    paddingLeft: 14,
+    paddingLeft: 8,
     paddingRight: 6,
     paddingVertical: 6,
+  },
+  attachBtn: {
+    width: 32,
+    height: 34,
+    alignItems: "center",
+    justifyContent: "center",
   },
   composerInput: {
     flex: 1,

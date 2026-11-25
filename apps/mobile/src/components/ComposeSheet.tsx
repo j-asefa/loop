@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -11,16 +12,23 @@ import {
   View,
 } from "react-native";
 import { BlurView } from "expo-blur";
-import { ArrowUp, Folder, Sparkles, X } from "lucide-react-native";
+import { ArrowUp, Folder, Paperclip, Sparkles, X } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import type { LoopClient } from "../api/client";
 import type { ApiAgent, ApiFolder, ApiSnippet } from "../api/types";
 import { QUICK_REPLIES } from "../fixtures";
 import { haptics } from "../haptics";
 import type { LoopTheme } from "../theme";
+import {
+  AttachmentChipStrip,
+  AttachmentSourceSheet,
+  useAttachments,
+} from "./AttachmentTray";
 import { AgentAvatar } from "./RichContent";
 
 export function ComposeSheet({
   theme,
+  client,
   agents,
   folders,
   snippets,
@@ -30,6 +38,7 @@ export function ComposeSheet({
   onSend,
 }: {
   theme: LoopTheme;
+  client: LoopClient | null;
   agents: ApiAgent[];
   folders: ApiFolder[];
   snippets: ApiSnippet[];
@@ -41,6 +50,7 @@ export function ComposeSheet({
     agentName: string;
     folderId?: string | null;
     text: string;
+    attachmentIds?: string[];
   }) => Promise<void>;
 }) {
   const insets = useSafeAreaInsets();
@@ -61,6 +71,11 @@ export function ComposeSheet({
   const selectedAgent =
     activeAgents.find((a) => a.id === selectedAgentId) ?? activeAgents[0];
 
+  const composeAttachments = useAttachments(client, {
+    agentId: selectedAgent?.id,
+    folderId: selectedFolderId,
+  });
+
   const projects = useMemo(
     () => folders.filter((f) => f.kind === "project" || f.is_workspace),
     [folders],
@@ -68,7 +83,21 @@ export function ComposeSheet({
 
   async function handleSend() {
     const trimmed = text.trim();
-    if (!trimmed || !selectedAgent || busy) return;
+    const { readyIds, readyNames, uploading, clearAttachments } =
+      composeAttachments;
+    if (
+      (!trimmed && readyIds.length === 0) ||
+      uploading ||
+      !selectedAgent ||
+      busy
+    ) {
+      return;
+    }
+    const finalText =
+      trimmed ||
+      (readyNames.length === 1
+        ? `Attached ${readyNames[0]}`
+        : `Attached ${readyNames.length} files`);
     haptics.medium();
     setBusy(true);
     setError("");
@@ -77,8 +106,10 @@ export function ComposeSheet({
         agentId: selectedAgent.id,
         agentName: selectedAgent.name,
         folderId: selectedFolderId,
-        text: trimmed,
+        text: finalText,
+        attachmentIds: readyIds,
       });
+      clearAttachments();
       onClose();
     } catch (err) {
       haptics.warning();
@@ -282,6 +313,12 @@ export function ComposeSheet({
                 ))}
             </ScrollView>
 
+            <AttachmentChipStrip
+              attachments={composeAttachments.attachments}
+              theme={theme}
+              onRemove={composeAttachments.removeAttachment}
+            />
+
             {/* Prompt Input */}
             <View
               style={[
@@ -289,6 +326,28 @@ export function ComposeSheet({
                 { backgroundColor: theme.bg, borderColor: theme.line },
               ]}
             >
+              <Pressable
+                accessibilityLabel="Attach photo or file"
+                disabled={!composeAttachments.canAddMore}
+                onPress={() => {
+                  haptics.light();
+                  Keyboard.dismiss();
+                  composeAttachments.setPickerOpen(true);
+                }}
+                style={[
+                  styles.attachBtn,
+                  !composeAttachments.canAddMore && { opacity: 0.4 },
+                ]}
+              >
+                <Paperclip
+                  size={18}
+                  color={
+                    composeAttachments.attachments.length > 0
+                      ? theme.brassText
+                      : theme.muted
+                  }
+                />
+              </Pressable>
               <TextInput
                 value={text}
                 onChangeText={setText}
@@ -303,14 +362,23 @@ export function ComposeSheet({
                 autoFocus
               />
               <Pressable
-                disabled={!text.trim() || !selectedAgent || busy}
+                disabled={
+                  (!text.trim() && composeAttachments.readyIds.length === 0) ||
+                  composeAttachments.uploading ||
+                  !selectedAgent ||
+                  busy
+                }
                 onPress={() => void handleSend()}
                 style={({ pressed }) => [
                   styles.sendBtn,
                   {
                     backgroundColor: theme.brass,
                     opacity:
-                      !text.trim() || !selectedAgent || busy
+                      (!text.trim() &&
+                        composeAttachments.readyIds.length === 0) ||
+                      composeAttachments.uploading ||
+                      !selectedAgent ||
+                      busy
                         ? 0.35
                         : pressed
                           ? 0.85
@@ -334,6 +402,15 @@ export function ComposeSheet({
           </View>
         </View>
       </KeyboardAvoidingView>
+
+      <AttachmentSourceSheet
+        visible={composeAttachments.pickerOpen}
+        theme={theme}
+        onClose={() => composeAttachments.setPickerOpen(false)}
+        onPickPhotos={() => void composeAttachments.pickFromPhotos()}
+        onTakePhoto={() => void composeAttachments.takePhoto()}
+        onPickFile={() => void composeAttachments.pickDocument()}
+      />
     </View>
   );
 }
@@ -424,9 +501,15 @@ const styles = StyleSheet.create({
     gap: 8,
     borderRadius: 20,
     borderWidth: 1,
-    paddingLeft: 14,
+    paddingLeft: 8,
     paddingRight: 7,
     paddingVertical: 7,
+  },
+  attachBtn: {
+    width: 34,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
   },
   input: {
     flex: 1,

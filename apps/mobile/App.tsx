@@ -448,7 +448,11 @@ function LoopShell() {
   );
 
   const handleCarouselReply = useCallback(
-    async (card: NativeResultCard, prompt: string) => {
+    async (
+      card: NativeResultCard,
+      prompt: string,
+      attachmentIds?: string[],
+    ) => {
       if (client) {
         const agentId =
           card.agentId ||
@@ -463,8 +467,13 @@ function LoopShell() {
           conversationId: card.conversationId,
           replyToMessageId: card.messageId,
           input: prompt,
+          attachmentIds,
         });
-        showToast(`Sent to @${card.agentName}`);
+        showToast(
+          attachmentIds?.length
+            ? `Sent to @${card.agentName} with ${attachmentIds.length} ${attachmentIds.length === 1 ? "file" : "files"}`
+            : `Sent to @${card.agentName}`,
+        );
         setTimeout(() => void loadWorkspace(feedTab), 450);
         return;
       }
@@ -489,14 +498,20 @@ function LoopShell() {
       agentName: string;
       folderId?: string | null;
       text: string;
+      attachmentIds?: string[];
     }) => {
       if (client) {
         await client.submitRun({
           agentId: input.agentId,
           folderId: input.folderId,
           input: input.text,
+          attachmentIds: input.attachmentIds,
         });
-        showToast(`Sent to @${input.agentName}`);
+        showToast(
+          input.attachmentIds?.length
+            ? `Sent to @${input.agentName} with ${input.attachmentIds.length} ${input.attachmentIds.length === 1 ? "file" : "files"}`
+            : `Sent to @${input.agentName}`,
+        );
         setAppTab("feed");
         setTimeout(() => void loadWorkspace(feedTab), 400);
         return;
@@ -966,8 +981,13 @@ function LoopShell() {
                 agentId,
                 conversationId: input.conversationId,
                 input: input.text,
+                attachmentIds: input.attachmentIds,
               });
-              showToast(`Sent to @${input.agentName}`);
+              showToast(
+                input.attachmentIds?.length
+                  ? `Sent to @${input.agentName} with ${input.attachmentIds.length} ${input.attachmentIds.length === 1 ? "file" : "files"}`
+                  : `Sent to @${input.agentName}`,
+              );
             } else {
               const nextCard = buildSimulatedReply(
                 input.conversationId,
@@ -1027,6 +1047,7 @@ function LoopShell() {
       {composeOpen && (
         <ComposeSheet
           theme={theme}
+          client={client}
           agents={agents}
           folders={folders}
           snippets={snippets}

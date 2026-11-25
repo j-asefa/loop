@@ -40,6 +40,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CornerUpLeft,
+  Paperclip,
   Search,
   Sparkles,
   X,
@@ -61,6 +62,11 @@ import {
 } from "../fixtures";
 import { haptics } from "../haptics";
 import type { LoopTheme } from "../theme";
+import {
+  AttachmentChipStrip,
+  AttachmentSourceSheet,
+  useAttachments,
+} from "./AttachmentTray";
 import { AgentAvatar, InlineFormattedText, RichContent } from "./RichContent";
 
 const CARD_GAP = 10;
@@ -78,7 +84,11 @@ type SpotlightCarouselProps = {
   onToggleSaved: (card: NativeResultCard) => void;
   onRemind: (card: NativeResultCard) => void;
   onDismissCard: (card: NativeResultCard) => void;
-  onSendReply: (card: NativeResultCard, prompt: string) => Promise<void> | void;
+  onSendReply: (
+    card: NativeResultCard,
+    prompt: string,
+    attachmentIds?: string[],
+  ) => Promise<void> | void;
 };
 
 export function SpotlightCarousel({
@@ -216,10 +226,13 @@ export function SpotlightCarousel({
   const [committedQuery, setCommittedQuery] = useState("");
   const [quickReplyOpen, setQuickReplyOpen] = useState(false);
 
-  // Detached floating Reply composer
+  // Detached floating Reply composer + file attachments
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const replyAttachments = useAttachments(client, {
+    agentId: activeCard?.agentId,
+  });
 
   const scrollRef = useRef<Animated.ScrollView>(null);
   const replyInputRef = useRef<React.ComponentRef<typeof TextInput>>(null);
@@ -478,17 +491,32 @@ export function SpotlightCarousel({
 
   const submitReply = useCallback(() => {
     const trimmed = draft.trim();
-    if (!trimmed || sending || !activeCard) return;
+    const { readyIds, readyNames, uploading, clearAttachments } =
+      replyAttachments;
+    if (
+      (!trimmed && readyIds.length === 0) ||
+      uploading ||
+      sending ||
+      !activeCard
+    ) {
+      return;
+    }
+    const finalPrompt =
+      trimmed ||
+      (readyNames.length === 1
+        ? `Attached ${readyNames[0]}`
+        : `Attached ${readyNames.length} files`);
     haptics.medium();
     setSending(true);
     setDraft("");
+    clearAttachments();
     Keyboard.dismiss();
-    Promise.resolve(onSendReply(activeCard, trimmed))
+    Promise.resolve(onSendReply(activeCard, finalPrompt, readyIds))
       .catch(() => {})
       .finally(() => {
         setTimeout(() => setSending(false), client ? 350 : 1150);
       });
-  }, [draft, sending, activeCard, onSendReply, client]);
+  }, [draft, sending, activeCard, onSendReply, client, replyAttachments]);
 
   const viewNewestArrival = useCallback(() => {
     haptics.medium();
@@ -978,8 +1006,13 @@ export function SpotlightCarousel({
             />
           )}
 
-          {/* Detached Floating Reply Pill (Concept A + Quick reply shortcut) */}
+          {/* Detached Floating Reply Pill (Attach + Quick + Input + Open Thread + Send) */}
           <View style={styles.replyFloatWrap}>
+            <AttachmentChipStrip
+              attachments={replyAttachments.attachments}
+              theme={theme}
+              onRemove={replyAttachments.removeAttachment}
+            />
             <View
               style={[
                 styles.replyPill,
@@ -989,6 +1022,28 @@ export function SpotlightCarousel({
                 },
               ]}
             >
+              <Pressable
+                accessibilityLabel="Attach photo or file"
+                disabled={!replyAttachments.canAddMore}
+                onPress={() => {
+                  haptics.light();
+                  Keyboard.dismiss();
+                  replyAttachments.setPickerOpen(true);
+                }}
+                style={[
+                  styles.replyQuickBtn,
+                  !replyAttachments.canAddMore && { opacity: 0.4 },
+                ]}
+              >
+                <Paperclip
+                  size={16}
+                  color={
+                    replyAttachments.attachments.length > 0
+                      ? theme.brassText
+                      : theme.muted
+                  }
+                />
+              </Pressable>
               <Pressable
                 accessibilityLabel="Quick replies and snippets"
                 onPress={() => {
@@ -1024,14 +1079,25 @@ export function SpotlightCarousel({
               )}
               <Pressable
                 accessibilityLabel="Send reply"
-                disabled={!draft.trim() || sending}
+                disabled={
+                  (!draft.trim() && replyAttachments.readyIds.length === 0) ||
+                  replyAttachments.uploading ||
+                  sending
+                }
                 onPress={submitReply}
                 style={({ pressed }) => [
                   styles.replySendBtn,
                   {
                     backgroundColor: theme.brass,
                     opacity:
-                      !draft.trim() || sending ? 0.36 : pressed ? 0.85 : 1,
+                      (!draft.trim() &&
+                        replyAttachments.readyIds.length === 0) ||
+                      replyAttachments.uploading ||
+                      sending
+                        ? 0.36
+                        : pressed
+                          ? 0.85
+                          : 1,
                     transform: [{ scale: pressed ? 0.93 : 1 }],
                   },
                 ]}
@@ -1042,6 +1108,15 @@ export function SpotlightCarousel({
           </View>
         </Animated.View>
       </KeyboardAvoidingView>
+
+      <AttachmentSourceSheet
+        visible={replyAttachments.pickerOpen}
+        theme={theme}
+        onClose={() => replyAttachments.setPickerOpen(false)}
+        onPickPhotos={() => void replyAttachments.pickFromPhotos()}
+        onTakePhoto={() => void replyAttachments.takePhoto()}
+        onPickFile={() => void replyAttachments.pickDocument()}
+      />
 
       {/* Frosted Quick Reply Sheet */}
       {quickReplyOpen && (
