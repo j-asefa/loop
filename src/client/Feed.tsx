@@ -2,6 +2,7 @@ import { AgentPicker, sortAgentsByName } from "./AgentPicker";
 import { ErrorNotice } from "./ErrorNotice";
 import { listenClientEvent } from "./clientEvents";
 import type { ActivityLine } from "../shared/activity-line";
+import { InlineReplyBox } from "./InlineReplyBox";
 import { useStableCardProps } from "./stableIdentity";
 import { useProjectionRoute } from "./SourceContext";
 import { AgentSourceId } from "../shared/contract-ids";
@@ -273,6 +274,7 @@ function FeedCard({
   onOpen,
   onReply,
   canQuickReply = false,
+  canInlineReply = false,
   onRead,
   onReadingChange,
   onQuestion,
@@ -301,6 +303,8 @@ function FeedCard({
   onOpen: () => void;
   onReply: (prompt?: string) => void;
   canQuickReply?: boolean;
+  /** Feed can reply in a thread, so a card may offer its own reply box. */
+  canInlineReply?: boolean;
   onRead?: () => void;
   onReadingChange?: (open: boolean) => void;
   onQuestion?: () => void;
@@ -334,6 +338,7 @@ function FeedCard({
 }) {
   const readProjection = useProjectionRoute();
   const [quickReplyOpen, setQuickReplyOpen] = useState(false);
+  const [inlineReplyOpen, setInlineReplyOpen] = useState(false);
   const { snippets: quickReplySnippets } = useSnippets(quickReplyOpen);
 
   const scopedSource = useSourceId();
@@ -399,6 +404,21 @@ function FeedCard({
   // paragraph on the card; See full opens the whole answer.
   const takeaway = cardTakeaway(item, readAsCard);
   const fetchSource = item.sourceId ?? scopedSource;
+  // Reply on the card itself (B2): a Done result or reply from an agent,
+  // with no draft or group that needs the full composer, on a source that
+  // accepts sends.
+  // An open box stays open if a draft appears (another tab), so its text
+  // is not merged into that draft.
+  const inlineTarget =
+    canInlineReply &&
+    (!draft || inlineReplyOpen) &&
+    !groupCount &&
+    item.agent_id &&
+    (item.done_card_key || item.reply_card_key) &&
+    !item.origin.endsWith("-import") &&
+    !operationBlockReason(fetchSource, capabilities, workspaceApi.submit)
+      ? { agentId: item.agent_id }
+      : null;
   const fetchKey = messageId ? `${fetchSource ?? ""}:${messageId}` : "";
   const canLoadFull =
     !!messageId && !item.card && !item.live_preview && !awaitingUpdate;
@@ -806,7 +826,12 @@ function FeedCard({
                 </button>
               )}
               {next?.kind !== "draft" && (
-                <button onClick={() => onReply()}>
+                <button
+                  aria-expanded={inlineTarget ? inlineReplyOpen : undefined}
+                  onClick={() =>
+                    inlineTarget ? setInlineReplyOpen(true) : onReply()
+                  }
+                >
                   <MessageSquare size={16} />
                   {groupCount ? "Reply to latest" : "Reply"}
                 </button>
@@ -820,6 +845,28 @@ function FeedCard({
             </>
           )}
         </div>
+        {inlineReplyOpen && inlineTarget && (
+          <InlineReplyBox
+            reply={{
+              source: fetchSource,
+              conversation: item.conversation_id,
+              agentId: inlineTarget.agentId,
+            }}
+            agentName={name ?? undefined}
+            onOpenThread={() => {
+              setInlineReplyOpen(false);
+              // As "Continue draft" opens it: the composer quotes nothing,
+              // so text kept from this box keeps the card's signature and a
+              // pending send repeats its key.
+              onNext({
+                kind: "draft",
+                label: "Continue draft",
+                message_id: null,
+              });
+            }}
+            onClose={() => setInlineReplyOpen(false)}
+          />
+        )}
       </article>
       {swipe.lifted &&
         createPortal(
@@ -4723,6 +4770,7 @@ export function Feed({
           ),
         )}
         canQuickReply={Boolean(onReply && feedReplyQuote(item))}
+        canInlineReply={Boolean(onReply)}
         draftText={
           threadDraft(sourceDraftId(item.conversation_id, source)).text
         }

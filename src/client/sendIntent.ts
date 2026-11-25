@@ -18,6 +18,32 @@ export type SendReceipt = {
   unquoted: boolean;
 };
 
+/**
+ * A message's identity for its receipt: recipient, text, folder, thread,
+ * reply target, quoted excerpt and files. Stored receipts that released
+ * versions wrote compare against this exact string, so the order and the
+ * null for a missing value must not change.
+ */
+export function sendSignature(message: {
+  agentId: string;
+  text: string;
+  folder?: string | null;
+  conversationId?: string | null;
+  replyToMessageId?: string;
+  excerpt?: string | null;
+  attachmentIds: string[];
+}) {
+  return JSON.stringify([
+    message.agentId,
+    message.text,
+    message.folder,
+    message.conversationId,
+    message.replyToMessageId,
+    message.excerpt ?? null,
+    message.attachmentIds,
+  ]);
+}
+
 const sameIntent = (a: SendIntent, b: SendIntent) =>
   a.mode === b.mode && a.sendAt === b.sendAt;
 

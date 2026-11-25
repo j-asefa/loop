@@ -1531,6 +1531,72 @@ button:not(:disabled):active,
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+/* B2: a reply typed on the card, and the echo of what was sent. */
+.inline-reply {
+  display: grid;
+  gap: 8px;
+  /* Opening scrolls the box above the bottom bar and the compose button. */
+  scroll-margin-bottom: calc(140px + env(safe-area-inset-bottom));
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.inline-reply-echo {
+  display: grid;
+  gap: 2px;
+  justify-self: end;
+  max-width: 85%;
+  padding: 8px 12px;
+  border-radius: 14px;
+  background: var(--soft);
+}
+.inline-reply-echo p {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.inline-reply-echo.sending p {
+  opacity: 0.7;
+}
+.inline-reply-you,
+.inline-reply-status {
+  font-size: 12px;
+  color: var(--muted);
+}
+.inline-reply-echo.uncertain .inline-reply-status {
+  color: var(--orange);
+}
+.inline-reply-echo .text-button {
+  justify-self: start;
+}
+.inline-reply-form {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.inline-reply-form textarea {
+  flex: 1;
+  min-width: 0;
+  min-height: 40px;
+  max-height: 160px;
+  resize: none;
+  field-sizing: content;
+}
+.inline-reply-send {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 50%;
+}
+.inline-reply-links {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.inline-reply-error {
+  margin: 0;
+}
 .feed-activity-pulse {
   flex-shrink: 0;
   width: 7px;

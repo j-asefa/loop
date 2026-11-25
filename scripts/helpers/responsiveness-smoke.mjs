@@ -874,12 +874,10 @@ export async function responsivenessSmoke(page, fixture, engine) {
         /^loop-draft-text:([^:]*):(.*)$/,
       );
       const [draftSource] = JSON.parse(threadId);
+      const draftStorageKey = `loop-draft-text:${owner}:${JSON.stringify([draftSource, draftedConversation.id])}`;
       await page.evaluate(
         ([key, text]) => localStorage.setItem(key, text),
-        [
-          `loop-draft-text:${owner}:${JSON.stringify([draftSource, draftedConversation.id])}`,
-          "Unsent reply from another view",
-        ],
+        [draftStorageKey, "Unsent reply from another view"],
       );
       await page.evaluate(() => window.scrollTo(0, 0));
       await dragProbe(page, client, top, { x: 195, y: 420 }, 36, 600);
@@ -966,6 +964,216 @@ export async function responsivenessSmoke(page, fixture, engine) {
       if (activityReads.includes("activities"))
         throw new Error("The card downloaded the full activity list");
       report.activityLine = { shown: true, live: true, lineRouteOnly: true };
+
+      console.log("responsiveness: inline reply");
+      // B2: reply on a Done card without leaving the feed. The message shows
+      // at once, marked as sending, before Loop answers (D2); an unconfirmed
+      // send is offered as Retry with the same idempotency key and is never
+      // sent again on its own; a refusal gives the text back.
+      const isSubmit = (request) =>
+        request.method() === "POST" &&
+        new URL(request.url()).pathname === "/api/runs";
+      // A card with a draft keeps the full composer; clear the draft above.
+      await page.evaluate(
+        (key) => localStorage.removeItem(key),
+        draftStorageKey,
+      );
+      await page.reload({ waitUntil: "networkidle" });
+      await page.getByRole("tab", { name: /^Done/ }).click();
+      await page.locator(".feed-results .feed-item-card").first().waitFor();
+      const doneCard = page
+        .locator(".feed-results .feed-item-card")
+        .filter({
+          has: page.getByRole("button", { name: "Reply", exact: true }),
+        })
+        .first();
+      await doneCard
+        .getByRole("button", { name: "Reply", exact: true })
+        .click();
+      const replyBox = doneCard.locator(".inline-reply textarea");
+      await expect(replyBox).toBeFocused();
+      if (new URL(page.url()).searchParams.has("conversation"))
+        throw new Error("Reply left the feed");
+      const echo = doneCard.locator(".inline-reply-echo");
+      const sendBox = (text) =>
+        replyBox
+          .fill(text)
+          .then(() =>
+            doneCard.getByRole("button", { name: "Send reply" }).click(),
+          );
+
+      // Closing the box keeps unsent text as the thread's draft.
+      await replyBox.fill("Draft kept from the card");
+      await doneCard.getByRole("button", { name: "Close reply" }).click();
+      const keptDraft = page.locator(".feed-results .feed-draft", {
+        hasText: "Draft kept from the card",
+      });
+      await expect(keptDraft).toHaveCount(1);
+      await page.evaluate(() => {
+        for (const key of Object.keys(localStorage))
+          if (key.startsWith("loop-draft-text:")) localStorage.removeItem(key);
+      });
+      await page.reload({ waitUntil: "networkidle" });
+      await page.getByRole("tab", { name: /^Done/ }).click();
+      await doneCard
+        .getByRole("button", { name: "Reply", exact: true })
+        .click();
+      await expect(replyBox).toBeFocused();
+
+      // Refused: nothing was accepted, so the text returns to the box.
+      const refusedText = "Please also check the changelog";
+      const refuseSubmit = async (route) => {
+        if (!isSubmit(route.request())) return route.fallback();
+        await route.fulfill({
+          status: 409,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "This agent is not available." }),
+        });
+      };
+      await page.route("**/api/runs", refuseSubmit);
+      try {
+        await sendBox(refusedText);
+        await expect(
+          doneCard.getByText("This agent is not available."),
+        ).toBeVisible();
+        await expect(replyBox).toHaveValue(refusedText);
+        await expect(echo).toHaveCount(0);
+      } finally {
+        await page.unroute("**/api/runs", refuseSubmit);
+      }
+
+      // Uncertain: no answer. One request, then only Retry sends again, with
+      // the same key.
+      const uncertainText = "Thanks, ship it";
+      const keys = [];
+      const dropSubmit = async (route) => {
+        if (!isSubmit(route.request())) return route.fallback();
+        keys.push(route.request().postDataJSON().idempotencyKey);
+        await route.abort("failed");
+      };
+      await page.route("**/api/runs", dropSubmit);
+      try {
+        await sendBox(uncertainText);
+        await expect(echo).toHaveAttribute("data-state", "uncertain");
+        await expect(echo).toContainText(uncertainText);
+        await page.waitForTimeout(1500);
+        if (keys.length !== 1)
+          throw new Error(
+            `An unconfirmed reply was sent ${keys.length} times without Retry`,
+          );
+      } finally {
+        await page.unroute("**/api/runs", dropSubmit);
+      }
+
+      // The unconfirmed text, opened in the thread's composer, is sent with
+      // the same key: the card and the composer agree on its signature.
+      await doneCard.getByRole("button", { name: "Open full thread" }).click();
+      const composer = page.locator("#composer");
+      await expect(composer).toHaveValue(uncertainText);
+      const composerKeys = [];
+      const dropComposer = async (route) => {
+        if (!isSubmit(route.request())) return route.fallback();
+        composerKeys.push(route.request().postDataJSON().idempotencyKey);
+        await route.abort("failed");
+      };
+      await page.route("**/api/runs", dropComposer);
+      try {
+        await page.getByRole("button", { name: "Send reply" }).click();
+        await expect.poll(() => composerKeys.length).toBe(1);
+      } finally {
+        await page.unroute("**/api/runs", dropComposer);
+      }
+      if (composerKeys[0] !== keys[0])
+        throw new Error(
+          "The composer sent the card's unconfirmed reply with a new key",
+        );
+      // Back on the feed with no draft, the card's same text is still
+      // unconfirmed: sending it again repeats the key, and then Retry does.
+      // Leave the thread first: its composer saves its draft as it goes.
+      await page.goto(fixture.base, { waitUntil: "networkidle" });
+      await page.evaluate(() => {
+        for (const key of Object.keys(localStorage))
+          if (key.startsWith("loop-draft-text:")) localStorage.removeItem(key);
+      });
+      await page.reload({ waitUntil: "networkidle" });
+      await page.getByRole("tab", { name: /^Done/ }).click();
+      await doneCard
+        .getByRole("button", { name: "Reply", exact: true })
+        .click();
+      await expect(replyBox).toBeFocused();
+      await page.route("**/api/runs", dropSubmit);
+      try {
+        await sendBox(uncertainText);
+        await expect(echo).toHaveAttribute("data-state", "uncertain");
+      } finally {
+        await page.unroute("**/api/runs", dropSubmit);
+      }
+      if (keys.length !== 2 || keys[1] !== keys[0])
+        throw new Error("Sending the unconfirmed text again used a new key");
+
+      // Retry, held so the echo is seen before Loop answers.
+      const retryKeys = [];
+      const holdSubmit = async (route) => {
+        if (!isSubmit(route.request())) return route.fallback();
+        retryKeys.push(route.request().postDataJSON().idempotencyKey);
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        await route.continue();
+      };
+      await page.route("**/api/runs", holdSubmit);
+      let echoMs;
+      try {
+        const clicked = await page.evaluate(() => {
+          // Resolves with the time from the click to the sending echo, and
+          // whether the echo then showed as sent: once accepted, the thread
+          // is working, so its Done card may leave the list right after.
+          window.__loopEcho = new Promise((resolve) => {
+            let pressed = null,
+              sendingMs = null;
+            addEventListener("click", () => (pressed ??= performance.now()), {
+              capture: true,
+              once: true,
+            });
+            setTimeout(() => resolve({ sendingMs, sent: false }), 10000);
+            const check = () => {
+              const state = document
+                .querySelector(".inline-reply-echo")
+                ?.getAttribute("data-state");
+              if (pressed !== null && sendingMs === null && state === "sending")
+                sendingMs = performance.now() - pressed;
+              if (state === "sent") return resolve({ sendingMs, sent: true });
+              requestAnimationFrame(check);
+            };
+            requestAnimationFrame(check);
+          });
+          return true;
+        });
+        if (!clicked) throw new Error("Echo probe did not start");
+        const answered = page.waitForResponse(
+          (response) => isSubmit(response.request()),
+          { timeout: 10000 },
+        );
+        await doneCard.getByRole("button", { name: "Retry" }).click();
+        const response = await answered;
+        if (!response.ok())
+          throw new Error(`Retried reply failed: ${response.status()}`);
+        const seen = await page.evaluate(() => window.__loopEcho);
+        if (!seen.sent)
+          throw new Error("The accepted reply never showed as sent");
+        echoMs = seen.sendingMs;
+      } finally {
+        await page.unroute("**/api/runs", holdSubmit);
+      }
+      if (retryKeys.length !== 1 || retryKeys[0] !== keys[0])
+        throw new Error("Retry did not repeat the first request's key");
+      if (echoMs == null) throw new Error("The sending echo never showed");
+      report.inlineReply = {
+        echoMs: Math.round(echoMs),
+        closeKeptDraft: true,
+        composerSameKey: true,
+        refusedKeptText: true,
+        uncertainSentOnce: true,
+        retrySameKey: true,
+      };
     }
   } finally {
     await client?.send("Emulation.setCPUThrottlingRate", { rate: 1 });
@@ -1045,6 +1253,13 @@ export async function responsivenessSmoke(page, fixture, engine) {
   if (!report.sheet?.enterAnimation)
     throw new Error(
       `The sheet did not animate in: ${JSON.stringify(report.sheet)}`,
+    );
+  // Sending (B2 D2): your reply shows within 100 ms of Send, before Loop
+  // answers (the answer is held 800 ms).
+  ran(Number.isFinite(report.inlineReply?.echoMs), "inline reply");
+  if (!(report.inlineReply.echoMs < 100))
+    throw new Error(
+      `The reply echo missed its budget (< 100 ms): ${JSON.stringify(report.inlineReply)}`,
     );
   for (const [name, kept] of Object.entries(report.pressHitArea))
     if (!kept)
