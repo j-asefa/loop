@@ -3950,13 +3950,14 @@ export function Feed({
         });
       if (current()) {
         ++request.current; // A read started before the action cannot restore it.
+        // The other cards slide into their new places; taken only when
+        // this list update follows.
+        slideNextChange();
         setItems(change);
       }
     };
     const itemKey = feedItemKey(item, source);
     const remove = () => {
-      // The cards below slide up into its place.
-      slideNextChange();
       updateCard(true);
       update((old) =>
         old.filter(
@@ -3965,7 +3966,6 @@ export function Feed({
       );
     };
     const restore = () => {
-      slideNextChange();
       updateCard(false);
       update((old) =>
         [

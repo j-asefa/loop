@@ -678,6 +678,12 @@ export async function responsivenessSmoke(page, fixture, engine) {
       };
       await page.route("**/api/feed/*", hold);
       try {
+        // Scrolled first, as swipeArchive does, so card positions taken
+        // before the swipe are not moved by its scroll.
+        await page
+          .locator(".feed-results .feed-item-card")
+          .first()
+          .evaluate((element) => element.scrollIntoView({ block: "center" }));
         await page.evaluate((label) => {
           // Where each other card is on screen before the archive.
           const cardTop = (card) =>
