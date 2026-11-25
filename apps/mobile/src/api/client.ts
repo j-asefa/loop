@@ -128,6 +128,66 @@ export class LoopClient {
     return this.request<ApiBootstrap>("GET", "/api/bootstrap");
   }
 
+  runs(active = true): Promise<
+    Array<{
+      id: string;
+      agent_id: string;
+      conversation_id: string | null;
+      input: string;
+      state: string;
+      created_at: number;
+      updated_at?: number;
+    }>
+  > {
+    return this.request("GET", `/api/runs${active ? "?active=1" : ""}`);
+  }
+
+  agentDetail(id: string): Promise<{
+    agent: import("./types").ApiAgent;
+    runs: Array<{
+      id: string;
+      conversation_id: string | null;
+      input: string;
+      state: string;
+      created_at: number;
+    }>;
+    conversations: Array<{
+      id: string;
+      title: string;
+      created_at: number;
+      project_id: string | null;
+    }>;
+  }> {
+    return this.request("GET", `/api/agents/${encodeURIComponent(id)}`);
+  }
+
+  async agentTraces(
+    id: string,
+    q?: string,
+  ): Promise<
+    Array<{
+      id: string;
+      run_id?: string | null;
+      kind?: string;
+      title?: string | null;
+      content?: string | null;
+      created_at: number;
+    }>
+  > {
+    const query = q ? `?q=${encodeURIComponent(q)}` : "";
+    const data = await this.request<{
+      items?: Array<{
+        id: string;
+        run_id?: string | null;
+        kind?: string;
+        title?: string | null;
+        content?: string | null;
+        created_at: number;
+      }>;
+    }>("GET", `/api/agents/${encodeURIComponent(id)}/traces${query}`);
+    return data.items ?? [];
+  }
+
   feed(
     filter: "done" | "working" | "queued" | "replies" | "needs",
     opts?: { folder?: string; agent?: string; before?: string },

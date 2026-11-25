@@ -28,6 +28,7 @@ import type { SocketStatus } from "../api/socket";
 import type {
   ApiLaterItem,
   ApiPersonalFile,
+  ApiPersonalProfile,
   ApiSavedEntry,
   ApiScheduledSend,
   ApiSocialStory,
@@ -36,6 +37,7 @@ import type {
 import { relativeTime, type NativeResultCard } from "../fixtures";
 import { haptics } from "../haptics";
 import type { LoopTheme } from "../theme";
+import { AgentAvatar, ProfileCoverBanner } from "./RichContent";
 
 type ProfileSection = "saved" | "reminders" | "scheduled" | "files" | "social";
 
@@ -81,6 +83,18 @@ export function ProfileScreen({
   const [scheduled, setScheduled] = useState<ApiScheduledSend[]>([]);
   const [files, setFiles] = useState<ApiPersonalFile[]>([]);
   const [stories, setStories] = useState<ApiSocialStory[]>([]);
+  const [profile, setProfile] = useState<ApiPersonalProfile | null>(null);
+
+  useEffect(() => {
+    if (!client) {
+      setProfile(null);
+      return;
+    }
+    void client
+      .personalProfile()
+      .then(setProfile)
+      .catch(() => {});
+  }, [client]);
 
   const loadSection = useCallback(async () => {
     if (!client) {
@@ -133,21 +147,28 @@ export function ProfileScreen({
         ? theme.brass
         : theme.muted;
 
+  const displayName =
+    profile?.name?.trim() || session?.deviceName || "Your profile";
+  const coverKey = profile?.handle || profile?.name || "atlas";
+
   return (
     <View style={[styles.root, { backgroundColor: theme.bg }]}>
       <View
         style={[
           styles.header,
           {
-            paddingTop: Math.max(insets.top + 8, 18),
+            paddingTop: 0,
+            paddingHorizontal: 0,
             borderBottomColor: theme.line,
           },
         ]}
       >
-        <View style={styles.headerTop}>
-          <Text style={[styles.screenTitle, { color: theme.text }]}>
-            Profile & Later
-          </Text>
+        {/* Coordinated Scenic Profile Cover Banner */}
+        <View style={{ position: "relative" }}>
+          <ProfileCoverBanner
+            name={coverKey}
+            height={92 + Math.max(insets.top, 20)}
+          />
           <Pressable
             onPress={() => {
               haptics.selection();
@@ -155,112 +176,174 @@ export function ProfileScreen({
             }}
             style={[
               styles.iconBtn,
-              { backgroundColor: theme.surface, borderColor: theme.line },
+              {
+                position: "absolute",
+                right: 16,
+                top: Math.max(insets.top + 6, 16),
+                backgroundColor: "rgba(20, 20, 18, 0.72)",
+                borderColor: "rgba(255,255,255,0.14)",
+              },
             ]}
           >
             {theme.isDark ? (
               <Sun size={16} color={theme.brassText} />
             ) : (
-              <Moon size={16} color={theme.brassText} />
+              <Moon size={16} color="#f5f5f2" />
             )}
           </Pressable>
         </View>
 
-        {/* Workspace Connection Card */}
-        <View
-          style={[
-            styles.workspaceCard,
-            { backgroundColor: theme.surface, borderColor: theme.line },
-          ]}
-        >
-          <View style={styles.wsLeft}>
-            <View style={styles.wsStatusRow}>
-              <View
-                style={[styles.statusDot, { backgroundColor: statusColor }]}
-              />
-              <Text style={[styles.wsTitle, { color: theme.text }]}>
-                {session
-                  ? session.origin.replace(/^https?:\/\//, "")
-                  : "Offline Demo Deck"}
-              </Text>
-            </View>
-            <Text style={[styles.wsSub, { color: theme.muted }]}>
-              {session
-                ? `${session.deviceName} · ${socketStatus}`
-                : "Pair with `loop pair` to connect your live agents"}
-            </Text>
-          </View>
-
-          <View style={styles.wsActions}>
-            <Pressable
-              onPress={() => {
-                haptics.light();
-                onOpenPairing();
-              }}
+        <View style={styles.profileHeadBody}>
+          <View style={styles.profileIdentityRow}>
+            <View
               style={[
-                styles.wsBtn,
-                {
-                  backgroundColor: theme.attention,
-                  borderColor: theme.attentionLine,
-                },
+                styles.profileAvatarRing,
+                { borderColor: theme.bg, backgroundColor: theme.bg },
               ]}
             >
-              <Link2 size={14} color={theme.brassText} />
-              <Text style={[styles.wsBtnText, { color: theme.brassText }]}>
-                {session ? "Switch" : "Pair"}
+              <AgentAvatar name={coverKey} size={56} />
+            </View>
+            <View style={{ flex: 1, paddingTop: 2 }}>
+              <Text style={[styles.screenTitle, { color: theme.text }]}>
+                {displayName}
               </Text>
-            </Pressable>
-            {session && (
-              <Pressable
-                onPress={() => {
-                  haptics.warning();
-                  onSignOut();
-                }}
-                style={[
-                  styles.wsIconBtn,
-                  { backgroundColor: theme.soft, borderColor: theme.line },
-                ]}
-              >
-                <LogOut size={14} color={theme.orange} />
-              </Pressable>
-            )}
+              {profile?.handle ? (
+                <Text style={[styles.profileHandle, { color: theme.muted }]}>
+                  @{profile.handle.replace(/^@/, "")}
+                </Text>
+              ) : null}
+            </View>
           </View>
-        </View>
+          {profile?.bio ? (
+            <Text style={[styles.profileBio, { color: theme.muted }]}>
+              {profile.bio}
+            </Text>
+          ) : null}
+          {profile && (
+            <View style={styles.profileStatsRow}>
+              {profile.prompt_count !== undefined && (
+                <Text style={[styles.profileStat, { color: theme.muted }]}>
+                  <Text style={{ color: theme.text, fontWeight: "700" }}>
+                    {profile.prompt_count}
+                  </Text>{" "}
+                  prompts
+                </Text>
+              )}
+              {profile.agent_count !== undefined && (
+                <Text style={[styles.profileStat, { color: theme.muted }]}>
+                  <Text style={{ color: theme.text, fontWeight: "700" }}>
+                    {profile.agent_count}
+                  </Text>{" "}
+                  agents
+                </Text>
+              )}
+              {profile.project_count !== undefined && (
+                <Text style={[styles.profileStat, { color: theme.muted }]}>
+                  <Text style={{ color: theme.text, fontWeight: "700" }}>
+                    {profile.project_count}
+                  </Text>{" "}
+                  projects
+                </Text>
+              )}
+            </View>
+          )}
 
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.secRow}
-        >
-          {SECTIONS.map((sec) => {
-            const active = sec.id === section;
-            return (
+          {/* Workspace Connection Card */}
+          <View
+            style={[
+              styles.workspaceCard,
+              { backgroundColor: theme.surface, borderColor: theme.line },
+            ]}
+          >
+            <View style={styles.wsLeft}>
+              <View style={styles.wsStatusRow}>
+                <View
+                  style={[styles.statusDot, { backgroundColor: statusColor }]}
+                />
+                <Text style={[styles.wsTitle, { color: theme.text }]}>
+                  {session
+                    ? session.origin.replace(/^https?:\/\//, "")
+                    : "Offline Demo Deck"}
+                </Text>
+              </View>
+              <Text style={[styles.wsSub, { color: theme.muted }]}>
+                {session
+                  ? `${session.deviceName} · ${socketStatus}`
+                  : "Pair with `loop pair` to connect your live agents"}
+              </Text>
+            </View>
+
+            <View style={styles.wsActions}>
               <Pressable
-                key={sec.id}
                 onPress={() => {
-                  haptics.selection();
-                  setSection(sec.id);
+                  haptics.light();
+                  onOpenPairing();
                 }}
                 style={[
-                  styles.secChip,
+                  styles.wsBtn,
                   {
-                    backgroundColor: active ? theme.attention : theme.surface,
-                    borderColor: active ? theme.attentionLine : theme.line,
+                    backgroundColor: theme.attention,
+                    borderColor: theme.attentionLine,
                   },
                 ]}
               >
-                <Text
-                  style={[
-                    styles.secLabel,
-                    { color: active ? theme.brassText : theme.muted },
-                  ]}
-                >
-                  {sec.label}
+                <Link2 size={14} color={theme.brassText} />
+                <Text style={[styles.wsBtnText, { color: theme.brassText }]}>
+                  {session ? "Switch" : "Pair"}
                 </Text>
               </Pressable>
-            );
-          })}
-        </ScrollView>
+              {session && (
+                <Pressable
+                  onPress={() => {
+                    haptics.warning();
+                    onSignOut();
+                  }}
+                  style={[
+                    styles.wsIconBtn,
+                    { backgroundColor: theme.soft, borderColor: theme.line },
+                  ]}
+                >
+                  <LogOut size={14} color={theme.orange} />
+                </Pressable>
+              )}
+            </View>
+          </View>
+
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.secRow}
+          >
+            {SECTIONS.map((sec) => {
+              const active = sec.id === section;
+              return (
+                <Pressable
+                  key={sec.id}
+                  onPress={() => {
+                    haptics.selection();
+                    setSection(sec.id);
+                  }}
+                  style={[
+                    styles.secChip,
+                    {
+                      backgroundColor: active ? theme.attention : theme.surface,
+                      borderColor: active ? theme.attentionLine : theme.line,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.secLabel,
+                      { color: active ? theme.brassText : theme.muted },
+                    ]}
+                  >
+                    {sec.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
       </View>
 
       <ScrollView
@@ -532,6 +615,35 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+  },
+  profileHeadBody: {
+    paddingHorizontal: 16,
+    gap: 10,
+  },
+  profileIdentityRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 12,
+    marginTop: -28,
+  },
+  profileAvatarRing: {
+    borderRadius: 32,
+    borderWidth: 3.5,
+  },
+  profileHandle: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  profileBio: {
+    fontSize: 13.5,
+    lineHeight: 19,
+  },
+  profileStatsRow: {
+    flexDirection: "row",
+    gap: 14,
+  },
+  profileStat: {
+    fontSize: 12.5,
   },
   screenTitle: {
     fontSize: 22,

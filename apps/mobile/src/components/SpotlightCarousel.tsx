@@ -71,6 +71,7 @@ type SpotlightCarouselProps = {
   snippets?: ApiSnippet[];
   theme: LoopTheme;
   onClose: () => void;
+  onOpenAgent?: (agentId: string | null | undefined, agentName: string) => void;
   onOpenThread?: (card: NativeResultCard) => void;
   onMarkRead: (card: NativeResultCard) => void;
   onToggleSaved: (card: NativeResultCard) => void;
@@ -85,6 +86,7 @@ export function SpotlightCarousel({
   snippets = [],
   theme,
   onClose,
+  onOpenAgent,
   onOpenThread,
   onMarkRead,
   onToggleSaved,
@@ -606,7 +608,12 @@ export function SpotlightCarousel({
                     <X size={18} color={theme.text} />
                   </Pressable>
 
-                  <View
+                  <Pressable
+                    onPress={() => {
+                      if (!onOpenAgent) return;
+                      haptics.light();
+                      onOpenAgent(activeCard?.agentId, agentName);
+                    }}
                     style={[
                       styles.identityPill,
                       {
@@ -628,7 +635,7 @@ export function SpotlightCarousel({
                     <Text style={[styles.identityPos, { color: theme.muted }]}>
                       {safeIndex + 1} / {slides.length}
                     </Text>
-                  </View>
+                  </Pressable>
 
                   <Pressable
                     accessibilityLabel="Search cards in thread"

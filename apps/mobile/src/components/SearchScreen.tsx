@@ -32,6 +32,7 @@ export function SearchScreen({
   localCards,
   theme,
   onOpenConversation,
+  onOpenAgent,
 }: {
   client: LoopClient | null;
   agents: ApiAgent[];
@@ -43,6 +44,7 @@ export function SearchScreen({
     agentName: string;
     agentId?: string | null;
   }) => void;
+  onOpenAgent: (agent: ApiAgent) => void;
 }) {
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState("");
@@ -251,8 +253,12 @@ export function SearchScreen({
             </Text>
             <View style={styles.agentRow}>
               {matchingAgents.map((a) => (
-                <View
+                <Pressable
                   key={a.id}
+                  onPress={() => {
+                    haptics.light();
+                    onOpenAgent(a);
+                  }}
                   style={[
                     styles.agentPill,
                     { backgroundColor: theme.surface, borderColor: theme.line },
@@ -262,7 +268,7 @@ export function SearchScreen({
                   <Text style={[styles.agentPillText, { color: theme.text }]}>
                     @{a.name}
                   </Text>
-                </View>
+                </Pressable>
               ))}
             </View>
           </View>

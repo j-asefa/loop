@@ -40,6 +40,10 @@ import type {
   ApiSnippet,
   PairedSession,
 } from "./src/api/types";
+import {
+  AgentProfileSheet,
+  type AgentRunSummary,
+} from "./src/components/AgentProfileSheet";
 import { ComposeSheet } from "./src/components/ComposeSheet";
 import { FeedScreen } from "./src/components/FeedScreen";
 import { PairingModal } from "./src/components/PairingModal";
@@ -132,6 +136,7 @@ function LoopShell() {
   const [snippets, setSnippets] = useState<ApiSnippet[]>([]);
   const [approvals, setApprovals] = useState<ApiApproval[]>([]);
   const [decisions, setDecisions] = useState<ApiNativeDecision[]>([]);
+  const [activeRuns, setActiveRuns] = useState<AgentRunSummary[]>([]);
   const [environmentName, setEnvironmentName] = useState<string>("");
   const [refreshing, setRefreshing] = useState(false);
 
@@ -139,6 +144,7 @@ function LoopShell() {
   const [openConversationId, setOpenConversationId] = useState<string | null>(
     null,
   );
+  const [profileAgent, setProfileAgent] = useState<ApiAgent | null>(null);
   const [threadOverlay, setThreadOverlay] = useState<{
     conversationId: string;
     title: string;
@@ -146,6 +152,9 @@ function LoopShell() {
     agentId?: string | null;
   } | null>(null);
   const [composeOpen, setComposeOpen] = useState(false);
+  const [composeAgentId, setComposeAgentId] = useState<string | undefined>(
+    undefined,
+  );
   const [composeFolderId, setComposeFolderId] = useState<string | null>(null);
   const [remindCard, setRemindCard] = useState<NativeResultCard | null>(null);
 
@@ -203,13 +212,15 @@ function LoopShell() {
       setRefreshing(true);
       try {
         await client.refreshSession().catch(() => {});
-        const [boot, feedPage, appList, decList, snipList] = await Promise.all([
-          client.bootstrap(),
-          client.feed(tabToLoad),
-          client.approvals().catch(() => [] as ApiApproval[]),
-          client.nativeDecisions().catch(() => [] as ApiNativeDecision[]),
-          client.snippets().catch(() => [] as ApiSnippet[]),
-        ]);
+        const [boot, feedPage, appList, decList, snipList, runList] =
+          await Promise.all([
+            client.bootstrap(),
+            client.feed(tabToLoad),
+            client.approvals().catch(() => [] as ApiApproval[]),
+            client.nativeDecisions().catch(() => [] as ApiNativeDecision[]),
+            client.snippets().catch(() => [] as ApiSnippet[]),
+            client.runs(true).catch(() => [] as AgentRunSummary[]),
+          ]);
         setAgents(boot.agents);
         setFolders(boot.folders);
         setEnvironmentName(boot.environmentName || "");
@@ -220,6 +231,7 @@ function LoopShell() {
         setApprovals(appList);
         setDecisions(decList);
         setSnippets(snipList);
+        setActiveRuns(runList);
       } catch (err) {
         if (err instanceof Error && !err.message.includes("401")) {
           showToast(err.message);
@@ -485,6 +497,30 @@ function LoopShell() {
     showToast("Signed out — switched to Demo Deck");
   }, [client, showToast]);
 
+  const openAgentByName = useCallback(
+    (agentId: string | null | undefined, agentName: string) => {
+      const found =
+        (agentId && agents.find((a) => a.id === agentId)) ||
+        agents.find(
+          (a) =>
+            a.name.toLowerCase() === agentName.replace(/^@/, "").toLowerCase(),
+        );
+      if (found) {
+        setProfileAgent(found);
+      } else {
+        setProfileAgent({
+          id: agentId || agentName,
+          name: agentName.replace(/^@/, ""),
+          provider: "anthropic",
+          connection_id: null,
+          model: "",
+          instructions: "",
+        });
+      }
+    },
+    [agents],
+  );
+
   const feedBadgeCount = useMemo(() => {
     if (client && summary) {
       return (
@@ -520,6 +556,8 @@ function LoopShell() {
       {appTab === "feed" && (
         <FeedScreen
           cards={activeCards}
+          agents={agents}
+          activeRuns={activeRuns}
           activeTab={feedTab}
           summary={summary}
           approvals={approvals}
@@ -539,6 +577,13 @@ function LoopShell() {
           }}
           onSelectTab={setFeedTab}
           onOpenPairing={() => setPairingOpen(true)}
+          onOpenAgent={(agent) => setProfileAgent(agent)}
+          onOpenAgentByName={openAgentByName}
+          onNewAgent={() => {
+            setComposeAgentId(undefined);
+            setComposeFolderId(null);
+            setComposeOpen(true);
+          }}
           onOpenStack={(conversationId) =>
             setOpenConversationId(conversationId)
           }
@@ -557,7 +602,9 @@ function LoopShell() {
           localCards={activeCards}
           theme={theme}
           onOpenConversation={(conv) => setThreadOverlay(conv)}
+          onOpenAgent={(agent) => setProfileAgent(agent)}
           onNewTaskInProject={(folderId) => {
+            setComposeAgentId(undefined);
             setComposeFolderId(folderId);
             setComposeOpen(true);
           }}
@@ -579,6 +626,7 @@ function LoopShell() {
           localCards={activeCards}
           theme={theme}
           onOpenConversation={(conv) => setThreadOverlay(conv)}
+          onOpenAgent={(agent) => setProfileAgent(agent)}
         />
       )}
 
@@ -598,6 +646,7 @@ function LoopShell() {
 
       {/* Floating + New Task Button */}
       {!openConversationId &&
+        !profileAgent &&
         !threadOverlay &&
         !composeOpen &&
         !pairingOpen && (
@@ -605,6 +654,7 @@ function LoopShell() {
             accessibilityLabel="New task"
             onPress={() => {
               haptics.medium();
+              setComposeAgentId(undefined);
               setComposeFolderId(null);
               setComposeOpen(true);
             }}
@@ -719,6 +769,10 @@ function LoopShell() {
           snippets={snippets}
           theme={theme}
           onClose={() => setOpenConversationId(null)}
+          onOpenAgent={(agentId, agentName) => {
+            setOpenConversationId(null);
+            openAgentByName(agentId, agentName);
+          }}
           onOpenThread={(card) => {
             setOpenConversationId(null);
             setThreadOverlay({
@@ -789,6 +843,33 @@ function LoopShell() {
         />
       )}
 
+      {/* Agent Profile Sheet (Illustrated Habitat Cover + Results / Threads / Traces) */}
+      {profileAgent && (
+        <AgentProfileSheet
+          agent={profileAgent}
+          client={client}
+          folders={folders}
+          activeRuns={activeRuns}
+          allCards={activeCards}
+          theme={theme}
+          onClose={() => setProfileAgent(null)}
+          onMessageAgent={(agent) => {
+            setProfileAgent(null);
+            setComposeAgentId(agent.id);
+            setComposeFolderId(agent.folder_id ?? null);
+            setComposeOpen(true);
+          }}
+          onOpenStack={(conversationId) => {
+            setProfileAgent(null);
+            setOpenConversationId(conversationId);
+          }}
+          onOpenThread={(conv) => {
+            setProfileAgent(null);
+            setThreadOverlay(conv);
+          }}
+        />
+      )}
+
       {/* New Task / Compose Sheet */}
       {composeOpen && (
         <ComposeSheet
@@ -796,6 +877,7 @@ function LoopShell() {
           agents={agents}
           folders={folders}
           snippets={snippets}
+          defaultAgentId={composeAgentId}
           defaultFolderId={composeFolderId}
           onClose={() => setComposeOpen(false)}
           onSend={handleComposeSend}

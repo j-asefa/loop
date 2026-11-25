@@ -22,6 +22,7 @@ import {
   Check,
   Layers,
   Link2,
+  Plus,
   ShieldAlert,
   X,
 } from "lucide-react-native";
@@ -33,10 +34,12 @@ import {
 } from "../../../../src/shared/done-stack";
 import type { SocketStatus } from "../api/socket";
 import type {
+  ApiAgent,
   ApiApproval,
-  ApiNativeDecision,
   ApiFeedSummary,
+  ApiNativeDecision,
 } from "../api/types";
+import type { AgentRunSummary } from "./AgentProfileSheet";
 import { relativeTime, type FeedTab, type NativeResultCard } from "../fixtures";
 import { haptics } from "../haptics";
 import type { LoopTheme } from "../theme";
@@ -53,6 +56,8 @@ const SWIPE_THRESHOLD = 82;
 
 type FeedScreenProps = {
   cards: NativeResultCard[];
+  agents: ApiAgent[];
+  activeRuns: AgentRunSummary[];
   activeTab: FeedTab;
   summary?: ApiFeedSummary | null;
   approvals: ApiApproval[];
@@ -66,6 +71,12 @@ type FeedScreenProps = {
   onRefresh: () => void;
   onSelectTab: (tab: FeedTab) => void;
   onOpenPairing: () => void;
+  onOpenAgent: (agent: ApiAgent) => void;
+  onOpenAgentByName: (
+    agentId: string | null | undefined,
+    agentName: string,
+  ) => void;
+  onNewAgent: () => void;
   onOpenStack: (conversationId: string, cards: NativeResultCard[]) => void;
   onSwipeDone: (card: NativeResultCard) => void;
   onSwipeSave: (card: NativeResultCard) => void;
@@ -73,8 +84,18 @@ type FeedScreenProps = {
   onAnswerDecision: (id: string, answer: Record<string, unknown>) => void;
 };
 
+const WORKING_STATES = new Set(["running", "pausing", "waiting_children"]);
+const NEEDS_STATES = new Set([
+  "failed",
+  "interrupted",
+  "awaiting_approval",
+  "paused",
+]);
+
 export function FeedScreen({
   cards,
+  agents,
+  activeRuns,
   activeTab,
   summary,
   approvals,
@@ -88,6 +109,9 @@ export function FeedScreen({
   onRefresh,
   onSelectTab,
   onOpenPairing,
+  onOpenAgent,
+  onOpenAgentByName,
+  onNewAgent,
   onOpenStack,
   onSwipeDone,
   onSwipeSave,
@@ -156,6 +180,37 @@ export function FeedScreen({
     [decisions],
   );
   const needsTotal = pendingApprovals.length + pendingDecisions.length;
+
+  const orderedAgents = useMemo(() => {
+    const active = agents.filter((a) => !a.retired_at);
+    return active
+      .map((agent, index) => {
+        const myRuns = activeRuns.filter((r) => r.agent_id === agent.id);
+        const workingAt = myRuns.reduce<number | null>(
+          (latest, r) =>
+            WORKING_STATES.has(r.state)
+              ? Math.max(latest ?? -Infinity, r.created_at)
+              : latest,
+          null,
+        );
+        const status = myRuns.some((r) => NEEDS_STATES.has(r.state))
+          ? ("Needs you" as const)
+          : workingAt !== null
+            ? ("Working" as const)
+            : myRuns.some((r) => r.state === "queued")
+              ? ("Queued" as const)
+              : ("Ready" as const);
+        return { agent, index, workingAt, status };
+      })
+      .sort((a, b) => {
+        if (a.workingAt !== null && b.workingAt !== null) {
+          return b.workingAt - a.workingAt;
+        }
+        if (a.workingAt !== null) return -1;
+        if (b.workingAt !== null) return 1;
+        return a.index - b.index;
+      });
+  }, [agents, activeRuns]);
 
   const liveColor =
     socketStatus === "live"
@@ -302,6 +357,127 @@ export function FeedScreen({
         ]}
         showsVerticalScrollIndicator={false}
       >
+        {/* Your Agents Horizontal Shortcut Strip (Loop's signature agent header) */}
+        <View style={styles.agentsStripSection}>
+          <Text style={[styles.agentsStripTitle, { color: theme.muted }]}>
+            YOUR AGENTS
+          </Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.agentsStripRow}
+          >
+            <Pressable
+              onPress={() => {
+                haptics.light();
+                onNewAgent();
+              }}
+              style={({ pressed }) => [
+                styles.agentShortcut,
+                { transform: [{ scale: pressed ? 0.94 : 1 }] },
+              ]}
+            >
+              <Text style={styles.shortcutModel}> </Text>
+              <View
+                style={[
+                  styles.newAgentPortrait,
+                  {
+                    backgroundColor: theme.surface,
+                    borderColor: theme.line,
+                  },
+                ]}
+              >
+                <Plus size={22} color={theme.brassText} />
+              </View>
+              <Text
+                style={[styles.shortcutName, { color: theme.text }]}
+                numberOfLines={1}
+              >
+                New task
+              </Text>
+              <Text style={[styles.shortcutStatus, { color: theme.muted }]}>
+                Start chat
+              </Text>
+            </Pressable>
+
+            {orderedAgents.map(({ agent, status }) => {
+              const dotColor =
+                status === "Needs you"
+                  ? theme.orange
+                  : status === "Working"
+                    ? theme.blue
+                    : status === "Queued"
+                      ? theme.brass
+                      : theme.green;
+              const shortModel = (agent.model || "")
+                .replace(/^Claude /i, "")
+                .replace(/^claude-/i, "")
+                .slice(0, 14);
+              return (
+                <Pressable
+                  key={agent.id}
+                  onPress={() => {
+                    haptics.light();
+                    onOpenAgent(agent);
+                  }}
+                  style={({ pressed }) => [
+                    styles.agentShortcut,
+                    { transform: [{ scale: pressed ? 0.94 : 1 }] },
+                  ]}
+                >
+                  <Text
+                    style={[styles.shortcutModel, { color: theme.muted }]}
+                    numberOfLines={1}
+                  >
+                    {shortModel || " "}
+                  </Text>
+                  <View
+                    style={[
+                      styles.agentPortraitRing,
+                      {
+                        borderColor:
+                          status === "Working"
+                            ? theme.blue
+                            : status === "Needs you"
+                              ? theme.orange
+                              : theme.line,
+                      },
+                    ]}
+                  >
+                    <AgentAvatar name={agent.name} size={52} />
+                    <View
+                      style={[
+                        styles.agentPortraitDot,
+                        {
+                          backgroundColor: dotColor,
+                          borderColor: theme.bg,
+                        },
+                      ]}
+                    />
+                  </View>
+                  <Text
+                    style={[styles.shortcutName, { color: theme.text }]}
+                    numberOfLines={1}
+                  >
+                    @{agent.name}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.shortcutStatus,
+                      {
+                        color: status === "Ready" ? theme.muted : dotColor,
+                      },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {status}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
+
         {/* Actionable Needs You Stack (only shown when approvals or decisions wait) */}
         {needsTotal > 0 && (
           <View style={styles.needsSection}>
@@ -469,6 +645,10 @@ export function FeedScreen({
                 haptics.medium();
                 onOpenStack(entry.top.conversationId, entry.cards);
               }}
+              onOpenAgent={() => {
+                haptics.light();
+                onOpenAgentByName(entry.top.agentId, entry.top.agentName);
+              }}
               onSwipeDone={() => onSwipeDone(entry.top)}
               onSwipeSave={() => onSwipeSave(entry.top)}
             />
@@ -484,6 +664,7 @@ function SwipeableStackCard({
   theme,
   interactive,
   onOpen,
+  onOpenAgent,
   onSwipeDone,
   onSwipeSave,
 }: {
@@ -491,6 +672,7 @@ function SwipeableStackCard({
   theme: LoopTheme;
   interactive: boolean;
   onOpen: () => void;
+  onOpenAgent: () => void;
   onSwipeDone: () => void;
   onSwipeSave: () => void;
 }) {
@@ -704,7 +886,14 @@ function SwipeableStackCard({
             ]}
           >
             <View style={styles.cardMetaRow}>
-              <View style={styles.cardAgentGroup}>
+              <Pressable
+                onPress={(e) => {
+                  e.stopPropagation();
+                  onOpenAgent();
+                }}
+                hitSlop={6}
+                style={styles.cardAgentGroup}
+              >
                 <AgentAvatar name={item.agentName} size={26} />
                 <Text style={[styles.cardAgentName, { color: theme.text }]}>
                   @{item.agentName}
@@ -716,7 +905,7 @@ function SwipeableStackCard({
                 >
                   {item.projectName}
                 </Text>
-              </View>
+              </Pressable>
               <Text style={[styles.cardTime, { color: theme.muted }]}>
                 {relativeTime(item.createdAt)}
               </Text>
@@ -919,6 +1108,68 @@ const styles = StyleSheet.create({
   listContent: {
     padding: 16,
     gap: 14,
+  },
+  agentsStripSection: {
+    gap: 8,
+    marginHorizontal: -16,
+    marginBottom: 2,
+  },
+  agentsStripTitle: {
+    fontSize: 10.5,
+    fontWeight: "800",
+    letterSpacing: 0.7,
+    paddingHorizontal: 16,
+  },
+  agentsStripRow: {
+    paddingHorizontal: 16,
+    gap: 14,
+  },
+  agentShortcut: {
+    width: 72,
+    alignItems: "center",
+    gap: 3,
+  },
+  shortcutModel: {
+    fontSize: 9.5,
+    fontWeight: "600",
+    height: 13,
+    textAlign: "center",
+  },
+  newAgentPortrait: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    borderWidth: 1.5,
+    borderStyle: "dashed",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 2,
+  },
+  agentPortraitRing: {
+    padding: 2,
+    borderRadius: 30,
+    borderWidth: 1.5,
+    position: "relative",
+    marginBottom: 2,
+  },
+  agentPortraitDot: {
+    position: "absolute",
+    right: 0,
+    bottom: 0,
+    width: 13,
+    height: 13,
+    borderRadius: 6.5,
+    borderWidth: 2.5,
+  },
+  shortcutName: {
+    fontSize: 12.5,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  shortcutStatus: {
+    fontSize: 10.5,
+    fontWeight: "600",
+    textAlign: "center",
   },
   needsSection: {
     gap: 8,

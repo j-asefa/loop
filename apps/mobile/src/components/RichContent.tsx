@@ -7,10 +7,18 @@ import {
   Text,
   View,
 } from "react-native";
-import Svg, { Circle, Line, Path, Polyline, Rect } from "react-native-svg";
+import Svg, {
+  Circle,
+  Line,
+  Path,
+  Polyline,
+  Rect,
+  SvgXml,
+} from "react-native-svg";
 import { CornerDownRight, ExternalLink } from "lucide-react-native";
+import { getAgentArt } from "../agentArt";
 import { haptics } from "../haptics";
-import { avatarColors, type LoopTheme } from "../theme";
+import type { LoopTheme } from "../theme";
 
 export function AgentAvatar({
   name,
@@ -19,9 +27,7 @@ export function AgentAvatar({
   name: string;
   size?: number;
 }) {
-  const clean = name.replace(/^@/, "");
-  const initial = (clean[0] ?? "A").toUpperCase();
-  const colors = avatarColors(clean);
+  const art = useMemo(() => getAgentArt(name), [name]);
   return (
     <View
       style={[
@@ -30,18 +36,34 @@ export function AgentAvatar({
           width: size,
           height: size,
           borderRadius: size / 2,
-          backgroundColor: colors.bg,
+          backgroundColor: art.palette.bg,
+          overflow: "hidden",
         },
       ]}
     >
-      <Text
-        style={[
-          styles.avatarText,
-          { color: colors.fg, fontSize: Math.round(size * 0.45) },
-        ]}
-      >
-        {initial}
-      </Text>
+      <SvgXml xml={art.avatarSvg} width={size} height={size} />
+    </View>
+  );
+}
+
+export function ProfileCoverBanner({
+  name,
+  height = 128,
+}: {
+  name: string;
+  height?: number;
+}) {
+  const art = useMemo(() => getAgentArt(name), [name]);
+  return (
+    <View
+      style={{
+        width: "100%",
+        height,
+        backgroundColor: art.palette.bg,
+        overflow: "hidden",
+      }}
+    >
+      <SvgXml xml={art.coverSvg} width="100%" height={height} />
     </View>
   );
 }

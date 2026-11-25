@@ -30,6 +30,7 @@ export function ProjectsScreen({
   localCards,
   theme,
   onOpenConversation,
+  onOpenAgent,
   onNewTaskInProject,
 }: {
   client: LoopClient | null;
@@ -43,6 +44,7 @@ export function ProjectsScreen({
     agentName: string;
     agentId?: string | null;
   }) => void;
+  onOpenAgent: (agent: ApiAgent) => void;
   onNewTaskInProject: (folderId: string) => void;
 }) {
   const insets = useSafeAreaInsets();
@@ -224,8 +226,12 @@ export function ProjectsScreen({
                 contentContainerStyle={{ gap: 8 }}
               >
                 {projectAgents.map((a) => (
-                  <View
+                  <Pressable
                     key={a.id}
+                    onPress={() => {
+                      haptics.light();
+                      onOpenAgent(a);
+                    }}
                     style={[
                       styles.agentChip,
                       {
@@ -238,7 +244,7 @@ export function ProjectsScreen({
                     <Text style={[styles.agentChipName, { color: theme.text }]}>
                       @{a.name}
                     </Text>
-                  </View>
+                  </Pressable>
                 ))}
               </ScrollView>
             </View>
