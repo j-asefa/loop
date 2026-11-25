@@ -1535,6 +1535,8 @@ button:not(:disabled):active,
 .inline-reply {
   display: grid;
   gap: 8px;
+  /* Opening scrolls the box above the bottom bar and the compose button. */
+  scroll-margin-bottom: calc(140px + env(safe-area-inset-bottom));
   margin-top: 10px;
   padding-top: 10px;
   border-top: 1px solid var(--line);

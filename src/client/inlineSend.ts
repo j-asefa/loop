@@ -2,7 +2,6 @@ import {
   AgentId,
   ConversationId,
   IdempotencyKey,
-  MessageId,
 } from "../shared/contract-ids.js";
 import { workspaceApi } from "../shared/workspace-api";
 import { callRoute } from "./api";
@@ -15,13 +14,15 @@ import {
   type PreparedSend,
 } from "./sendReceiptStore";
 
-/** A reply typed on a feed card, to the card's agent in its thread. */
+/**
+ * A reply typed on a feed card, to the card's agent in its thread. Like the
+ * composer's reply to the agent's latest message, it quotes nothing, so the
+ * same text sent later from the thread's composer has the same signature.
+ */
 export type InlineReply = {
   source: string;
   conversation: string;
   agentId: string;
-  /** The card's answer, quoted as the composer quotes it. */
-  replyToMessageId?: string;
   text: string;
 };
 
@@ -62,7 +63,6 @@ export async function sendInlineReply(
     agentId: reply.agentId,
     text: reply.text,
     conversationId: reply.conversation,
-    replyToMessageId: reply.replyToMessageId,
     attachmentIds: [],
   });
   let sent: SendReceipt | undefined;
@@ -82,10 +82,6 @@ export async function sendInlineReply(
         body: {
           agentId: AgentId.parse(reply.agentId),
           conversationId: ConversationId.parse(reply.conversation),
-          replyToMessageId:
-            plan.receipt.unquoted || !reply.replyToMessageId
-              ? undefined
-              : MessageId.parse(reply.replyToMessageId),
           input: reply.text,
           idempotencyKey: IdempotencyKey.parse(plan.receipt.key),
           attachmentIds: [],

@@ -1002,6 +1002,24 @@ export async function responsivenessSmoke(page, fixture, engine) {
             doneCard.getByRole("button", { name: "Send reply" }).click(),
           );
 
+      // Closing the box keeps unsent text as the thread's draft.
+      await replyBox.fill("Draft kept from the card");
+      await doneCard.getByRole("button", { name: "Close reply" }).click();
+      const keptDraft = page.locator(".feed-results .feed-draft", {
+        hasText: "Draft kept from the card",
+      });
+      await expect(keptDraft).toHaveCount(1);
+      await page.evaluate(() => {
+        for (const key of Object.keys(localStorage))
+          if (key.startsWith("loop-draft-text:")) localStorage.removeItem(key);
+      });
+      await page.reload({ waitUntil: "networkidle" });
+      await page.getByRole("tab", { name: /^Done/ }).click();
+      await doneCard
+        .getByRole("button", { name: "Reply", exact: true })
+        .click();
+      await expect(replyBox).toBeFocused();
+
       // Refused: nothing was accepted, so the text returns to the box.
       const refusedText = "Please also check the changelog";
       const refuseSubmit = async (route) => {
@@ -1104,6 +1122,7 @@ export async function responsivenessSmoke(page, fixture, engine) {
       if (echoMs == null) throw new Error("The sending echo never showed");
       report.inlineReply = {
         echoMs: Math.round(echoMs),
+        closeKeptDraft: true,
         refusedKeptText: true,
         uncertainSentOnce: true,
         retrySameKey: true,

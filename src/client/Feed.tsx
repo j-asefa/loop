@@ -405,19 +405,17 @@ function FeedCard({
   const takeaway = cardTakeaway(item, readAsCard);
   const fetchSource = item.sourceId ?? scopedSource;
   // Reply on the card itself (B2): a Done result or reply from an agent,
-  // with no draft or group that needs the full composer. The answer is
-  // quoted exactly when the composer would quote it.
+  // with no draft or group that needs the full composer, on a source that
+  // accepts sends.
   const inlineTarget =
     canInlineReply &&
     !draft &&
     !groupCount &&
     item.agent_id &&
     (item.done_card_key || item.reply_card_key) &&
-    !item.origin.endsWith("-import")
-      ? {
-          agentId: item.agent_id,
-          replyToMessageId: feedReplyQuote(item)?.messageId,
-        }
+    !item.origin.endsWith("-import") &&
+    !operationBlockReason(fetchSource, capabilities, workspaceApi.submit)
+      ? { agentId: item.agent_id }
       : null;
   const fetchKey = messageId ? `${fetchSource ?? ""}:${messageId}` : "";
   const canLoadFull =
@@ -850,7 +848,7 @@ function FeedCard({
             reply={{
               source: fetchSource,
               conversation: item.conversation_id,
-              ...inlineTarget,
+              agentId: inlineTarget.agentId,
             }}
             agentName={name ?? undefined}
             onOpenThread={() => {
