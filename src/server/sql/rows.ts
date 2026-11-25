@@ -7,6 +7,13 @@ import { MessageRole } from "../../shared/message-roles.js";
 import { AgentOrigin, ConversationOrigin } from "../../shared/origins.js";
 import { ConnectionStatus } from "../../shared/connection-status.js";
 import { RunKind } from "../../shared/run-state.js";
+import {
+  VmHarness,
+  VmOperationKind,
+  VmOperationState,
+  VmProviderKind,
+  VmState,
+} from "../../shared/vm-state.js";
 
 // Scalar SQLite storage shapes. JSON columns remain serialized at this boundary.
 export const RowId = z.string().min(1);
@@ -1400,6 +1407,63 @@ export const QueryRecords = {
     token_id: z.string(),
     owner_id: z.string(),
     card_id: z.string(),
+  }),
+  vm_provider_configs: z.object({
+    owner_id: z.string(),
+    provider: VmProviderKind,
+    encrypted_api_key: z.string(),
+    app_id: z.string().nullable(),
+    auth_volume_id: z.string().nullable(),
+    base_image_ref: z.string().nullable(),
+    base_image_version: z.string().nullable(),
+    default_harness: VmHarness.nullable(),
+    updated_at: z.number(),
+  }),
+  experiment_vms: z.object({
+    id: z.string(),
+    owner_id: z.string(),
+    folder_id: z.string(),
+    provider: VmProviderKind,
+    remote_id: z.string().nullable(),
+    remote_name: z.string(),
+    state: VmState,
+    auto_approve_local: z.number().int(),
+    vcpu_limit: z.number().int(),
+    memory_limit_gib: z.number().int(),
+    disk_limit_gib: z.number().int(),
+    auto_sleep_seconds: z.number().int(),
+    source_experiment_id: z.string().nullable(),
+    source_checkpoint_id: z.string().nullable(),
+    clone_url: z.string().nullable(),
+    last_error: z.string().nullable(),
+    last_active_at: z.number(),
+    created_at: z.number(),
+    destroyed_at: z.number().nullable(),
+  }),
+  experiment_previews: z.object({
+    id: z.string(),
+    owner_id: z.string(),
+    experiment_id: z.string(),
+    port: z.number().int(),
+    label: z.string().nullable(),
+    path: z.string(),
+    url: z.string(),
+    active: z.number().int(),
+    created_at: z.number(),
+    updated_at: z.number(),
+  }),
+  vm_operations: z.object({
+    id: z.string(),
+    owner_id: z.string(),
+    experiment_id: z.string(),
+    kind: VmOperationKind,
+    state: VmOperationState,
+    request_digest: z.string(),
+    request_json: z.string(),
+    result_json: z.string().nullable(),
+    error_message: z.string().nullable(),
+    created_at: z.number(),
+    updated_at: z.number(),
   }),
 } as const;
 export type QueryRow<T extends keyof typeof QueryRecords> = z.infer<
