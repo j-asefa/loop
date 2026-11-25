@@ -1065,6 +1065,52 @@ export async function responsivenessSmoke(page, fixture, engine) {
         await page.unroute("**/api/runs", dropSubmit);
       }
 
+      // The unconfirmed text, opened in the thread's composer, is sent with
+      // the same key: the card and the composer agree on its signature.
+      await doneCard.getByRole("button", { name: "Open full thread" }).click();
+      const composer = page.locator("#composer");
+      await expect(composer).toHaveValue(uncertainText);
+      const composerKeys = [];
+      const dropComposer = async (route) => {
+        if (!isSubmit(route.request())) return route.fallback();
+        composerKeys.push(route.request().postDataJSON().idempotencyKey);
+        await route.abort("failed");
+      };
+      await page.route("**/api/runs", dropComposer);
+      try {
+        await page.getByRole("button", { name: "Send reply" }).click();
+        await expect.poll(() => composerKeys.length).toBe(1);
+      } finally {
+        await page.unroute("**/api/runs", dropComposer);
+      }
+      if (composerKeys[0] !== keys[0])
+        throw new Error(
+          "The composer sent the card's unconfirmed reply with a new key",
+        );
+      // Back on the feed with no draft, the card's same text is still
+      // unconfirmed: sending it again repeats the key, and then Retry does.
+      // Leave the thread first: its composer saves its draft as it goes.
+      await page.goto(fixture.base, { waitUntil: "networkidle" });
+      await page.evaluate(() => {
+        for (const key of Object.keys(localStorage))
+          if (key.startsWith("loop-draft-text:")) localStorage.removeItem(key);
+      });
+      await page.reload({ waitUntil: "networkidle" });
+      await page.getByRole("tab", { name: /^Done/ }).click();
+      await doneCard
+        .getByRole("button", { name: "Reply", exact: true })
+        .click();
+      await expect(replyBox).toBeFocused();
+      await page.route("**/api/runs", dropSubmit);
+      try {
+        await sendBox(uncertainText);
+        await expect(echo).toHaveAttribute("data-state", "uncertain");
+      } finally {
+        await page.unroute("**/api/runs", dropSubmit);
+      }
+      if (keys.length !== 2 || keys[1] !== keys[0])
+        throw new Error("Sending the unconfirmed text again used a new key");
+
       // Retry, held so the echo is seen before Loop answers.
       const retryKeys = [];
       const holdSubmit = async (route) => {
@@ -1123,6 +1169,7 @@ export async function responsivenessSmoke(page, fixture, engine) {
       report.inlineReply = {
         echoMs: Math.round(echoMs),
         closeKeptDraft: true,
+        composerSameKey: true,
         refusedKeptText: true,
         uncertainSentOnce: true,
         retrySameKey: true,

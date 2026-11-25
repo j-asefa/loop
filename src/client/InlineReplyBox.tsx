@@ -215,19 +215,20 @@ export function InlineReplyBox({
           to change it.
         </p>
       )}
-      <div className="inline-reply-links">
-        <button
-          type="button"
-          className="text-button"
-          onClick={() => {
-            // The composer opens with what was typed here.
-            keepUnaccepted();
-            onOpenThread();
-          }}
-        >
-          Open full thread <ArrowUpRight size={14} aria-hidden="true" />
-        </button>
-        {echo?.state !== "sending" && (
+      {/* While sending, nothing here may leave or drop the reply. */}
+      {echo?.state !== "sending" && (
+        <div className="inline-reply-links">
+          <button
+            type="button"
+            className="text-button"
+            onClick={() => {
+              // The composer opens with what was typed here.
+              keepUnaccepted();
+              onOpenThread();
+            }}
+          >
+            Open full thread <ArrowUpRight size={14} aria-hidden="true" />
+          </button>
           <button
             type="button"
             className="text-button"
@@ -236,8 +237,8 @@ export function InlineReplyBox({
           >
             <X size={14} aria-hidden="true" />
           </button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

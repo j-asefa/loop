@@ -407,9 +407,11 @@ function FeedCard({
   // Reply on the card itself (B2): a Done result or reply from an agent,
   // with no draft or group that needs the full composer, on a source that
   // accepts sends.
+  // An open box stays open if a draft appears (another tab), so its text
+  // is not merged into that draft.
   const inlineTarget =
     canInlineReply &&
-    !draft &&
+    (!draft || inlineReplyOpen) &&
     !groupCount &&
     item.agent_id &&
     (item.done_card_key || item.reply_card_key) &&
@@ -853,7 +855,14 @@ function FeedCard({
             agentName={name ?? undefined}
             onOpenThread={() => {
               setInlineReplyOpen(false);
-              onReply();
+              // As "Continue draft" opens it: the composer quotes nothing,
+              // so text kept from this box keeps the card's signature and a
+              // pending send repeats its key.
+              onNext({
+                kind: "draft",
+                label: "Continue draft",
+                message_id: null,
+              });
             }}
             onClose={() => setInlineReplyOpen(false)}
           />
