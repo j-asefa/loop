@@ -125,6 +125,23 @@ export type ApiFeedPage = {
   summary: ApiFeedSummary;
 };
 
+export type ApiDoneCardEntry = {
+  card: {
+    type: "done";
+    id: string;
+    content: string;
+    created_at: number;
+    saved: boolean;
+    display: ApiFeedItem;
+  };
+};
+
+export type ApiDoneCardPage = {
+  revision: string;
+  items: ApiDoneCardEntry[];
+  next: string | null;
+};
+
 export type ApiMessage = {
   id: string;
   conversation_id: string;

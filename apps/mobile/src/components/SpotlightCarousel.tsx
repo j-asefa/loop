@@ -40,6 +40,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Clock,
   CornerUpLeft,
   Paperclip,
   Search,
@@ -56,6 +57,7 @@ import {
 } from "../../../../src/shared/done-stack";
 import type { LoopClient } from "../api/client";
 import type { ApiSnippet } from "../api/types";
+import type { AgentRunSummary } from "./AgentProfileSheet";
 import {
   QUICK_REPLIES,
   relativeTime,
@@ -75,10 +77,12 @@ const DISMISS_THRESHOLD = 100;
 
 type SpotlightCarouselProps = {
   cards: NativeResultCard[];
+  queuedRuns?: AgentRunSummary[];
   client?: LoopClient | null;
   snippets?: ApiSnippet[];
   theme: LoopTheme;
   onClose: () => void;
+  onCancelQueuedRun?: (runId: string) => void;
   onOpenAgent?: (agentId: string | null | undefined, agentName: string) => void;
   onOpenThread?: (card: NativeResultCard) => void;
   onMarkRead: (card: NativeResultCard) => void;
@@ -94,10 +98,12 @@ type SpotlightCarouselProps = {
 
 export function SpotlightCarousel({
   cards,
+  queuedRuns = [],
   client,
   snippets = [],
   theme,
   onClose,
+  onCancelQueuedRun,
   onOpenAgent,
   onOpenThread,
   onMarkRead,
@@ -226,6 +232,7 @@ export function SpotlightCarousel({
   const [searchQuery, setSearchQuery] = useState("");
   const [committedQuery, setCommittedQuery] = useState("");
   const [quickReplyOpen, setQuickReplyOpen] = useState(false);
+  const [queuedSheetOpen, setQueuedSheetOpen] = useState(false);
 
   // Detached floating Reply composer + long-press card action sheet
   const [actionSheetCard, setActionSheetCard] =
@@ -746,6 +753,34 @@ export function SpotlightCarousel({
             </View>
           )}
 
+          {!searchOpen && queuedRuns.length > 0 && (
+            <View style={styles.statusBannerWrap}>
+              <Pressable
+                onPress={() => {
+                  haptics.light();
+                  setQueuedSheetOpen(true);
+                }}
+                style={({ pressed }) => [
+                  styles.statusBannerPill,
+                  {
+                    backgroundColor: theme.attention,
+                    borderColor: theme.attentionLine,
+                    opacity: pressed ? 0.85 : 1,
+                  },
+                ]}
+              >
+                <Clock size={13} color={theme.brassText} />
+                <Text
+                  style={[styles.statusBannerText, { color: theme.brassText }]}
+                >
+                  {queuedRuns.length}{" "}
+                  {queuedRuns.length === 1 ? "message" : "messages"} queued for
+                  @{agentName}
+                </Text>
+              </Pressable>
+            </View>
+          )}
+
           {/* Persistent tiny Prev / Next match chip after Enter or hit selection */}
           {!searchOpen && committedQuery.length > 0 && (
             <View style={styles.matchPillWrap}>
@@ -1116,6 +1151,116 @@ export function SpotlightCarousel({
         onTakePhoto={() => void replyAttachments.takePhoto()}
         onPickFile={() => void replyAttachments.pickDocument()}
       />
+
+      {/* Queued Messages Sheet for this agent */}
+      <Modal
+        visible={queuedSheetOpen && queuedRuns.length > 0}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setQueuedSheetOpen(false)}
+      >
+        <Pressable
+          style={[
+            styles.actionModalBackdrop,
+            { backgroundColor: "rgba(0,0,0,0.48)" },
+          ]}
+          onPress={() => setQueuedSheetOpen(false)}
+        >
+          <Pressable
+            onPress={() => {}}
+            style={[
+              styles.quickSheet,
+              {
+                backgroundColor: theme.surface,
+                borderColor: theme.line,
+                paddingBottom: Math.max(insets.bottom + 14, 22),
+              },
+            ]}
+          >
+            <View style={styles.quickSheetHead}>
+              <View style={styles.actionHeadMeta}>
+                <Text style={[styles.quickSheetTitle, { color: theme.text }]}>
+                  Queued for @{agentName}
+                </Text>
+                <Text style={[styles.actionHeadSub, { color: theme.muted }]}>
+                  {queuedRuns.length}{" "}
+                  {queuedRuns.length === 1 ? "message" : "messages"} waiting to
+                  run
+                </Text>
+              </View>
+              <Pressable
+                hitSlop={8}
+                onPress={() => {
+                  haptics.light();
+                  setQueuedSheetOpen(false);
+                }}
+              >
+                <X size={18} color={theme.muted} />
+              </Pressable>
+            </View>
+            <ScrollView style={{ maxHeight: 320 }}>
+              <View style={{ gap: 8 }}>
+                {queuedRuns.map((run, idx) => (
+                  <View
+                    key={run.id}
+                    style={[
+                      styles.quickOption,
+                      {
+                        backgroundColor: theme.soft,
+                        borderColor: theme.line,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.hitIndex,
+                        { color: theme.brassText, marginTop: 1 },
+                      ]}
+                    >
+                      #{idx + 1}
+                    </Text>
+                    <View style={styles.quickOptionText}>
+                      <Text
+                        style={[styles.quickOptionLabel, { color: theme.text }]}
+                        numberOfLines={3}
+                      >
+                        {run.input || "Queued task"}
+                      </Text>
+                      <Text
+                        style={[styles.quickOptionHint, { color: theme.muted }]}
+                      >
+                        Queued {relativeTime(run.created_at)}
+                      </Text>
+                    </View>
+                    {onCancelQueuedRun && (
+                      <Pressable
+                        accessibilityLabel="Cancel queued message"
+                        hitSlop={8}
+                        onPress={() => {
+                          haptics.warning();
+                          onCancelQueuedRun(run.id);
+                          if (queuedRuns.length <= 1) {
+                            setQueuedSheetOpen(false);
+                          }
+                        }}
+                        style={[
+                          styles.controlsCollapseBtn,
+                          {
+                            backgroundColor: theme.raised,
+                            borderColor: theme.line,
+                          },
+                        ]}
+                      >
+                        <X size={14} color={theme.muted} />
+                      </Pressable>
+                    )}
+                  </View>
+                ))}
+              </View>
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {/* Long-press Card Actions Sheet (Save, Remind, Reply, Mark Done, Open Thread) */}
       <Modal

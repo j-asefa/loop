@@ -33,14 +33,9 @@ import {
   type StackedCardEntry,
 } from "../../../../src/shared/done-stack";
 import type { SocketStatus } from "../api/socket";
-import type {
-  ApiAgent,
-  ApiApproval,
-  ApiFeedSummary,
-  ApiNativeDecision,
-} from "../api/types";
+import type { ApiAgent, ApiApproval, ApiNativeDecision } from "../api/types";
 import type { AgentRunSummary } from "./AgentProfileSheet";
-import { relativeTime, type FeedTab, type NativeResultCard } from "../fixtures";
+import { relativeTime, type NativeResultCard } from "../fixtures";
 import { haptics } from "../haptics";
 import type { LoopTheme } from "../theme";
 import {
@@ -49,20 +44,12 @@ import {
   InlineFormattedText,
 } from "./RichContent";
 
-const TABS: Array<{ id: FeedTab; label: string }> = [
-  { id: "done", label: "Done" },
-  { id: "queued", label: "Queued" },
-  { id: "replies", label: "Replies" },
-];
-
 const SWIPE_THRESHOLD = 82;
 
 type FeedScreenProps = {
   cards: NativeResultCard[];
   agents: ApiAgent[];
   activeRuns: AgentRunSummary[];
-  activeTab: FeedTab;
-  summary?: ApiFeedSummary | null;
   approvals: ApiApproval[];
   decisions: ApiNativeDecision[];
   isLive: boolean;
@@ -72,7 +59,6 @@ type FeedScreenProps = {
   theme: LoopTheme;
   scrollRef?: React.RefObject<React.ComponentRef<typeof ScrollView> | null>;
   onRefresh: () => void;
-  onSelectTab: (tab: FeedTab) => void;
   onOpenPairing: () => void;
   onOpenAgent: (agent: ApiAgent, workingRun?: AgentRunSummary) => void;
   onOpenAgentByName: (
@@ -99,8 +85,6 @@ export function FeedScreen({
   cards,
   agents,
   activeRuns,
-  activeTab,
-  summary,
   approvals,
   decisions,
   isLive,
@@ -110,7 +94,6 @@ export function FeedScreen({
   theme,
   scrollRef,
   onRefresh,
-  onSelectTab,
   onOpenPairing,
   onOpenAgent,
   onOpenAgentByName,
@@ -123,46 +106,11 @@ export function FeedScreen({
 }: FeedScreenProps) {
   const insets = useSafeAreaInsets();
 
-  const tabCounts = useMemo(() => {
-    if (isLive && summary) {
-      return {
-        done: summary.done_unread ?? 0,
-        working: summary.working ?? 0,
-        queued: summary.queued ?? 0,
-        replies: summary.replies_unread ?? 0,
-      };
-    }
-    const counts: Record<FeedTab, number> = {
-      done: 0,
-      working: 0,
-      queued: 0,
-      replies: 0,
-    };
-    const doneConvs = new Set<string>();
-    for (const c of cards) {
-      if (c.tab === "done") {
-        if (!doneConvs.has(c.conversationId)) {
-          doneConvs.add(c.conversationId);
-          counts.done += 1;
-        }
-      } else {
-        counts[c.tab] += 1;
-      }
-    }
-    return counts;
-  }, [cards, isLive, summary]);
-
+  // Unified Feed: Done results + Replies stacked by conversation, newest first
   const stacks = useMemo<StackedCardEntry<NativeResultCard>[]>(() => {
-    const visible = cards.filter((c) => c.tab === activeTab);
-    if (activeTab !== "done") {
-      return visible.map((item) => ({
-        key: item.id,
-        top: item,
-        cards: [item],
-        unreadCount: item.unread ? 1 : 0,
-        isManualGroup: false,
-      }));
-    }
+    const visible = cards
+      .filter((c) => c.tab === "done" || c.tab === "replies")
+      .sort((a, b) => b.createdAt - a.createdAt);
     return stackDoneCards(
       visible.map((item) => ({
         key: item.id,
@@ -172,7 +120,7 @@ export function FeedScreen({
         unread: item.unread,
       })),
     );
-  }, [cards, activeTab]);
+  }, [cards]);
 
   const pendingApprovals = useMemo(
     () => approvals.filter((a) => a.state === "pending"),
@@ -197,16 +145,18 @@ export function FeedScreen({
             if (aConv !== bConv) return bConv - aConv;
             return b.created_at - a.created_at;
           });
+        const queuedRuns = myRuns.filter((r) => r.state === "queued");
         const workingRun = workingRuns[0];
         const workingAt = workingRun ? workingRun.created_at : null;
+        const queuedCount = queuedRuns.length;
         const status = myRuns.some((r) => NEEDS_STATES.has(r.state))
           ? ("Needs you" as const)
           : workingAt !== null
             ? ("Working" as const)
-            : myRuns.some((r) => r.state === "queued")
+            : queuedCount > 0
               ? ("Queued" as const)
               : ("Ready" as const);
-        return { agent, index, workingAt, workingRun, status };
+        return { agent, index, workingAt, workingRun, queuedCount, status };
       })
       .sort((a, b) => {
         if (a.workingAt !== null && b.workingAt !== null) {
@@ -214,6 +164,8 @@ export function FeedScreen({
         }
         if (a.workingAt !== null) return -1;
         if (b.workingAt !== null) return 1;
+        if (a.queuedCount !== b.queuedCount)
+          return b.queuedCount - a.queuedCount;
         return a.index - b.index;
       });
   }, [agents, activeRuns]);
@@ -288,62 +240,6 @@ export function FeedScreen({
             )}
           </Pressable>
         </View>
-
-        {/* Merged 4-Tab Bar (Threads merged into Done) */}
-        <View style={styles.tabRow}>
-          {TABS.map((tab) => {
-            const active = tab.id === activeTab;
-            const count = tabCounts[tab.id];
-            return (
-              <Pressable
-                key={tab.id}
-                onPress={() => {
-                  if (!active) haptics.selection();
-                  onSelectTab(tab.id);
-                }}
-                style={[
-                  styles.tabChip,
-                  active && {
-                    backgroundColor: theme.attention,
-                    borderColor: theme.attentionLine,
-                  },
-                  !active && {
-                    backgroundColor: "transparent",
-                    borderColor: "transparent",
-                  },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.tabLabel,
-                    { color: active ? theme.brassText : theme.muted },
-                  ]}
-                >
-                  {tab.label}
-                </Text>
-                {count > 0 && (
-                  <View
-                    style={[
-                      styles.tabBadge,
-                      {
-                        backgroundColor: active ? theme.brass : theme.raised,
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.tabBadgeText,
-                        { color: active ? theme.onBrass : theme.muted },
-                      ]}
-                    >
-                      {count > 9 ? "9+" : count}
-                    </Text>
-                  </View>
-                )}
-              </Pressable>
-            );
-          })}
-        </View>
       </View>
 
       {/* Feed List */}
@@ -406,7 +302,7 @@ export function FeedScreen({
               </Text>
             </Pressable>
 
-            {orderedAgents.map(({ agent, status, workingRun }) => {
+            {orderedAgents.map(({ agent, status, workingRun, queuedCount }) => {
               const dotColor =
                 status === "Needs you"
                   ? theme.orange
@@ -419,6 +315,12 @@ export function FeedScreen({
                 .replace(/^Claude /i, "")
                 .replace(/^claude-/i, "")
                 .slice(0, 14);
+              const statusCaption =
+                status === "Working" && queuedCount > 0
+                  ? `Working · ${queuedCount}q`
+                  : status === "Queued"
+                    ? `${queuedCount} queued`
+                    : status;
               return (
                 <Pressable
                   key={agent.id}
@@ -451,11 +353,33 @@ export function FeedScreen({
                             ? theme.blue
                             : status === "Needs you"
                               ? theme.orange
-                              : theme.line,
+                              : queuedCount > 0
+                                ? theme.brass
+                                : theme.line,
                       },
                     ]}
                   >
                     <AgentAvatar name={agent.name} size={52} />
+                    {queuedCount > 0 && (
+                      <View
+                        style={[
+                          styles.agentQueuedBadge,
+                          {
+                            backgroundColor: theme.brass,
+                            borderColor: theme.bg,
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.agentQueuedBadgeText,
+                            { color: theme.onBrass },
+                          ]}
+                        >
+                          +{queuedCount > 9 ? "9" : queuedCount}
+                        </Text>
+                      </View>
+                    )}
                     <View
                       style={[
                         styles.agentPortraitDot,
@@ -481,7 +405,7 @@ export function FeedScreen({
                     ]}
                     numberOfLines={1}
                   >
-                    {status}
+                    {statusCaption}
                   </Text>
                 </Pressable>
               );
@@ -623,7 +547,7 @@ export function FeedScreen({
           </View>
         )}
 
-        {activeTab === "done" && stacks.length > 0 && !isLive && (
+        {stacks.length > 0 && !isLive && (
           <Text style={[styles.gestureHint, { color: theme.muted }]}>
             Tap a stack for carousel · Swipe right for Done · Swipe left to Save
           </Text>
@@ -637,7 +561,7 @@ export function FeedScreen({
             ]}
           >
             <Text style={[styles.emptyTitle, { color: theme.text }]}>
-              All clear in {TABS.find((t) => t.id === activeTab)?.label}
+              All clear
             </Text>
             <Text style={[styles.emptyBody, { color: theme.muted }]}>
               {isLive
@@ -651,7 +575,7 @@ export function FeedScreen({
               key={entry.key}
               entry={entry}
               theme={theme}
-              interactive={activeTab === "done" || activeTab === "replies"}
+              interactive
               onOpen={() => {
                 haptics.medium();
                 onOpenStack(entry.top.conversationId, entry.cards);
@@ -917,9 +841,36 @@ function SwipeableStackCard({
                   {item.projectName}
                 </Text>
               </Pressable>
-              <Text style={[styles.cardTime, { color: theme.muted }]}>
-                {relativeTime(item.createdAt)}
-              </Text>
+              <View style={styles.cardMetaRight}>
+                {entry.unreadCount > 0 && (
+                  <View
+                    style={[
+                      styles.unreadBadgeTop,
+                      {
+                        backgroundColor: theme.attention,
+                        borderColor: theme.brass,
+                      },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.unreadDot,
+                        { backgroundColor: theme.brass },
+                      ]}
+                    />
+                    <Text
+                      style={[styles.unreadText, { color: theme.brassText }]}
+                    >
+                      {entry.unreadCount === 1
+                        ? "Unread"
+                        : `${entry.unreadCount} unread`}
+                    </Text>
+                  </View>
+                )}
+                <Text style={[styles.cardTime, { color: theme.muted }]}>
+                  {relativeTime(item.createdAt)}
+                </Text>
+              </View>
             </View>
 
             <InlineFormattedText
@@ -953,26 +904,6 @@ function SwipeableStackCard({
                     style={[styles.stackBadgeText, { color: theme.brassText }]}
                   >
                     {stackCount} cards
-                  </Text>
-                </View>
-              )}
-              {entry.unreadCount > 0 && (
-                <View
-                  style={[
-                    styles.unreadPill,
-                    {
-                      backgroundColor: theme.attention,
-                      borderColor: theme.attentionLine,
-                    },
-                  ]}
-                >
-                  <View
-                    style={[styles.unreadDot, { backgroundColor: theme.brass }]}
-                  />
-                  <Text style={[styles.unreadText, { color: theme.brassText }]}>
-                    {entry.unreadCount === 1
-                      ? "New"
-                      : `${entry.unreadCount} new`}
                   </Text>
                 </View>
               )}
@@ -1165,6 +1096,23 @@ const styles = StyleSheet.create({
     position: "relative",
     marginBottom: 2,
   },
+  agentQueuedBadge: {
+    position: "absolute",
+    top: -4,
+    right: -6,
+    minWidth: 20,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 4,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  agentQueuedBadgeText: {
+    fontSize: 9.5,
+    fontWeight: "800",
+    fontVariant: ["tabular-nums"],
+  },
   agentPortraitDot: {
     position: "absolute",
     right: 0,
@@ -1350,6 +1298,20 @@ const styles = StyleSheet.create({
   cardProject: {
     fontSize: 12.5,
     flexShrink: 1,
+  },
+  cardMetaRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
+  unreadBadgeTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    borderWidth: 1,
   },
   cardTime: {
     fontSize: 12,

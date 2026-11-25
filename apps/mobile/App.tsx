@@ -58,7 +58,6 @@ import {
   buildSimulatedReply,
   createInitialCards,
   feedItemToNativeCard,
-  type FeedTab,
   type NativeResultCard,
 } from "./src/fixtures";
 import { haptics } from "./src/haptics";
@@ -121,7 +120,6 @@ function LoopShell() {
 
   // Navigation
   const [appTab, setAppTab] = useState<AppTab>("feed");
-  const [feedTab, setFeedTab] = useState<FeedTab>("done");
   const feedScrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
   const lastFeedTapRef = useRef(0);
 
@@ -209,16 +207,11 @@ function LoopShell() {
     [session, handleUnauthorized],
   );
 
-  const feedTabRef = useRef<FeedTab>(feedTab);
-  feedTabRef.current = feedTab;
   const loadingInFlightRef = useRef(false);
   const sessionRefreshedRef = useRef(false);
 
   const loadWorkspace = useCallback(
-    async (
-      tabToLoad: FeedTab = feedTabRef.current,
-      options?: { silent?: boolean },
-    ) => {
+    async (options?: { silent?: boolean }) => {
       if (!client) return;
       const silent = options?.silent ?? true;
       if (silent && loadingInFlightRef.current) return;
@@ -229,24 +222,72 @@ function LoopShell() {
           await client.refreshSession().catch(() => {});
           sessionRefreshedRef.current = true;
         }
-        const [boot, feedPage, appList, decList, snipList, runList] =
-          await Promise.all([
-            client.bootstrap(),
-            client.feed(tabToLoad),
-            client.approvals().catch(() => [] as ApiApproval[]),
-            client.nativeDecisions().catch(() => [] as ApiNativeDecision[]),
-            client.snippets().catch(() => [] as ApiSnippet[]),
-            client.runs(true).catch(() => [] as AgentRunSummary[]),
-          ]);
-        // Drop stale response if user already switched feed tabs while loading
-        if (tabToLoad !== feedTabRef.current) return;
+        const [
+          boot,
+          feedPage,
+          doneCardItems,
+          replyPage,
+          appList,
+          decList,
+          snipList,
+          runList,
+        ] = await Promise.all([
+          client.bootstrap(),
+          client.feed("done"),
+          client.doneCards().catch(() => null),
+          client.feed("replies").catch(() => null),
+          client.approvals().catch(() => [] as ApiApproval[]),
+          client.nativeDecisions().catch(() => [] as ApiNativeDecision[]),
+          client.snippets().catch(() => [] as ApiSnippet[]),
+          client.runs(true).catch(() => [] as AgentRunSummary[]),
+        ]);
         setAgents(boot.agents);
         setFolders(boot.folders);
         setEnvironmentName(boot.environmentName || "");
         setSummary(feedPage.summary);
-        setLiveCards(
-          feedPage.items.map((item) => feedItemToNativeCard(item, tabToLoad)),
+
+        // Merge canonical Done cards (with read_at/unread_version) + Replies into one unified feed
+        const doneSource =
+          doneCardItems && doneCardItems.length > 0
+            ? doneCardItems
+            : feedPage.items;
+        const unified = doneSource.map((item) =>
+          feedItemToNativeCard(item, "done"),
         );
+        const byMessageId = new Map<string, number>();
+        unified.forEach((c, idx) => {
+          if (c.messageId) byMessageId.set(c.messageId, idx);
+        });
+
+        for (const replyItem of replyPage?.items ?? []) {
+          const replyCard = feedItemToNativeCard(replyItem, "replies");
+          const asFeedCard: NativeResultCard = {
+            ...replyCard,
+            tab: "done",
+          };
+          const existingIdx =
+            asFeedCard.messageId !== undefined
+              ? byMessageId.get(asFeedCard.messageId)
+              : undefined;
+          if (existingIdx !== undefined) {
+            const existing = unified[existingIdx];
+            unified[existingIdx] = {
+              ...existing,
+              unread: existing.unread || asFeedCard.unread,
+              replyCardKey: asFeedCard.replyCardKey ?? existing.replyCardKey,
+              statusLabel: asFeedCard.statusLabel ?? existing.statusLabel,
+              createdAt: Math.max(existing.createdAt, asFeedCard.createdAt),
+            };
+          } else {
+            if (asFeedCard.messageId) {
+              byMessageId.set(asFeedCard.messageId, unified.length);
+            }
+            unified.push(asFeedCard);
+          }
+        }
+
+        unified.sort((a, b) => b.createdAt - a.createdAt);
+        setLiveCards(unified);
         setApprovals(appList);
         setDecisions(decList);
         setSnippets(snipList);
@@ -266,7 +307,7 @@ function LoopShell() {
   const loadWorkspaceRef = useRef(loadWorkspace);
   loadWorkspaceRef.current = loadWorkspace;
 
-  // Fetch silently on session or tab change (never triggers pull-to-refresh spinner)
+  // Fetch silently on session change (never triggers pull-to-refresh spinner)
   useEffect(() => {
     if (!client) {
       sessionRefreshedRef.current = false;
@@ -279,15 +320,15 @@ function LoopShell() {
       setSocketStatus("offline");
       return;
     }
-    void loadWorkspace(feedTab, { silent: true });
-  }, [client, feedTab, loadWorkspace]);
+    void loadWorkspace({ silent: true });
+  }, [client, loadWorkspace]);
 
-  // Live WebSocket updates when paired — stable across tab switches
+  // Live WebSocket updates when paired
   useEffect(() => {
     if (!session || !client) return;
     const sock = new LoopEventSocket(
       session,
-      () => void loadWorkspaceRef.current(feedTabRef.current, { silent: true }),
+      () => void loadWorkspaceRef.current({ silent: true }),
       setSocketStatus,
     );
     sock.start();
@@ -299,12 +340,12 @@ function LoopShell() {
   const effectiveActiveRuns = useMemo<AgentRunSummary[]>(() => {
     if (client) return activeRuns;
     return demoCards
-      .filter((c) => c.tab === "working" && c.agentId)
+      .filter((c) => (c.tab === "working" || c.tab === "queued") && c.agentId)
       .map((c) => ({
         id: c.id,
         agent_id: c.agentId!,
         conversation_id: c.conversationId,
-        state: "running",
+        state: c.tab === "queued" ? "queued" : "running",
         input: c.prompt,
         created_at: c.createdAt,
       }));
@@ -342,6 +383,19 @@ function LoopShell() {
         setLiveCards((prev) =>
           prev.map((c) => (c.id === card.id ? { ...c, unread: false } : c)),
         );
+        setSummary((prev) =>
+          prev
+            ? {
+                ...prev,
+                done_unread: card.doneCardKey
+                  ? Math.max(0, (prev.done_unread ?? 0) - 1)
+                  : prev.done_unread,
+                replies_unread: card.replyCardKey
+                  ? Math.max(0, (prev.replies_unread ?? 0) - 1)
+                  : prev.replies_unread,
+              }
+            : prev,
+        );
         if (card.doneCardKey) {
           void client
             .markDoneRead(
@@ -350,7 +404,8 @@ function LoopShell() {
               card.unreadVersion,
             )
             .catch(() => {});
-        } else if (card.replyCardKey && card.messageId) {
+        }
+        if (card.replyCardKey && card.messageId) {
           void client
             .setReplyState(card.messageId, { read: true })
             .catch(() => {});
@@ -399,7 +454,7 @@ function LoopShell() {
             haptics.light();
             void client
               .setDoneHidden(card.conversationId, card.doneCardKey!, false)
-              .then(() => void loadWorkspace(feedTab));
+              .then(() => void loadWorkspace({ silent: true }));
           });
         } else if (card.replyCardKey && card.messageId) {
           void client
@@ -409,7 +464,7 @@ function LoopShell() {
             haptics.light();
             void client
               .setReplyState(card.messageId!, { archived: false })
-              .then(() => void loadWorkspace(feedTab));
+              .then(() => void loadWorkspace({ silent: true }));
           });
         }
         return;
@@ -420,7 +475,7 @@ function LoopShell() {
         setDemoCards((prev) => [card, ...prev]);
       });
     },
-    [client, feedTab, loadWorkspace, showToast],
+    [client, loadWorkspace, showToast],
   );
 
   const handlePickReminder = useCallback(
@@ -474,7 +529,7 @@ function LoopShell() {
             ? `Sent to @${card.agentName} with ${attachmentIds.length} ${attachmentIds.length === 1 ? "file" : "files"}`
             : `Sent to @${card.agentName}`,
         );
-        setTimeout(() => void loadWorkspace(feedTab), 450);
+        setTimeout(() => void loadWorkspace({ silent: true }), 450);
         return;
       }
       setTimeout(() => {
@@ -489,7 +544,7 @@ function LoopShell() {
         haptics.success();
       }, 1100);
     },
-    [client, agents, feedTab, loadWorkspace, showToast],
+    [client, agents, loadWorkspace, showToast],
   );
 
   const handleComposeSend = useCallback(
@@ -513,7 +568,7 @@ function LoopShell() {
             : `Sent to @${input.agentName}`,
         );
         setAppTab("feed");
-        setTimeout(() => void loadWorkspace(feedTab), 400);
+        setTimeout(() => void loadWorkspace({ silent: true }), 400);
         return;
       }
       const nextCard = buildSimulatedReply(
@@ -525,11 +580,10 @@ function LoopShell() {
       );
       setDemoCards((prev) => [nextCard, ...prev]);
       setAppTab("feed");
-      setFeedTab("done");
       haptics.success();
       showToast(`@${input.agentName} answered`);
     },
-    [client, feedTab, loadWorkspace, showToast],
+    [client, loadWorkspace, showToast],
   );
 
   const handleDecideApproval = useCallback(
@@ -540,11 +594,11 @@ function LoopShell() {
         .decideApproval(id, decision)
         .then(() => {
           showToast(decision === "approve" ? "Approved" : "Denied");
-          setTimeout(() => void loadWorkspace(feedTab), 400);
+          setTimeout(() => void loadWorkspace({ silent: true }), 400);
         })
         .catch((err) => showToast((err as Error).message));
     },
-    [client, feedTab, loadWorkspace, showToast],
+    [client, loadWorkspace, showToast],
   );
 
   const handleAnswerDecision = useCallback(
@@ -555,11 +609,30 @@ function LoopShell() {
         .answerNativeDecision(id, answer)
         .then(() => {
           showToast("Response sent");
-          setTimeout(() => void loadWorkspace(feedTab), 400);
+          setTimeout(() => void loadWorkspace({ silent: true }), 400);
         })
         .catch((err) => showToast((err as Error).message));
     },
-    [client, feedTab, loadWorkspace, showToast],
+    [client, loadWorkspace, showToast],
+  );
+
+  const handleCancelQueuedRun = useCallback(
+    (runId: string) => {
+      if (!client) {
+        setDemoCards((prev) => prev.filter((c) => c.id !== runId));
+        showToast("Cancelled queued message");
+        return;
+      }
+      setActiveRuns((prev) => prev.filter((r) => r.id !== runId));
+      void client
+        .runAction(runId, "cancel")
+        .then(() => {
+          showToast("Cancelled queued message");
+          setTimeout(() => void loadWorkspace({ silent: true }), 350);
+        })
+        .catch((err) => showToast((err as Error).message));
+    },
+    [client, loadWorkspace, showToast],
   );
 
   const handleSignOut = useCallback(async () => {
@@ -700,7 +773,6 @@ function LoopShell() {
     if (tab === "feed" && appTab === "feed") {
       const now = Date.now();
       if (now - lastFeedTapRef.current < 450) {
-        setFeedTab("done");
         feedScrollRef.current?.scrollTo({ y: 0, animated: true });
       }
       lastFeedTapRef.current = now;
@@ -708,6 +780,19 @@ function LoopShell() {
     }
     setAppTab(tab);
   };
+
+  const openCarouselQueuedRuns = useMemo(() => {
+    if (!openConversationId || openCarouselCards.length === 0) return [];
+    const primaryAgentId = openCarouselCards[0]?.agentId;
+    return effectiveActiveRuns
+      .filter(
+        (r) =>
+          r.state === "queued" &&
+          (r.conversation_id === openConversationId ||
+            (primaryAgentId && r.agent_id === primaryAgentId)),
+      )
+      .sort((a, b) => a.created_at - b.created_at);
+  }, [effectiveActiveRuns, openCarouselCards, openConversationId]);
 
   return (
     <View style={[styles.root, { backgroundColor: theme.bg }]}>
@@ -719,8 +804,6 @@ function LoopShell() {
           cards={activeCards}
           agents={agents}
           activeRuns={effectiveActiveRuns}
-          activeTab={feedTab}
-          summary={summary}
           approvals={approvals}
           decisions={decisions}
           isLive={Boolean(client)}
@@ -730,13 +813,12 @@ function LoopShell() {
           theme={theme}
           scrollRef={feedScrollRef}
           onRefresh={() => {
-            if (client) void loadWorkspace(feedTab, { silent: false });
+            if (client) void loadWorkspace({ silent: false });
             else {
               setDemoCards(createInitialCards());
               showToast("Demo deck refreshed");
             }
           }}
-          onSelectTab={setFeedTab}
           onOpenPairing={() => setPairingOpen(true)}
           onOpenAgent={handleOpenAgent}
           onOpenAgentByName={openAgentByName}
@@ -929,9 +1011,11 @@ function LoopShell() {
         <SpotlightCarousel
           key={openConversationId}
           cards={openCarouselCards}
+          queuedRuns={openCarouselQueuedRuns}
           client={client}
           snippets={snippets}
           theme={theme}
+          onCancelQueuedRun={handleCancelQueuedRun}
           onClose={() => {
             setOpenConversationId(null);
             setCarouselOverrideCards(null);

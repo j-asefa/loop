@@ -2,6 +2,8 @@ import type {
   ApiApproval,
   ApiBootstrap,
   ApiConversationPage,
+  ApiDoneCardPage,
+  ApiFeedItem,
   ApiFeedPage,
   ApiLaterItem,
   ApiMessage,
@@ -205,6 +207,49 @@ export class LoopClient {
     if (opts?.agent) q.set("agent", opts.agent);
     if (opts?.before) q.set("before", opts.before);
     return this.request<ApiFeedPage>("GET", `/api/feed?${q.toString()}`);
+  }
+
+  /**
+   * Canonical Done cards list (`/api/v1/cards?view=done`), which includes
+   * `read_at`, `unread_version`, and full untruncated card bodies.
+   */
+  async doneCards(opts?: {
+    agent?: string;
+    limit?: number;
+  }): Promise<ApiFeedItem[]> {
+    const q = new URLSearchParams({
+      view: "done",
+      limit: String(opts?.limit ?? 60),
+    });
+    if (opts?.agent) q.set("agent", opts.agent);
+    const page = await this.request<ApiDoneCardPage>(
+      "GET",
+      `/api/v1/cards?${q.toString()}`,
+    );
+    return (page.items ?? [])
+      .filter((entry) => entry.card?.type === "done" && entry.card.display)
+      .map((entry) => {
+        const display = entry.card.display;
+        const msg = display.last_message;
+        return {
+          ...display,
+          last_message: msg
+            ? {
+                ...msg,
+                content: msg.content || entry.card.content,
+                saved: entry.card.saved ?? msg.saved,
+              }
+            : entry.card.content
+              ? {
+                  id: entry.card.id,
+                  role: "assistant",
+                  content: entry.card.content,
+                  created_at: entry.card.created_at,
+                  saved: entry.card.saved,
+                }
+              : null,
+        };
+      });
   }
 
   conversation(id: string, before?: string): Promise<ApiConversationPage> {
