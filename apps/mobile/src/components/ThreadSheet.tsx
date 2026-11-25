@@ -83,7 +83,7 @@ export function ThreadSheet({
   const attSig = replyAttachments.readyIds.join(",");
   useEffect(() => {
     sendKeyRef.current = null;
-  }, [attSig]);
+  }, [draft, conversationId, resolvedAgentId, attSig]);
 
   const load = useCallback(async () => {
     if (!client) {
@@ -334,7 +334,10 @@ export function ThreadSheet({
                     <RichContent
                       content={msg.content}
                       theme={theme}
-                      onReplyButton={(prompt) => setDraft(prompt)}
+                      onReplyButton={(prompt) => {
+                        sendKeyRef.current = null;
+                        setDraft(prompt);
+                      }}
                     />
                   )}
                 </View>

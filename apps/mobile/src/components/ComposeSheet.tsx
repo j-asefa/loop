@@ -81,7 +81,7 @@ export function ComposeSheet({
   const attSig = composeAttachments.readyIds.join(",");
   useEffect(() => {
     sendKeyRef.current = null;
-  }, [selectedAgent?.id, selectedFolderId, attSig]);
+  }, [text, selectedAgent?.id, selectedFolderId, attSig]);
 
   const projects = useMemo(
     () => folders.filter((f) => f.kind === "project" || f.is_workspace),

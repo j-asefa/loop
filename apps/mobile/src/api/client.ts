@@ -1,3 +1,4 @@
+import { assertSameOriginResponse } from "./pairing-url";
 import type {
   ApiApproval,
   ApiBootstrap,
@@ -52,6 +53,35 @@ export function randomUuid(): string {
   });
 }
 
+const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
+const RUN_REQUEST_TIMEOUT_MS = 25_000;
+const UPLOAD_TIMEOUT_MS = 60_000;
+
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  if (typeof AbortController === "undefined") {
+    return fetch(url, init);
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new LoopApiError(
+        408,
+        "Request timed out — check your connection and try again.",
+      );
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
  * Typed HTTP client talking directly to a paired Loop companion server over
  * Loop's native cookie + Origin + X-Loop-CSRF protocol (zero server changes).
@@ -92,14 +122,21 @@ export class LoopClient {
     method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
     path: string,
     body?: unknown,
+    timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
   ): Promise<T> {
     const isMutation = method !== "GET";
-    const res = await fetch(`${this.session.origin}${path}`, {
-      method,
-      headers: this.headers(isMutation),
-      credentials: "include",
-      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-    });
+    const res = await fetchWithTimeout(
+      `${this.session.origin}${path}`,
+      {
+        method,
+        headers: this.headers(isMutation),
+        credentials: "include",
+        redirect: "error",
+        ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+      },
+      timeoutMs,
+    );
+    assertSameOriginResponse(res, this.session.origin);
 
     if (res.status === 401) {
       this.onUnauthorized?.();
@@ -233,21 +270,17 @@ export class LoopClient {
         const msg = display.last_message;
         return {
           ...display,
-          last_message: msg
+          ...(msg
             ? {
-                ...msg,
-                content: msg.content || entry.card.content,
-                saved: entry.card.saved ?? msg.saved,
+                last_message: {
+                  ...msg,
+                  content: msg.content || entry.card.content,
+                  saved: entry.card.saved ?? msg.saved,
+                },
               }
             : entry.card.content
-              ? {
-                  id: entry.card.id,
-                  role: "assistant",
-                  content: entry.card.content,
-                  created_at: entry.card.created_at,
-                  saved: entry.card.saved,
-                }
-              : null,
+              ? { live_preview: display.live_preview || entry.card.content }
+              : {}),
         };
       });
   }
@@ -297,12 +330,18 @@ export class LoopClient {
       headers.Cookie = this.session.cookie;
     }
 
-    const res = await fetch(`${this.session.origin}/api/uploads`, {
-      method: "POST",
-      headers,
-      credentials: "include",
-      body: form,
-    });
+    const res = await fetchWithTimeout(
+      `${this.session.origin}/api/uploads`,
+      {
+        method: "POST",
+        headers,
+        credentials: "include",
+        redirect: "error",
+        body: form,
+      },
+      UPLOAD_TIMEOUT_MS,
+    );
+    assertSameOriginResponse(res, this.session.origin);
 
     if (res.status === 401) {
       this.onUnauthorized?.();
@@ -338,17 +377,24 @@ export class LoopClient {
     attachmentIds?: string[];
     idempotencyKey?: string;
   }): Promise<{ id: string; conversation_id?: string }> {
-    return this.request("POST", "/api/runs", {
-      agentId: input.agentId,
-      ...(input.conversationId ? { conversationId: input.conversationId } : {}),
-      ...(input.replyToMessageId
-        ? { replyToMessageId: input.replyToMessageId }
-        : {}),
-      ...(input.folderId ? { folderId: input.folderId } : {}),
-      input: input.input,
-      attachmentIds: input.attachmentIds ?? [],
-      idempotencyKey: input.idempotencyKey ?? randomUuid(),
-    });
+    return this.request(
+      "POST",
+      "/api/runs",
+      {
+        agentId: input.agentId,
+        ...(input.conversationId
+          ? { conversationId: input.conversationId }
+          : {}),
+        ...(input.replyToMessageId
+          ? { replyToMessageId: input.replyToMessageId }
+          : {}),
+        ...(input.folderId ? { folderId: input.folderId } : {}),
+        input: input.input,
+        attachmentIds: input.attachmentIds ?? [],
+        idempotencyKey: input.idempotencyKey ?? randomUuid(),
+      },
+      RUN_REQUEST_TIMEOUT_MS,
+    );
   }
 
   runAction(

@@ -159,6 +159,53 @@ export function getCardDismissTargets(card: NativeResultCard): {
   };
 }
 
+/**
+ * Merges live conversation cards with optional seed/override cards (such as a
+ * synthetic `working:*` card or a card opened from Agent Profile) so live cards
+ * always supersede stale overrides and newer arrivals surface at index 0.
+ */
+export function mergeCarouselCards(
+  liveCards: NativeResultCard[],
+  overrideCards: NativeResultCard[] | null | undefined,
+): NativeResultCard[] {
+  const overrides = overrideCards ?? [];
+  if (overrides.length === 0) return liveCards;
+
+  const liveIds = new Set(liveCards.map((c) => c.id));
+  const liveMsgs = new Set(
+    liveCards.map((c) => c.messageId).filter((m): m is string => Boolean(m)),
+  );
+  const liveFinishedRuns = new Set(
+    liveCards
+      .filter((c) => c.tab !== "working" && c.runId)
+      .map((c) => c.runId!),
+  );
+  const newestLiveFinishedAt = liveCards.reduce(
+    (max, c) => (c.tab !== "working" ? Math.max(max, c.createdAt) : max),
+    -1,
+  );
+
+  const keptOverrides: NativeResultCard[] = [];
+  for (const ov of overrides) {
+    if (liveIds.has(ov.id)) continue;
+    if (ov.messageId && liveMsgs.has(ov.messageId)) continue;
+    if (ov.tab === "working") {
+      if (ov.runId && liveFinishedRuns.has(ov.runId)) continue;
+      if (newestLiveFinishedAt >= ov.createdAt) continue;
+    }
+    keptOverrides.push(ov);
+  }
+
+  if (keptOverrides.length === 0) return liveCards;
+
+  return [...liveCards, ...keptOverrides].sort((a, b) => {
+    if (b.createdAt !== a.createdAt) return b.createdAt - a.createdAt;
+    const aLive = liveIds.has(a.id) ? 1 : 0;
+    const bLive = liveIds.has(b.id) ? 1 : 0;
+    return bLive - aLive;
+  });
+}
+
 export type QuickReplyOption = {
   id: string;
   label: string;

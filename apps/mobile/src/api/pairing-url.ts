@@ -186,7 +186,7 @@ export function extractSessionCookie(
 ): string | null {
   if (!setCookieHeader) return null;
   const match =
-    /((?:__Host-loop|loop_local|loop_device(?:_[a-f0-9]+)?)=[^;,\s]+)/i.exec(
+    /((?:(?:__Host-loop|loop_local|loop_device)(?:_[a-f0-9]+)?)=[^;,\s]+)/i.exec(
       setCookieHeader,
     );
   return match ? match[1] : null;

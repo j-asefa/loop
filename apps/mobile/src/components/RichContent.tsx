@@ -177,8 +177,16 @@ function findClosingDelimiter(
       const closeTick = text.indexOf("`".repeat(ticks), i + ticks);
       if (closeTick !== -1) {
         i = closeTick + ticks;
-        continue;
+      } else {
+        i += ticks;
       }
+      continue;
+    }
+    if (delim.length === 1 && text[i] === delim && text[i + 1] === delim) {
+      let run = 2;
+      while (text[i + run] === delim) run++;
+      i += run;
+      continue;
     }
     if (text.startsWith(delim, i)) {
       if (!requireEndBoundary || !isWordChar(text[i + delim.length])) {
@@ -277,6 +285,9 @@ function tokenizeInline(
         i = close + ticks;
         continue;
       }
+      plain += delim;
+      i += ticks;
+      continue;
     }
 
     // Markdown link [label](url)

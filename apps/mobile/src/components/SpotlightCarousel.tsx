@@ -86,7 +86,7 @@ type SpotlightCarouselProps = {
   onOpenAgent?: (agentId: string | null | undefined, agentName: string) => void;
   onOpenThread?: (card: NativeResultCard) => void;
   onMarkRead: (card: NativeResultCard) => void;
-  onToggleSaved: (card: NativeResultCard) => void;
+  onToggleSaved: (card: NativeResultCard) => Promise<void> | void;
   onRemind: (card: NativeResultCard) => void;
   onDismissCard: (card: NativeResultCard) => void;
   onSendReply: (
@@ -129,9 +129,10 @@ export function SpotlightCarousel({
     () => new Map(cards.map((c) => [c.id, c])),
     [cards],
   );
-  const newestLiveId = cards[0]?.id;
-  const hasNewArrival = Boolean(
-    newestLiveId && !pinnedIds.includes(newestLiveId),
+  const pinnedSet = useMemo(() => new Set(pinnedIds), [pinnedIds]);
+  const hasNewArrival = useMemo(
+    () => cards.some((c) => !pinnedSet.has(c.id)),
+    [cards, pinnedSet],
   );
 
   // In live mode, lazily hydrate full conversation history + truncated bodies
@@ -264,11 +265,25 @@ export function SpotlightCarousel({
     agentId: activeCard?.agentId,
   });
 
-  // Invalidate pending retry idempotency key when the user changes card or attachment list
+  // Invalidate pending retry idempotency key when the user changes draft, card, or attachment list
   const attachmentKeySig = replyAttachments.readyIds.join(",");
   useEffect(() => {
     replyIdempotencyKeyRef.current = null;
-  }, [activeCard?.id, attachmentKeySig]);
+  }, [draft, activeCard?.id, attachmentKeySig]);
+
+  // If the user opened a synthetic working:* placeholder at slide 0 and the run
+  // finishes (superseding the placeholder with a live Done card), promote it smoothly.
+  useEffect(() => {
+    const firstPinned = pinnedIds[0];
+    if (
+      activeIndex === 0 &&
+      firstPinned?.startsWith("working:") &&
+      !cardsById.has(firstPinned) &&
+      cards.length > 0
+    ) {
+      setPinnedIds(cards.map((c) => c.id));
+    }
+  }, [activeIndex, cards, cardsById, pinnedIds]);
 
   const scrollRef = useRef<Animated.ScrollView>(null);
   const replyInputRef = useRef<React.ComponentRef<typeof TextInput>>(null);
@@ -526,10 +541,30 @@ export function SpotlightCarousel({
   }, []);
 
   const prefillReply = useCallback((prompt: string) => {
+    replyIdempotencyKeyRef.current = null;
+    setReplyError("");
     setDraft(prompt);
     setQuickReplyOpen(false);
     setTimeout(() => replyInputRef.current?.focus(), 60);
   }, []);
+
+  const handleSlideToggleSaved = useCallback(
+    (target: NativeResultCard) => {
+      const nextSaved = !target.saved;
+      const matches = (c: NativeResultCard) =>
+        c.id === target.id ||
+        Boolean(target.messageId && c.messageId === target.messageId);
+      setHistorySlides((prev) =>
+        prev.map((c) => (matches(c) ? { ...c, saved: nextSaved } : c)),
+      );
+      void Promise.resolve(onToggleSaved(target)).catch(() => {
+        setHistorySlides((prev) =>
+          prev.map((c) => (matches(c) ? { ...c, saved: !nextSaved } : c)),
+        );
+      });
+    },
+    [onToggleSaved],
+  );
 
   const submitReply = useCallback(async () => {
     const trimmed = draft.trim();
@@ -1400,7 +1435,7 @@ export function SpotlightCarousel({
                   const target = actionSheetCard;
                   setActionSheetCard(null);
                   haptics.medium();
-                  onToggleSaved(target);
+                  handleSlideToggleSaved(target);
                 }}
                 style={({ pressed }) => [
                   styles.quickOption,

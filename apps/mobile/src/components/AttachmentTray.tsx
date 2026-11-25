@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -65,12 +65,24 @@ export function useAttachments(
   opts?: { agentId?: string | null; folderId?: string | null },
 ) {
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const attachmentsRef = useRef<PendingAttachment[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
+
+  const updateAttachments = useCallback(
+    (updater: (prev: PendingAttachment[]) => PendingAttachment[]) => {
+      const next = updater(attachmentsRef.current);
+      attachmentsRef.current = next;
+      setAttachments(next);
+      return next;
+    },
+    [],
+  );
 
   const enqueueFiles = useCallback(
     async (files: PickedFile[]) => {
       if (!files.length) return;
-      const room = Math.max(0, MAX_ATTACHMENTS - attachments.length);
+      // Compute remaining slots synchronously against the ref so overlapping picks never exceed MAX_ATTACHMENTS.
+      const room = Math.max(0, MAX_ATTACHMENTS - attachmentsRef.current.length);
       const batch = files.slice(0, room);
       if (!batch.length) return;
 
@@ -90,7 +102,9 @@ export function useAttachments(
         };
       });
 
-      setAttachments((prev) => [...prev, ...pending]);
+      updateAttachments((prev) =>
+        [...prev, ...pending].slice(0, MAX_ATTACHMENTS),
+      );
       if (!client) {
         haptics.light();
         return;
@@ -113,7 +127,7 @@ export function useAttachments(
               },
             );
             haptics.light();
-            setAttachments((prev) =>
+            updateAttachments((prev) =>
               prev.map((a) =>
                 a.localId === item.localId
                   ? {
@@ -129,7 +143,7 @@ export function useAttachments(
             );
           } catch (err) {
             haptics.warning();
-            setAttachments((prev) =>
+            updateAttachments((prev) =>
               prev.map((a) =>
                 a.localId === item.localId
                   ? {
@@ -145,12 +159,16 @@ export function useAttachments(
         }),
       );
     },
-    [attachments.length, client, opts?.agentId, opts?.folderId],
+    [client, opts?.agentId, opts?.folderId, updateAttachments],
   );
 
   const pickFromPhotos = useCallback(async () => {
     setPickerOpen(false);
-    const remaining = Math.max(1, MAX_ATTACHMENTS - attachments.length);
+    const remaining = Math.max(
+      0,
+      MAX_ATTACHMENTS - attachmentsRef.current.length,
+    );
+    if (remaining === 0) return;
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) return;
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -172,7 +190,7 @@ export function useAttachments(
       };
     });
     await enqueueFiles(files);
-  }, [attachments.length, enqueueFiles]);
+  }, [enqueueFiles]);
 
   const takePhoto = useCallback(async () => {
     setPickerOpen(false);
@@ -210,14 +228,17 @@ export function useAttachments(
     await enqueueFiles(files);
   }, [enqueueFiles]);
 
-  const removeAttachment = useCallback((localId: string) => {
-    haptics.light();
-    setAttachments((prev) => prev.filter((a) => a.localId !== localId));
-  }, []);
+  const removeAttachment = useCallback(
+    (localId: string) => {
+      haptics.light();
+      updateAttachments((prev) => prev.filter((a) => a.localId !== localId));
+    },
+    [updateAttachments],
+  );
 
   const clearAttachments = useCallback(() => {
-    setAttachments([]);
-  }, []);
+    updateAttachments(() => []);
+  }, [updateAttachments]);
 
   const uploading = useMemo(
     () => attachments.some((a) => a.status === "uploading"),

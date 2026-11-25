@@ -59,6 +59,7 @@ import {
   createInitialCards,
   feedItemToNativeCard,
   getCardDismissTargets,
+  mergeCarouselCards,
   mergeUnifiedFeedCards,
   type NativeResultCard,
 } from "./src/fixtures";
@@ -383,22 +384,7 @@ function LoopShell() {
     const matching = activeCards.filter(
       (c) => c.conversationId === openConversationId,
     );
-    if (overrides.length === 0) return matching;
-    const seenIds = new Set(overrides.map((c) => c.id));
-    const seenMsgs = new Set(
-      overrides.map((c) => c.messageId).filter((m): m is string => Boolean(m)),
-    );
-    const seenRuns = new Set(
-      overrides.map((c) => c.runId).filter((r): r is string => Boolean(r)),
-    );
-    const merged = [...overrides];
-    for (const c of matching) {
-      if (seenIds.has(c.id)) continue;
-      if (c.messageId && seenMsgs.has(c.messageId)) continue;
-      if (c.tab === "working" && c.runId && seenRuns.has(c.runId)) continue;
-      merged.push(c);
-    }
-    return merged;
+    return mergeCarouselCards(matching, overrides);
   }, [activeCards, carouselOverrideCards, openConversationId]);
 
   const isCarouselOpen = Boolean(
@@ -468,25 +454,43 @@ function LoopShell() {
   );
 
   const handleToggleSaved = useCallback(
-    (card: NativeResultCard) => {
+    async (card: NativeResultCard) => {
       const nextSaved = !card.saved;
-      const updater = (prev: NativeResultCard[]) =>
-        prev.map((c) => (c.id === card.id ? { ...c, saved: nextSaved } : c));
+      const matchesCard = (c: NativeResultCard) =>
+        c.id === card.id ||
+        Boolean(card.messageId && c.messageId === card.messageId);
+      const applySaved = (saved: boolean) => (prev: NativeResultCard[]) =>
+        prev.map((c) => (matchesCard(c) ? { ...c, saved } : c));
       if (client) {
-        setLiveCards(updater);
-        setCarouselOverrideCards((prev) => (prev ? updater(prev) : prev));
-        if (card.messageId) {
-          void client
-            .setSaved(card.messageId, nextSaved)
-            .then(() =>
-              showToast(nextSaved ? "Saved card" : "Removed from Saved"),
-            )
-            .catch((err) => showToast((err as Error).message));
+        if (!card.messageId) return;
+        const gen = workspaceGenRef.current;
+        setLiveCards(applySaved(nextSaved));
+        setCarouselOverrideCards((prev) =>
+          prev ? applySaved(nextSaved)(prev) : prev,
+        );
+        try {
+          await client.setSaved(card.messageId, nextSaved);
+          if (gen === workspaceGenRef.current) {
+            showToast(nextSaved ? "Saved card" : "Removed from Saved");
+          }
+        } catch (err) {
+          if (gen === workspaceGenRef.current) {
+            setLiveCards(applySaved(!nextSaved));
+            setCarouselOverrideCards((prev) =>
+              prev ? applySaved(!nextSaved)(prev) : prev,
+            );
+            showToast(
+              err instanceof Error ? err.message : "Could not update Saved.",
+            );
+          }
+          throw err;
         }
         return;
       }
-      setDemoCards(updater);
-      setCarouselOverrideCards((prev) => (prev ? updater(prev) : prev));
+      setDemoCards(applySaved(nextSaved));
+      setCarouselOverrideCards((prev) =>
+        prev ? applySaved(nextSaved)(prev) : prev,
+      );
       showToast(nextSaved ? "Saved card" : "Removed from Saved");
     },
     [client, showToast],
@@ -737,26 +741,33 @@ function LoopShell() {
 
   const openAgentByName = useCallback(
     (agentId: string | null | undefined, agentName: string) => {
+      const cleanName = agentName.replace(/^@/, "");
       const found =
         (agentId && agents.find((a) => a.id === agentId)) ||
-        agents.find(
-          (a) =>
-            a.name.toLowerCase() === agentName.replace(/^@/, "").toLowerCase(),
-        );
+        agents.find((a) => a.name.toLowerCase() === cleanName.toLowerCase());
       if (found) {
         setProfileAgent(found);
-      } else {
-        setProfileAgent({
-          id: agentId || agentName,
-          name: agentName.replace(/^@/, ""),
-          provider: "anthropic",
-          connection_id: null,
-          model: "",
-          instructions: "",
-        });
+        return;
       }
+      if (client && agentId) {
+        const gen = workspaceGenRef.current;
+        void client
+          .agentDetail(agentId)
+          .then((detail) => {
+            if (gen === workspaceGenRef.current && detail.agent) {
+              setProfileAgent(detail.agent);
+            }
+          })
+          .catch(() => {
+            if (gen === workspaceGenRef.current) {
+              showToast(`@${cleanName} is no longer available`);
+            }
+          });
+        return;
+      }
+      showToast(`@${cleanName} is no longer available`);
     },
-    [agents],
+    [agents, client, showToast],
   );
 
   const handleOpenAgent = useCallback(
@@ -926,7 +937,9 @@ function LoopShell() {
             setOpenConversationId(conversationId);
           }}
           onSwipeDone={handleDismissCard}
-          onSwipeSave={handleToggleSaved}
+          onSwipeSave={(card) => {
+            void handleToggleSaved(card).catch(() => {});
+          }}
           onDecideApproval={handleDecideApproval}
           onAnswerDecision={handleAnswerDecision}
         />

@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { LoopClient } from "../apps/mobile/src/api/client.js";
 import { shouldRefreshForFrame } from "../apps/mobile/src/api/socket.js";
 import {
   assertSameOriginResponse,
@@ -9,7 +10,9 @@ import {
 import {
   feedItemToNativeCard,
   getCardDismissTargets,
+  mergeCarouselCards,
   mergeUnifiedFeedCards,
+  type NativeResultCard,
 } from "../apps/mobile/src/fixtures.js";
 import type { ApiFeedItem } from "../apps/mobile/src/api/types.js";
 
@@ -143,13 +146,23 @@ describe("mobile pairing URL security", () => {
     );
   });
 
-  it("extracts Loop session cookies (__Host-loop and loop_local)", () => {
+  it("extracts Loop session cookies including hashed isolated-workspace names", () => {
     expect(
       extractSessionCookie("__Host-loop=abc123; Path=/; HttpOnly; Secure"),
     ).toBe("__Host-loop=abc123");
     expect(extractSessionCookie("loop_local=xyz789; Path=/; HttpOnly")).toBe(
       "loop_local=xyz789",
     );
+    expect(
+      extractSessionCookie(
+        "__Host-loop_0123456789abcdef01234567=iso1; Path=/; HttpOnly; Secure",
+      ),
+    ).toBe("__Host-loop_0123456789abcdef01234567=iso1");
+    expect(
+      extractSessionCookie(
+        "loop_local_0123456789abcdef01234567=iso2; Path=/; HttpOnly",
+      ),
+    ).toBe("loop_local_0123456789abcdef01234567=iso2");
   });
 
   it("rejects malformed #fleet= JSON and invalid #pair= tokens with clear errors", () => {
@@ -267,5 +280,155 @@ describe("mobile unified feed merging & truncation detection", () => {
     const card = feedItemToNativeCard(reply, "replies");
     expect(card.bodyTruncated).toBe(true);
     expect(card.unread).toBe(true);
+  });
+});
+
+describe("mobile carousel override merging", () => {
+  const baseCard: NativeResultCard = {
+    id: "done:old",
+    conversationId: "conv-1",
+    tab: "done",
+    agentId: "agent-1",
+    agentName: "ebony",
+    projectName: "Loop",
+    model: "claude-sonnet-4",
+    prompt: "Old prompt",
+    fallbackTitle: "Old title",
+    body: "Old body",
+    createdAt: 1000,
+    saved: false,
+    unread: false,
+    messageId: "m-old",
+    doneCardKey: "done:old",
+  };
+
+  it("drops synthetic working override once a finished Done card arrives for the same run or newer time", () => {
+    const workingOverride: NativeResultCard = {
+      ...baseCard,
+      id: "working:run-2",
+      tab: "working",
+      body: "Working…",
+      createdAt: 2000,
+      messageId: undefined,
+      doneCardKey: undefined,
+      runId: "run-2",
+    };
+
+    // While still running, the synthetic working card leads above older Done cards.
+    const whileRunning = mergeCarouselCards([baseCard], [workingOverride]);
+    expect(whileRunning.map((c) => c.id)).toEqual([
+      "working:run-2",
+      "done:old",
+    ]);
+
+    // Once finished, the live Done card replaces the working placeholder at index 0.
+    const finishedCard: NativeResultCard = {
+      ...baseCard,
+      id: "done:new",
+      body: "Finished answer",
+      createdAt: 2500,
+      messageId: "m-new",
+      doneCardKey: "done:new",
+      runId: "run-2",
+    };
+    const afterFinish = mergeCarouselCards(
+      [finishedCard, baseCard],
+      [workingOverride],
+    );
+    expect(afterFinish.map((c) => c.id)).toEqual(["done:new", "done:old"]);
+  });
+
+  it("places newly arrived live replies ahead of an AgentProfileSheet seed card", () => {
+    const seedCard: NativeResultCard = {
+      ...baseCard,
+      id: "done:seed",
+      messageId: "m-seed",
+      createdAt: 1500,
+    };
+    const newReply: NativeResultCard = {
+      ...baseCard,
+      id: "done:reply",
+      messageId: "m-reply",
+      createdAt: 3000,
+    };
+    const merged = mergeCarouselCards([newReply], [seedCard]);
+    expect(merged.map((c) => c.id)).toEqual(["done:reply", "done:seed"]);
+  });
+});
+
+describe("mobile LoopClient redirect, timeout, and doneCards contracts", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("sends redirect:'error' and rejects cross-origin responses", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      redirected: true,
+      url: "https://evil.example.com/api/bootstrap",
+      text: async () => "{}",
+    } as unknown as Response);
+
+    const client = new LoopClient({
+      origin: "https://loop.example.com",
+      cookie: "__Host-loop=tok",
+      csrf: "csrf-1",
+      pairedAt: 1,
+    });
+
+    await expect(client.bootstrap()).rejects.toThrow(/redirect/i);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://loop.example.com/api/bootstrap",
+      expect.objectContaining({ redirect: "error" }),
+    );
+  });
+
+  it("does not fabricate a d:-prefixed messageId in doneCards when last_message is absent", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      redirected: false,
+      url: "https://loop.example.com/api/v1/cards?view=done&limit=60",
+      text: async () =>
+        JSON.stringify({
+          items: [
+            {
+              card: {
+                id: "d:conv-1:done:1",
+                type: "done",
+                content: "Rendered body without last_message",
+                created_at: 2000,
+                saved: false,
+                display: {
+                  conversation_id: "conv-1",
+                  title: "Title",
+                  agent_id: "a1",
+                  agent_name: "ebony",
+                  done_card_key: "done:1",
+                  read_at: null,
+                  last_activity_at: 2000,
+                  last_message: null,
+                  pending_approvals: 0,
+                },
+              },
+            },
+          ],
+        }),
+    } as unknown as Response);
+
+    const client = new LoopClient({
+      origin: "https://loop.example.com",
+      cookie: "__Host-loop=tok",
+      csrf: "csrf-1",
+      pairedAt: 1,
+    });
+    const items = await client.doneCards();
+    expect(items).toHaveLength(1);
+    expect(items[0].last_message).toBeNull();
+    expect(items[0].live_preview).toBe("Rendered body without last_message");
+    const card = feedItemToNativeCard(items[0], "done");
+    expect(card.messageId).toBeUndefined();
+    expect(card.body).toBe("Rendered body without last_message");
   });
 });
