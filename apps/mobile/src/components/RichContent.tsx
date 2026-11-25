@@ -1222,7 +1222,7 @@ function SpecNode({
   return null;
 }
 
-export function RichContent({
+export const RichContent = React.memo(function RichContent({
   content,
   theme,
   onReplyButton,
@@ -1427,11 +1427,12 @@ export function RichContent({
       })}
     </View>
   );
-}
+});
 
 /** Plain clean snippet for Feed stack cards (strips fenced spec & markdown syntax). */
 export function feedPreviewText(markdown: string): string {
-  return markdown
+  const sample = markdown.length > 700 ? markdown.slice(0, 700) : markdown;
+  return sample
     .replace(/```[\s\S]*?```/g, "")
     .replace(/~~~[\s\S]*?~~~/g, "")
     .replace(/^#{1,6}\s+/gm, "")

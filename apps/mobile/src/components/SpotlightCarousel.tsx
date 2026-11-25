@@ -146,59 +146,64 @@ export function SpotlightCarousel({
   useEffect(() => {
     if (!client || !conversationId) return;
     let cancelled = false;
-    void client
-      .conversation(conversationId)
-      .then((page) => {
-        if (cancelled) return;
-        const promptMap = new Map<string, string>();
-        const bodyMap = new Map<string, string>();
-        const savedSet = new Set(page.saved);
-        const extra: NativeResultCard[] = [];
-        let lastPrompt = "";
-        const base = cards[0];
-        for (const msg of page.messages) {
-          if (msg.role === "user") {
-            lastPrompt = msg.content;
-            continue;
-          }
-          if (msg.role !== "assistant" || !msg.content.trim()) continue;
-          if (lastPrompt) promptMap.set(msg.id, lastPrompt);
-          bodyMap.set(msg.id, msg.content);
-          extra.push({
-            id: msg.id,
-            conversationId,
-            tab: "done",
-            agentId: base?.agentId,
-            agentName: base?.agentName ?? "agent",
-            projectName: base?.projectName ?? "Workspace",
-            model: base?.model ?? "",
-            prompt: lastPrompt || page.conversation.title,
-            fallbackTitle: page.conversation.title || "Result",
-            body: msg.content,
-            createdAt: msg.created_at,
-            saved: savedSet.has(msg.id),
-            unread: false,
-            messageId: msg.id,
-          });
-          lastPrompt = "";
-        }
-        extra.reverse();
-        setHistoryPrompts(promptMap);
-        setFullBodies((prev) => {
-          const next = new Map(prev);
-          for (const [id, content] of bodyMap) {
-            const existing = next.get(id);
-            if (!existing || content.length > existing.length) {
-              next.set(id, content);
+    // Defer full-thread history fetch until after the opening spring renders frame 1
+    const timer = setTimeout(() => {
+      if (cancelled) return;
+      void client
+        .conversation(conversationId)
+        .then((page) => {
+          if (cancelled) return;
+          const promptMap = new Map<string, string>();
+          const bodyMap = new Map<string, string>();
+          const savedSet = new Set(page.saved);
+          const extra: NativeResultCard[] = [];
+          let lastPrompt = "";
+          const base = cards[0];
+          for (const msg of page.messages) {
+            if (msg.role === "user") {
+              lastPrompt = msg.content;
+              continue;
             }
+            if (msg.role !== "assistant" || !msg.content.trim()) continue;
+            if (lastPrompt) promptMap.set(msg.id, lastPrompt);
+            bodyMap.set(msg.id, msg.content);
+            extra.push({
+              id: msg.id,
+              conversationId,
+              tab: "done",
+              agentId: base?.agentId,
+              agentName: base?.agentName ?? "agent",
+              projectName: base?.projectName ?? "Workspace",
+              model: base?.model ?? "",
+              prompt: lastPrompt || page.conversation.title,
+              fallbackTitle: page.conversation.title || "Result",
+              body: msg.content,
+              createdAt: msg.created_at,
+              saved: savedSet.has(msg.id),
+              unread: false,
+              messageId: msg.id,
+            });
+            lastPrompt = "";
           }
-          return next;
-        });
-        setHistorySlides(extra);
-      })
-      .catch(() => {});
+          extra.reverse();
+          setHistoryPrompts(promptMap);
+          setFullBodies((prev) => {
+            const next = new Map(prev);
+            for (const [id, content] of bodyMap) {
+              const existing = next.get(id);
+              if (!existing || content.length > existing.length) {
+                next.set(id, content);
+              }
+            }
+            return next;
+          });
+          setHistorySlides(extra);
+        })
+        .catch(() => {});
+    }, 140);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
   }, [client, conversationId]);
 
@@ -421,39 +426,40 @@ export function SpotlightCarousel({
     };
   });
 
-  // Resolved headers & Mode-A search data
+  // Resolved headers & lazy Mode-A search data
   const headers = useMemo(
     () =>
       slides.map((slide) =>
         resolveCarouselCardHeader({
           prompt: slide.prompt,
-          body: slide.body,
+          body: slide.body.slice(0, 400),
           fallback: slide.fallbackTitle,
         }),
       ),
     [slides],
   );
 
-  const searchableCards = useMemo<SearchableThreadCard[]>(
-    () =>
-      slides.map((slide, idx) => ({
-        id: slide.id,
-        title: headers[idx]?.title ?? slide.fallbackTitle,
-        prompt: slide.prompt,
-        body: slide.body,
-        createdAt: slide.createdAt,
-        saved: slide.saved,
-        unread: slide.unread,
-      })),
-    [slides, headers],
-  );
+  const searchActive = searchOpen || committedQuery.length > 0;
+  const searchableCards = useMemo<SearchableThreadCard[]>(() => {
+    if (!searchActive) return [];
+    return slides.map((slide, idx) => ({
+      id: slide.id,
+      title: headers[idx]?.title ?? slide.fallbackTitle,
+      prompt: slide.prompt,
+      body: slide.body,
+      createdAt: slide.createdAt,
+      saved: slide.saved,
+      unread: slide.unread,
+    }));
+  }, [searchActive, slides, headers]);
 
   const liveHits = useMemo(
-    () => searchThreadCards(searchableCards, searchQuery),
-    [searchableCards, searchQuery],
+    () => (searchOpen ? searchThreadCards(searchableCards, searchQuery) : []),
+    [searchOpen, searchableCards, searchQuery],
   );
   const committedHits = useMemo(
-    () => searchThreadCards(searchableCards, committedQuery),
+    () =>
+      committedQuery ? searchThreadCards(searchableCards, committedQuery) : [],
     [searchableCards, committedQuery],
   );
   const activeHits = searchOpen ? liveHits : committedHits;
@@ -544,6 +550,23 @@ export function SpotlightCarousel({
         setTimeout(() => setSending(false), client ? 350 : 1150);
       });
   }, [draft, sending, activeCard, onSendReply, client, replyAttachments]);
+
+  const handleSelectNeighbor = useCallback(
+    (idx: number) => {
+      haptics.light();
+      scrollToSlide(idx, true);
+    },
+    [scrollToSlide],
+  );
+
+  const handleLongPressCard = useCallback((card: NativeResultCard) => {
+    haptics.medium();
+    setActionSheetCard(card);
+  }, []);
+
+  const handlePullToSearch = useCallback(() => {
+    openSearch();
+  }, [openSearch]);
 
   const viewNewestArrival = useCallback(() => {
     haptics.medium();
@@ -874,6 +897,24 @@ export function SpotlightCarousel({
               }}
             >
               {slides.map((slide, index) => {
+                // Window rendering: only mount rich card trees for the active card
+                // and its immediate left/right peeking neighbors (at most 3 cards).
+                if (Math.abs(index - safeIndex) > 1) {
+                  return (
+                    <View
+                      key={slide.id}
+                      style={[
+                        styles.floatCard,
+                        {
+                          width: cardWidth,
+                          backgroundColor: theme.surface,
+                          borderColor: theme.line,
+                          opacity: 0.62,
+                        },
+                      ]}
+                    />
+                  );
+                }
                 const header = headers[index];
                 const isMatch =
                   Boolean((searchOpen ? searchQuery : committedQuery).trim()) &&
@@ -890,15 +931,9 @@ export function SpotlightCarousel({
                     snapInterval={snapInterval}
                     scrollX={scrollX}
                     theme={theme}
-                    onSelectNeighbor={() => {
-                      haptics.light();
-                      scrollToSlide(index, true);
-                    }}
-                    onPullToSearch={() => openSearch()}
-                    onLongPress={() => {
-                      haptics.medium();
-                      setActionSheetCard(slide);
-                    }}
+                    onSelectNeighbor={handleSelectNeighbor}
+                    onPullToSearch={handlePullToSearch}
+                    onLongPress={handleLongPressCard}
                     onReplyButton={prefillReply}
                   />
                 );
@@ -1589,7 +1624,7 @@ export function SpotlightCarousel({
   );
 }
 
-function FloatingCarouselCard({
+const FloatingCarouselCard = React.memo(function FloatingCarouselCard({
   slide,
   header,
   index,
@@ -1613,9 +1648,9 @@ function FloatingCarouselCard({
   snapInterval: number;
   scrollX: SharedValue<number>;
   theme: LoopTheme;
-  onSelectNeighbor: () => void;
+  onSelectNeighbor: (index: number) => void;
   onPullToSearch: () => void;
-  onLongPress: () => void;
+  onLongPress: (card: NativeResultCard) => void;
   onReplyButton: (prompt: string) => void;
 }) {
   const [pullHint, setPullHint] = useState<"idle" | "pulling" | "ready">(
@@ -1624,6 +1659,11 @@ function FloatingCarouselCard({
   const pullArmedRef = useRef(false);
   const dragStartAtTopRef = useRef(false);
   const lastPullYRef = useRef(0);
+  // Render full Markdown only on the active slide; peeking neighbors render a fast top-half slice
+  const renderedBody = useMemo(
+    () => (isActive ? slide.body : slide.body.slice(0, 1200)),
+    [isActive, slide.body],
+  );
 
   const animatedCardStyle = useAnimatedStyle(() => {
     const inputRange = [
@@ -1677,14 +1717,14 @@ function FloatingCarouselCard({
       {!isActive && (
         <Pressable
           style={[StyleSheet.absoluteFill, { zIndex: 10 }]}
-          onPress={onSelectNeighbor}
+          onPress={() => onSelectNeighbor(index)}
         />
       )}
 
       {/* Card Eyebrow (never crowds the title) */}
       <Pressable
         delayLongPress={420}
-        onLongPress={isActive ? onLongPress : undefined}
+        onLongPress={isActive ? () => onLongPress(slide) : undefined}
         style={styles.cardEyebrow}
       >
         <View style={styles.cardBadges}>
@@ -1838,7 +1878,7 @@ function FloatingCarouselCard({
       >
         <Pressable
           delayLongPress={420}
-          onLongPress={isActive ? onLongPress : undefined}
+          onLongPress={isActive ? () => onLongPress(slide) : undefined}
         >
           <CarouselCardTitle
             title={header.title}
@@ -1851,7 +1891,7 @@ function FloatingCarouselCard({
           )}
 
           <RichContent
-            content={slide.body}
+            content={renderedBody}
             theme={theme}
             onReplyButton={onReplyButton}
             skipLeadingHeading={
@@ -1862,7 +1902,7 @@ function FloatingCarouselCard({
       </ScrollView>
     </Animated.View>
   );
-}
+});
 
 function CarouselDotRail({
   total,

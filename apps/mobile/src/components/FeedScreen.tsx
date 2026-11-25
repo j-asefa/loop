@@ -594,7 +594,7 @@ export function FeedScreen({
   );
 }
 
-function SwipeableStackCard({
+const SwipeableStackCard = React.memo(function SwipeableStackCard({
   entry,
   theme,
   interactive,
@@ -617,7 +617,7 @@ function SwipeableStackCard({
     () =>
       resolveCarouselCardHeader({
         prompt: item.prompt,
-        body: item.body,
+        body: item.body.slice(0, 400),
         fallback: item.fallbackTitle,
       }),
     [item.prompt, item.body, item.fallbackTitle],
@@ -958,7 +958,7 @@ function SwipeableStackCard({
       </GestureDetector>
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
