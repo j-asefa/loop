@@ -551,14 +551,82 @@ export async function responsivenessSmoke(page, fixture, engine) {
         cardWrappers: await page.locator(".feed-item-wrap").count(),
       };
 
+      console.log("responsiveness: open in place");
+      // B3: tapping a Done result opens it in place, with no sheet, within
+      // 100 ms, re-rendering only that card; a second card closes the first.
+      const openCard = page.locator(".feed-results .feed-item-card").first();
+      const beforeOpen = await page.evaluate(() => ({
+        ...window.__loopCommitProbe,
+      }));
+      const openMs = await openCard.locator(".feed-row").evaluate(
+        (row) =>
+          new Promise((resolve) => {
+            const card = row.closest("article");
+            const started = performance.now();
+            const check = () =>
+              card.dataset.expanded === "true"
+                ? resolve(performance.now() - started)
+                : requestAnimationFrame(check);
+            row.click();
+            requestAnimationFrame(check);
+            setTimeout(() => resolve(null), 5000);
+          }),
+      );
+      await expect(openCard).toHaveAttribute("data-expanded", "true");
+      await expect(openCard.locator(".feed-expanded-body")).toBeVisible();
+      await expect(page.locator("dialog[open]")).toHaveCount(0);
+      // The full answer replaces the preview's fetch of it.
+      await page.waitForTimeout(300);
+      const afterOpen = await page.evaluate(() => ({
+        ...window.__loopCommitProbe,
+      }));
+      // Save needs the card's answer message. This fixture's Done rows have
+      // none (no message on the card), so Save is checked only when shown.
+      const saveButton = openCard.getByRole("button", { name: /^Save/ });
+      const canSave = (await saveButton.count()) > 0;
+      const savedBefore =
+        canSave && (await saveButton.getAttribute("aria-pressed"));
+      if (canSave) {
+        await saveButton.click();
+        await expect(saveButton).toHaveAttribute(
+          "aria-pressed",
+          savedBefore === "true" ? "false" : "true",
+        );
+      }
+      // Selecting the open answer's text does not close it.
+      await openCard.locator(".feed-expanded-body").click();
+      await expect(openCard).toHaveAttribute("data-expanded", "true");
+      const otherCard = page.locator(".feed-results .feed-item-card").nth(1);
+      if ((await otherCard.count()) > 0) {
+        await otherCard.locator(".feed-row").click();
+        await expect(otherCard).toHaveAttribute("data-expanded", "true");
+        await expect(openCard).not.toHaveAttribute("data-expanded", "true");
+        await otherCard.getByRole("button", { name: "Show less" }).click();
+        await expect(otherCard).not.toHaveAttribute("data-expanded", "true");
+        await openCard.locator(".feed-row").click();
+        await expect(openCard).toHaveAttribute("data-expanded", "true");
+      }
+      // Leave Saved as it was.
+      if (canSave) {
+        await saveButton.click();
+        await expect(saveButton).toHaveAttribute(
+          "aria-pressed",
+          savedBefore === "true" ? "true" : "false",
+        );
+      }
+      report.openInPlace = {
+        openMs: openMs === null ? null : Math.round(openMs),
+        cardRenders: afterOpen.cardRenders - beforeOpen.cardRenders,
+        noSheet: true,
+        saveToggles: canSave ? true : "no answer message in fixture",
+      };
+
       console.log("responsiveness: sheet");
-      // Sheets (D6): opening a result's reading sheet fades it in (the rule
-      // applies; this does not prove a faded frame was drawn), and Close
-      // closes it at once, leaving no open dialog.
-      await page
-        .locator(".feed-results .feed-item-card .feed-row")
-        .first()
-        .click();
+      // Sheets (D6): "Open full thread" on a card open in place opens its
+      // reading sheet, which fades in (the rule applies; this does not prove
+      // a faded frame was drawn), and Close closes it at once, leaving no
+      // open dialog.
+      await openCard.getByRole("button", { name: "Open full thread" }).click();
       const sheet = page.locator("dialog.sheet[open]");
       await expect(sheet).toHaveCount(1);
       // The computed animation name, not getAnimations(): a finished
@@ -1067,7 +1135,7 @@ export async function responsivenessSmoke(page, fixture, engine) {
 
       // The unconfirmed text, opened in the thread's composer, is sent with
       // the same key: the card and the composer agree on its signature.
-      await doneCard.getByRole("button", { name: "Open full thread" }).click();
+      await doneCard.getByRole("button", { name: "Reply in thread" }).click();
       const composer = page.locator("#composer");
       await expect(composer).toHaveValue(uncertainText);
       const composerKeys = [];
@@ -1248,6 +1316,16 @@ export async function responsivenessSmoke(page, fixture, engine) {
   if (!report.archive?.beforeResponse)
     throw new Error(
       `The archived card waited for the server: ${JSON.stringify(report.archive)}`,
+    );
+  // Open in place (B3): within 100 ms of the tap, re-rendering the opened
+  // card and its full answer (at most 3 card renders), never every card.
+  ran(Number.isFinite(report.openInPlace?.openMs), "open in place");
+  if (
+    !(report.openInPlace.openMs < 100) ||
+    !(report.openInPlace.cardRenders <= 3)
+  )
+    throw new Error(
+      `Opening a card in place missed its budget (< 100 ms, <= 3 card renders): ${JSON.stringify(report.openInPlace)}`,
     );
   // Sheets (D6): the reading sheet animates in and closes fully.
   if (!report.sheet?.enterAnimation)

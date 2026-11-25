@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
+import { openCardReading } from "./open-card.mjs";
 
 export async function feedThreadsSmoke(page, fixture, capture) {
   const target = fixture.conversations.find(
@@ -210,7 +211,7 @@ export async function feedThreadsSmoke(page, fixture, capture) {
   expect(new Set(await titles.allTextContents()).size).toBe(
     history.length + fixture.conversations.length,
   );
-  await cards.last().locator(".feed-row").click();
+  await openCardReading(cards.last().locator(".feed-row"));
   await expect(reader).toBeVisible();
   await close(reader);
   await expect(cards).toHaveCount(

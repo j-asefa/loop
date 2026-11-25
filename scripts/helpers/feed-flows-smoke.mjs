@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
 import { runReceipt } from "./run-receipt.mjs";
 import { collectionReadRecovery, signalCollection } from "./browser-errors.mjs";
+import { openCardReading } from "./open-card.mjs";
 
 // Core Feed journeys: open a thread, reply in place, save a message into
 // Later, jump through the outline and set a thread reminder.
@@ -86,7 +87,7 @@ export async function feedFlowsSmoke(page, fixture, capture) {
     await page.goto(fixture.base, { waitUntil: "networkidle" });
 
     // Feed rows open a reading card; Reply opens the conversation.
-    await row(target.title).click();
+    await openCardReading(row(target.title));
     const reading = page.locator("dialog.feed-reading-sheet[open]");
     await expect(reading).toHaveAttribute("aria-label", target.title);
     await expect(reading.locator(".artifact-body")).toContainText(findings);

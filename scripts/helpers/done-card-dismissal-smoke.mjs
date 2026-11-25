@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
+import { openCardReading } from "./open-card.mjs";
 
 export async function doneCardDismissalSmoke(page, fixture, engine) {
   const client =
@@ -163,7 +164,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     await page.reload({ waitUntil: "networkidle" });
     await expect(row).toHaveCount(1);
     await expect(newResult).toHaveCount(1);
-    await row.click();
+    await openCardReading(row);
     const reader = page.locator("dialog.feed-reading-sheet[open]");
     await expect(reader.locator(".result-title")).toHaveText(target.title);
     await expect(reader.locator(".artifact-body")).not.toContainText(
