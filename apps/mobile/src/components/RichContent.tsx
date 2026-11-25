@@ -1442,28 +1442,7 @@ export const RichContent = React.memo(function RichContent({
 });
 
 /** Plain clean snippet for Feed stack cards (strips fenced spec & markdown syntax). */
-export function feedPreviewText(markdown: string): string {
-  const sample = markdown.length > 700 ? markdown.slice(0, 700) : markdown;
-  return sample
-    .replace(/```[\s\S]*?```/g, "")
-    .replace(/~~~[\s\S]*?~~~/g, "")
-    .replace(/^#{1,6}\s+/gm, "")
-    .replace(/^\s*>\s?/gm, "")
-    .replace(/^\s*\|?[\s:|-]+\|[\s:|-]*$/gm, "")
-    .replace(/\|/g, " · ")
-    .replace(/\*\*\*([^*]+)\*\*\*/g, "$1")
-    .replace(/\*\*([^*]+)\*\*/g, "$1")
-    .replace(/__([^_]+)__/g, "$1")
-    .replace(/~~([^~]+)~~/g, "$1")
-    .replace(/\*([^*\n]+)\*/g, "$1")
-    .replace(/(^|\s)_([^_\n]+)_(?=\s|$|[.,;:!?])/g, "$1$2")
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .replace(/^\s*[-*+]\s+\[[ xX]\]\s+/gm, "• ")
-    .replace(/^\s*[-*+]\s+/gm, "• ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
+export { feedPreviewText } from "../fixtures";
 
 const styles = StyleSheet.create({
   container: {

@@ -264,16 +264,21 @@ export function SpotlightCarousel({
   const [sending, setSending] = useState(false);
   const [replyError, setReplyError] = useState("");
   const [keyboardVisible, setKeyboardVisible] = useState(false);
-  const replyIdempotencyKeyRef = useRef<string | null>(null);
+  // Preserve both idempotencyKey and original replyToMessageId across retries after uncertain errors,
+  // even if a background refresh promotes a working:* slide to its finished Done card.
+  const pendingReplyRef = useRef<{
+    idempotencyKey: string;
+    replyToMessageId?: string;
+  } | null>(null);
   const replyAttachments = useAttachments(client, {
     agentId: activeCard?.agentId,
   });
 
-  // Invalidate pending retry idempotency key when the user changes draft, card, or attachment list
+  // Invalidate pending retry key ONLY when the reply payload or conversation changes
   const attachmentKeySig = replyAttachments.readyIds.join(",");
   useEffect(() => {
-    replyIdempotencyKeyRef.current = null;
-  }, [draft, activeCard?.id, attachmentKeySig]);
+    pendingReplyRef.current = null;
+  }, [draft, conversationId, attachmentKeySig]);
 
   // If the user opened a synthetic working:* placeholder at slide 0 and the run
   // finishes (superseding the placeholder with a live Done card), promote it smoothly.
@@ -545,7 +550,7 @@ export function SpotlightCarousel({
   }, []);
 
   const prefillReply = useCallback((prompt: string) => {
-    replyIdempotencyKeyRef.current = null;
+    pendingReplyRef.current = null;
     setReplyError("");
     setDraft(prompt);
     setQuickReplyOpen(false);
@@ -589,23 +594,34 @@ export function SpotlightCarousel({
       (readyNames.length === 1
         ? `Attached ${readyNames[0]}`
         : `Attached ${readyNames.length} files`);
-    // Keep one durable idempotency key per unsent draft so retries after uncertain failures never duplicate runs
-    if (!replyIdempotencyKeyRef.current) {
-      replyIdempotencyKeyRef.current = randomUuid();
+    // Keep one durable idempotency key + reply target per unsent draft so retries after
+    // uncertain failures never duplicate runs even if the active slide updates mid-flight.
+    if (!pendingReplyRef.current) {
+      pendingReplyRef.current = {
+        idempotencyKey: randomUuid(),
+        replyToMessageId: activeCard.messageId,
+      };
     }
-    const idempotencyKey = replyIdempotencyKeyRef.current;
+    const { idempotencyKey, replyToMessageId } = pendingReplyRef.current;
+    const targetCard =
+      replyToMessageId === activeCard.messageId
+        ? activeCard
+        : { ...activeCard, messageId: replyToMessageId };
     haptics.medium();
     setSending(true);
     setReplyError("");
     try {
       await Promise.resolve(
-        onSendReply(activeCard, finalPrompt, readyIds, idempotencyKey),
+        onSendReply(targetCard, finalPrompt, readyIds, idempotencyKey),
       );
-      replyIdempotencyKeyRef.current = null;
+      pendingReplyRef.current = null;
       setDraft("");
       clearAttachments();
       Keyboard.dismiss();
     } catch (err) {
+      if (!isUncertainOutcomeError(err)) {
+        pendingReplyRef.current = null;
+      }
       haptics.warning();
       setReplyError(
         err instanceof Error ? err.message : "Could not send reply. Try again.",
@@ -1211,7 +1227,7 @@ export function SpotlightCarousel({
                 ref={replyInputRef}
                 value={draft}
                 onChangeText={(next) => {
-                  replyIdempotencyKeyRef.current = null;
+                  pendingReplyRef.current = null;
                   if (replyError) setReplyError("");
                   setDraft(next);
                 }}

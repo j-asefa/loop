@@ -206,6 +206,57 @@ export function mergeCarouselCards(
   });
 }
 
+/**
+ * Strips fenced code/spec blocks (including long or unclosed fences) in O(n)
+ * before formatting a compact single-line preview for Feed cards.
+ */
+export function feedPreviewText(markdown: string, maxChars = 700): string {
+  const lines = markdown.split(/\r?\n/);
+  const kept: string[] = [];
+  let collected = 0;
+  let activeFence: string | null = null;
+
+  for (const line of lines) {
+    const trimmed = line.trimStart();
+    if (activeFence) {
+      if (trimmed.startsWith(activeFence)) {
+        activeFence = null;
+      }
+      continue;
+    }
+    if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) {
+      const marker = trimmed[0];
+      let len = 3;
+      while (trimmed[len] === marker) len++;
+      activeFence = marker.repeat(len);
+      continue;
+    }
+    kept.push(line);
+    collected += line.length + 1;
+    if (collected >= maxChars) break;
+  }
+
+  return kept
+    .join("\n")
+    .slice(0, maxChars)
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^\s*>\s?/gm, "")
+    .replace(/^\s*\|?[\s:|-]+\|[\s:|-]*$/gm, "")
+    .replace(/\|/g, " · ")
+    .replace(/\*\*\*([^*]+)\*\*\*/g, "$1")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/~~([^~]+)~~/g, "$1")
+    .replace(/\*([^*\n]+)\*/g, "$1")
+    .replace(/(^|\s)_([^_\n]+)_(?=\s|$|[.,;:!?])/g, "$1$2")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/^\s*[-*+]\s+\[[ xX]\]\s+/gm, "• ")
+    .replace(/^\s*[-*+]\s+/gm, "• ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export type QuickReplyOption = {
   id: string;
   label: string;

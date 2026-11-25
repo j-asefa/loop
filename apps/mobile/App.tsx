@@ -28,14 +28,14 @@ import {
   SafeAreaProvider,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
-import {
-  isUncertainOutcomeError,
-  LoopApiError,
-  LoopClient,
-  randomUuid,
-} from "./src/api/client";
+import { isUncertainOutcomeError, LoopClient } from "./src/api/client";
 import { clearPairedSession, loadPairedSession } from "./src/api/pairing";
 import { LoopEventSocket, type SocketStatus } from "./src/api/socket";
+import {
+  ActionKeyStore,
+  runSaveToggle,
+  WorkspaceLoadCoordinator,
+} from "./src/workspace-runtime";
 import type {
   ApiAgent,
   ApiApproval,
@@ -223,110 +223,62 @@ function LoopShell() {
   );
 
   const workspaceGenRef = useRef(0);
-  const loadingInFlightRef = useRef(false);
-  const pendingRefreshRef = useRef<{ silent: boolean } | null>(null);
-  const sessionRefreshedRef = useRef(false);
-  const initialLoadDoneRef = useRef(false);
+  const loadCoordRef = useRef(new WorkspaceLoadCoordinator());
   // Durable per-target idempotency/command keys so retries after uncertain timeouts reuse the same key
-  const actionKeysRef = useRef(new Map<string, string>());
-
-  const getOrCreateActionKey = useCallback((scopeKey: string) => {
-    let key = actionKeysRef.current.get(scopeKey);
-    if (!key) {
-      key = randomUuid();
-      actionKeysRef.current.set(scopeKey, key);
-    }
-    return key;
-  }, []);
+  const actionKeysRef = useRef(new ActionKeyStore());
 
   const loadWorkspace = useCallback(
     async (options?: { silent?: boolean }) => {
       if (!client) return;
-      const silent = options?.silent ?? true;
-      const gen = workspaceGenRef.current;
-      if (loadingInFlightRef.current) {
-        // Coalesce concurrent refresh requests; show spinner immediately if user pulled to refresh
-        if (!silent) setRefreshing(true);
-        const prev = pendingRefreshRef.current;
-        pendingRefreshRef.current = {
-          silent: (prev?.silent ?? true) && silent,
-        };
-        return;
-      }
-      loadingInFlightRef.current = true;
-      const showErrors = !silent || !initialLoadDoneRef.current;
-      if (!silent) setRefreshing(true);
-      try {
-        if (!sessionRefreshedRef.current || !silent) {
-          try {
-            await client.refreshSession();
-          } catch (refreshErr) {
-            if (
-              refreshErr instanceof LoopApiError &&
-              refreshErr.status === 401
-            ) {
-              return;
-            }
-          }
-          if (gen !== workspaceGenRef.current) return;
-          sessionRefreshedRef.current = true;
-        }
-        const [
-          boot,
-          feedPage,
-          doneCardItems,
-          replyPage,
-          appList,
-          decList,
-          snipList,
-          runList,
-        ] = await Promise.all([
-          client.bootstrap(),
-          client.feed("done"),
-          client.doneCards().catch(() => null),
-          client.feed("replies").catch(() => null),
-          client.approvals().catch(() => [] as ApiApproval[]),
-          client.nativeDecisions().catch(() => [] as ApiNativeDecision[]),
-          client.snippets().catch(() => [] as ApiSnippet[]),
-          client.runs(true).catch(() => [] as AgentRunSummary[]),
-        ]);
-        // Drop stale results if workspace switched or signed out mid-flight
-        if (gen !== workspaceGenRef.current) return;
-        initialLoadDoneRef.current = true;
-        setAgents(boot.agents);
-        setFolders(boot.folders);
-        setEnvironmentName(boot.environmentName || "");
-        setSummary(feedPage.summary);
+      const gen = loadCoordRef.current.currentGeneration;
+      await loadCoordRef.current.run(options ?? { silent: true }, {
+        setRefreshing,
+        refreshSession: () => client.refreshSession(),
+        fetchAll: async () => {
+          const [
+            boot,
+            feedPage,
+            doneCardItems,
+            replyPage,
+            appList,
+            decList,
+            snipList,
+            runList,
+          ] = await Promise.all([
+            client.bootstrap(),
+            client.feed("done"),
+            client.doneCards().catch(() => null),
+            client.feed("replies").catch(() => null),
+            client.approvals().catch(() => [] as ApiApproval[]),
+            client.nativeDecisions().catch(() => [] as ApiNativeDecision[]),
+            client.snippets().catch(() => [] as ApiSnippet[]),
+            client.runs(true).catch(() => [] as AgentRunSummary[]),
+          ]);
+          // Drop stale results if workspace switched or signed out mid-flight
+          if (gen !== loadCoordRef.current.currentGeneration) return;
+          setAgents(boot.agents);
+          setFolders(boot.folders);
+          setEnvironmentName(boot.environmentName || "");
+          setSummary(feedPage.summary);
 
-        const doneSource =
-          doneCardItems && doneCardItems.length > 0
-            ? doneCardItems
-            : feedPage.items;
-        setLiveCards(mergeUnifiedFeedCards(doneSource, replyPage?.items ?? []));
-        setApprovals(appList);
-        setDecisions(decList);
-        setSnippets(snipList);
-        setActiveRuns(runList);
-      } catch (err) {
-        if (
-          gen === workspaceGenRef.current &&
-          showErrors &&
-          err instanceof Error &&
-          !err.message.includes("401")
-        ) {
-          showToast(err.message);
-        }
-      } finally {
-        if (gen === workspaceGenRef.current) {
-          loadingInFlightRef.current = false;
-          if (!silent) setRefreshing(false);
-          const next = pendingRefreshRef.current;
-          pendingRefreshRef.current = null;
-          if (next) {
-            void loadWorkspaceRef.current(next);
+          const doneSource =
+            doneCardItems && doneCardItems.length > 0
+              ? doneCardItems
+              : feedPage.items;
+          setLiveCards(
+            mergeUnifiedFeedCards(doneSource, replyPage?.items ?? []),
+          );
+          setApprovals(appList);
+          setDecisions(decList);
+          setSnippets(snipList);
+          setActiveRuns(runList);
+        },
+        onError: (err) => {
+          if (err instanceof Error && !err.message.includes("401")) {
+            showToast(err.message);
           }
-        }
-      }
+        },
+      });
     },
     [client, showToast],
   );
@@ -344,13 +296,10 @@ function LoopShell() {
 
   // Reset workspace state cleanly on every client switch (including A -> B) and fetch silently
   useEffect(() => {
-    workspaceGenRef.current += 1;
-    loadingInFlightRef.current = false;
-    pendingRefreshRef.current = null;
-    sessionRefreshedRef.current = false;
-    initialLoadDoneRef.current = false;
+    workspaceGenRef.current = loadCoordRef.current.reset();
     actionKeysRef.current.clear();
-    setToast(null);
+    // Clear stale Undo toasts from the previous workspace while preserving status toasts (expiry/pair/sign-out)
+    setToast((prev) => (prev?.undo ? null : prev));
     setRefreshing(false);
     setLiveCards([]);
     setFolders([]);
@@ -490,33 +439,31 @@ function LoopShell() {
         prev.map((c) => (matchesCard(c) ? { ...c, saved } : c));
       if (client) {
         if (!card.messageId) return;
+        const msgId = card.messageId;
         const gen = workspaceGenRef.current;
-        setLiveCards(applySaved(nextSaved));
-        setCarouselOverrideCards((prev) =>
-          prev ? applySaved(nextSaved)(prev) : prev,
-        );
-        try {
-          await client.setSaved(card.messageId, nextSaved);
-          if (gen === workspaceGenRef.current) {
-            showToast(nextSaved ? "Saved card" : "Removed from Saved");
-          }
-        } catch (err) {
-          if (gen !== workspaceGenRef.current) return;
-          if (isUncertainOutcomeError(err)) {
-            // Timeout/disconnect leaves server state uncertain — do not roll back; re-read instead
+        await runSaveToggle({
+          nextSaved,
+          generation: gen,
+          getGeneration: () => workspaceGenRef.current,
+          applyLocal: (saved) => {
+            setLiveCards(applySaved(saved));
+            setCarouselOverrideCards((prev) =>
+              prev ? applySaved(saved)(prev) : prev,
+            );
+          },
+          commit: () => client.setSaved(msgId, nextSaved),
+          onSuccess: () =>
+            showToast(nextSaved ? "Saved card" : "Removed from Saved"),
+          onUncertain: () => {
             showToast("Save status uncertain — syncing…");
             scheduleSilentRefresh(500, gen);
-            return;
-          }
-          setLiveCards(applySaved(!nextSaved));
-          setCarouselOverrideCards((prev) =>
-            prev ? applySaved(!nextSaved)(prev) : prev,
-          );
-          showToast(
-            err instanceof Error ? err.message : "Could not update Saved.",
-          );
-          throw err;
-        }
+          },
+          onDefiniteError: (err) => {
+            showToast(
+              err instanceof Error ? err.message : "Could not update Saved.",
+            );
+          },
+        });
         return;
       }
       setDemoCards(applySaved(nextSaved));
@@ -701,8 +648,8 @@ function LoopShell() {
     (id: string, decision: "approve" | "reject") => {
       if (!client) return;
       const gen = workspaceGenRef.current;
-      const scopeKey = `approval:${id}:${decision}`;
-      const idempotencyKey = getOrCreateActionKey(scopeKey);
+      const scopeKey = actionKeysRef.current.scopeForApproval(id, decision);
+      const idempotencyKey = actionKeysRef.current.getOrCreate(scopeKey);
       setApprovals((prev) => prev.filter((a) => a.id !== id));
       void client
         .decideApproval(id, decision, idempotencyKey)
@@ -725,15 +672,15 @@ function LoopShell() {
           scheduleSilentRefresh(100, gen);
         });
     },
-    [client, getOrCreateActionKey, scheduleSilentRefresh, showToast],
+    [client, scheduleSilentRefresh, showToast],
   );
 
   const handleAnswerDecision = useCallback(
     (id: string, answer: Record<string, unknown>) => {
       if (!client) return;
       const gen = workspaceGenRef.current;
-      const scopeKey = `decision:${id}`;
-      const commandId = getOrCreateActionKey(scopeKey);
+      const scopeKey = actionKeysRef.current.scopeForDecision(id, answer);
+      const commandId = actionKeysRef.current.getOrCreate(scopeKey);
       setDecisions((prev) => prev.filter((d) => d.id !== id));
       void client
         .answerNativeDecision(id, answer, commandId)
@@ -756,7 +703,7 @@ function LoopShell() {
           scheduleSilentRefresh(100, gen);
         });
     },
-    [client, getOrCreateActionKey, scheduleSilentRefresh, showToast],
+    [client, scheduleSilentRefresh, showToast],
   );
 
   const handleCancelQueuedRun = useCallback(
@@ -767,8 +714,8 @@ function LoopShell() {
         return;
       }
       const gen = workspaceGenRef.current;
-      const scopeKey = `run-cancel:${runId}`;
-      const idempotencyKey = getOrCreateActionKey(scopeKey);
+      const scopeKey = actionKeysRef.current.scopeForRunCancel(runId);
+      const idempotencyKey = actionKeysRef.current.getOrCreate(scopeKey);
       const priorRun = activeRuns.find((r) => r.id === runId);
       setActiveRuns((prev) => prev.filter((r) => r.id !== runId));
       void client
@@ -797,23 +744,21 @@ function LoopShell() {
           showToast((err as Error).message);
         });
     },
-    [
-      activeRuns,
-      client,
-      getOrCreateActionKey,
-      scheduleSilentRefresh,
-      showToast,
-    ],
+    [activeRuns, client, scheduleSilentRefresh, showToast],
   );
 
   const handleSignOut = useCallback(async () => {
+    const signingOutSession = session;
     if (client) await client.signOut();
+    // Never wipe a newly paired workspace if the user switched while sign-out was in flight
+    if (activeSessionRef.current !== signingOutSession) return;
     await clearPairedSession();
+    if (activeSessionRef.current !== signingOutSession) return;
     setSession(null);
     setLiveCards([]);
     setSocketStatus("offline");
     showToast("Signed out — switched to Demo Deck");
-  }, [client, showToast]);
+  }, [client, session, showToast]);
 
   const openAgentByName = useCallback(
     (agentId: string | null | undefined, agentName: string) => {

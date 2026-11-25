@@ -13,11 +13,17 @@ import {
 } from "../apps/mobile/src/api/pairing-url.js";
 import {
   feedItemToNativeCard,
+  feedPreviewText,
   getCardDismissTargets,
   mergeCarouselCards,
   mergeUnifiedFeedCards,
   type NativeResultCard,
 } from "../apps/mobile/src/fixtures.js";
+import {
+  ActionKeyStore,
+  runSaveToggle,
+  WorkspaceLoadCoordinator,
+} from "../apps/mobile/src/workspace-runtime.js";
 import type { ApiFeedItem } from "../apps/mobile/src/api/types.js";
 
 function makeFeedItem(overrides: Partial<ApiFeedItem> = {}): ApiFeedItem {
@@ -544,5 +550,218 @@ describe("mobile LoopClient redirect, timeout, and doneCards contracts", () => {
     expect(card1.messageId).toBe("msg-2");
     expect(card1.body).toBe("Full untruncated body from v1 cards endpoint");
     expect(card1.saved).toBe(true);
+  });
+});
+
+describe("mobile production workspace runtime & feed previews", () => {
+  it("strips long and unclosed fenced spec/code blocks from feedPreviewText", () => {
+    const longJsonFence =
+      "Summary sentence.\n```spec\n" +
+      '{"op":"add","path":"/elements/x","value":"' +
+      "a".repeat(900) +
+      '"}\n```\nClosing takeaway.';
+    const preview = feedPreviewText(longJsonFence);
+    expect(preview).toContain("Summary sentence.");
+    expect(preview).toContain("Closing takeaway.");
+    expect(preview).not.toContain('"op"');
+    expect(preview).not.toContain("```");
+
+    const unclosedFence = "Intro line.\n```json\n" + '{"secret":"raw"}';
+    expect(feedPreviewText(unclosedFence)).toBe("Intro line.");
+  });
+
+  it("ActionKeyStore reuses keys on retries, separates different decision answers, and resets on workspace switch", () => {
+    let seq = 0;
+    const store = new ActionKeyStore(() => `key-${++seq}`);
+
+    const approveScope = store.scopeForApproval("a1", "approve");
+    const rejectScope = store.scopeForApproval("a1", "reject");
+    expect(store.getOrCreate(approveScope)).toBe("key-1");
+    expect(store.getOrCreate(approveScope)).toBe("key-1");
+    expect(store.getOrCreate(rejectScope)).toBe("key-2");
+
+    // Same decision answer with different key order reuses the same commandId
+    const decScopeA1 = store.scopeForDecision("d1", { b: 2, a: 1 });
+    const decScopeA2 = store.scopeForDecision("d1", { a: 1, b: 2 });
+    const decScopeB = store.scopeForDecision("d1", { a: 99, b: 2 });
+    expect(store.getOrCreate(decScopeA1)).toBe("key-3");
+    expect(store.getOrCreate(decScopeA2)).toBe("key-3");
+    expect(store.getOrCreate(decScopeB)).toBe("key-4");
+
+    // Workspace switch clears all pending keys
+    store.clear();
+    expect(store.getOrCreate(approveScope)).toBe("key-5");
+  });
+
+  it("runSaveToggle preserves optimistic state on 408 timeout, rolls back on 400, and ignores stale generations", async () => {
+    let localSaved = false;
+    let uncertainCalls = 0;
+    let definiteErrors = 0;
+    let gen = 1;
+
+    // 1. Uncertain 408 timeout: keeps optimistic true, invokes onUncertain, does not throw
+    const outcome = await runSaveToggle({
+      nextSaved: true,
+      generation: gen,
+      getGeneration: () => gen,
+      applyLocal: (v) => {
+        localSaved = v;
+      },
+      commit: async () => {
+        throw new LoopApiError(408, "Timeout");
+      },
+      onSuccess: () => {},
+      onUncertain: () => {
+        uncertainCalls += 1;
+      },
+      onDefiniteError: () => {
+        definiteErrors += 1;
+      },
+    });
+    expect(outcome).toBe("uncertain");
+    expect(localSaved).toBe(true);
+    expect(uncertainCalls).toBe(1);
+    expect(definiteErrors).toBe(0);
+
+    // 2. Definite 400 rejection: rolls back to false, calls onDefiniteError, and rethrows
+    localSaved = false;
+    await expect(
+      runSaveToggle({
+        nextSaved: true,
+        generation: gen,
+        getGeneration: () => gen,
+        applyLocal: (v) => {
+          localSaved = v;
+        },
+        commit: async () => {
+          throw new LoopApiError(400, "Invalid message");
+        },
+        onSuccess: () => {},
+        onUncertain: () => {
+          uncertainCalls += 1;
+        },
+        onDefiniteError: () => {
+          definiteErrors += 1;
+        },
+      }),
+    ).rejects.toThrow(/Invalid message/);
+    expect(localSaved).toBe(false);
+    expect(definiteErrors).toBe(1);
+
+    // 3. Stale generation (workspace switched mid-flight): ignores error without rollback
+    localSaved = false;
+    const staleOutcome = await runSaveToggle({
+      nextSaved: true,
+      generation: gen,
+      getGeneration: () => gen,
+      applyLocal: (v) => {
+        localSaved = v;
+      },
+      commit: async () => {
+        gen += 1;
+        throw new LoopApiError(400, "Old workspace");
+      },
+      onSuccess: () => {},
+      onUncertain: () => {},
+      onDefiniteError: () => {
+        definiteErrors += 1;
+      },
+    });
+    expect(staleOutcome).toBe("stale");
+    expect(definiteErrors).toBe(1);
+  });
+
+  it("WorkspaceLoadCoordinator coalesces overlapping refreshes, aborts on refreshSession 401, and drops stale workspace results", async () => {
+    const coord = new WorkspaceLoadCoordinator();
+    const refreshingLog: boolean[] = [];
+    let fetchCount = 0;
+    let releaseFirst!: () => void;
+
+    const first = coord.run(
+      { silent: true },
+      {
+        setRefreshing: (v) => refreshingLog.push(v),
+        refreshSession: async () => {},
+        fetchAll: async () => {
+          fetchCount += 1;
+          if (fetchCount === 1) {
+            await new Promise<void>((r) => {
+              releaseFirst = r;
+            });
+          }
+        },
+        onError: () => {},
+      },
+    );
+
+    // Wait a tick for first refreshSession to finish and enter fetchAll
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Overlapping pull-to-refresh coalesces and immediately surfaces spinner
+    await coord.run(
+      { silent: false },
+      {
+        setRefreshing: (v) => refreshingLog.push(v),
+        refreshSession: async () => {},
+        fetchAll: async () => {
+          fetchCount += 1;
+        },
+        onError: () => {},
+      },
+    );
+    expect(refreshingLog).toEqual([true]);
+
+    releaseFirst();
+    await first;
+    // Let coalesced run complete
+    await new Promise((r) => setTimeout(r, 10));
+    expect(fetchCount).toBe(2);
+    expect(refreshingLog[refreshingLog.length - 1]).toBe(false);
+
+    // 401 from refreshSession aborts without calling fetchAll
+    coord.reset();
+    let batchCalledAfter401 = false;
+    await coord.run(
+      { silent: false },
+      {
+        setRefreshing: () => {},
+        refreshSession: async () => {
+          throw new LoopApiError(401, "Expired");
+        },
+        fetchAll: async () => {
+          batchCalledAfter401 = true;
+        },
+        onError: () => {},
+      },
+    );
+    expect(batchCalledAfter401).toBe(false);
+
+    // Workspace switch mid-flight drops stale errors and unlocks new workspace immediately
+    coord.reset();
+    let staleErrorReported = false;
+    let releaseStale!: () => void;
+    const staleRun = coord.run(
+      { silent: false },
+      {
+        setRefreshing: () => {},
+        refreshSession: async () => {},
+        fetchAll: async () => {
+          await new Promise<void>((r) => {
+            releaseStale = r;
+          });
+          throw new Error("Workspace A failed");
+        },
+        onError: () => {
+          staleErrorReported = true;
+        },
+      },
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    coord.reset();
+    releaseStale();
+    await staleRun;
+    expect(staleErrorReported).toBe(false);
   });
 });

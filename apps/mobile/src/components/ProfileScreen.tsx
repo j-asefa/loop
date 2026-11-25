@@ -87,9 +87,12 @@ export function ProfileScreen({
 
   const localCardsRef = useRef(localCards);
   localCardsRef.current = localCards;
+  const loadGenRef = useRef(0);
 
   // Reset all profile state on workspace switch or sign-out and guard against stale responses
   useEffect(() => {
+    loadGenRef.current += 1;
+    setLoading(false);
     setProfile(null);
     setSaved([]);
     setReminders([]);
@@ -110,6 +113,7 @@ export function ProfileScreen({
   }, [client]);
 
   const loadSection = useCallback(async () => {
+    const gen = ++loadGenRef.current;
     if (!client) {
       setSaved(
         localCardsRef.current
@@ -140,55 +144,35 @@ export function ProfileScreen({
 
     setLoading(true);
     try {
-      if (section === "saved") setSaved(await client.savedList());
-      else if (section === "reminders") setReminders(await client.laterList());
-      else if (section === "scheduled")
-        setScheduled(await client.scheduledList());
-      else if (section === "files") setFiles(await client.personalFiles());
-      else if (section === "social") setStories(await client.socialStories());
+      if (section === "saved") {
+        const data = await client.savedList();
+        if (gen === loadGenRef.current) setSaved(data);
+      } else if (section === "reminders") {
+        const data = await client.laterList();
+        if (gen === loadGenRef.current) setReminders(data);
+      } else if (section === "scheduled") {
+        const data = await client.scheduledList();
+        if (gen === loadGenRef.current) setScheduled(data);
+      } else if (section === "files") {
+        const data = await client.personalFiles();
+        if (gen === loadGenRef.current) setFiles(data);
+      } else if (section === "social") {
+        const data = await client.socialStories();
+        if (gen === loadGenRef.current) setStories(data);
+      }
     } catch {
       // keep existing items
     } finally {
-      setLoading(false);
+      if (gen === loadGenRef.current) setLoading(false);
     }
   }, [client, section]);
 
   useEffect(() => {
-    let cancelled = false;
-    const run = async () => {
-      if (!client) {
-        await loadSection();
-        return;
-      }
-      setLoading(true);
-      try {
-        if (section === "saved") {
-          const data = await client.savedList();
-          if (!cancelled) setSaved(data);
-        } else if (section === "reminders") {
-          const data = await client.laterList();
-          if (!cancelled) setReminders(data);
-        } else if (section === "scheduled") {
-          const data = await client.scheduledList();
-          if (!cancelled) setScheduled(data);
-        } else if (section === "files") {
-          const data = await client.personalFiles();
-          if (!cancelled) setFiles(data);
-        } else if (section === "social") {
-          const data = await client.socialStories();
-          if (!cancelled) setStories(data);
-        }
-      } catch {
-        // keep existing
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-    void run();
+    void loadSection();
     return () => {
-      cancelled = true;
+      loadGenRef.current += 1;
     };
-  }, [client, section, loadSection]);
+  }, [loadSection]);
 
   // Keep demo Saved list synced when local demo cards change
   useEffect(() => {
