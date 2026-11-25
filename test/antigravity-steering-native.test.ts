@@ -404,6 +404,56 @@ it("steers a running turn through agy acp without a restart or replaying the tas
   ]);
 });
 
+it("preserves unconfirmed Antigravity reactive output without publishing a Result", async () => {
+  process.env.LOOP_TEST_AGY_MODE = "reactive";
+  const { run } = task("agy-reactive");
+  const before = prompts().length;
+  const execution = sessions.execute(
+    claim("antigravity-fixture", (candidate) => candidate.id === run.id)!,
+  );
+  const checkpoint = () =>
+    db
+      .prepare("SELECT stage,output FROM agent_checkpoints WHERE run_id=?")
+      .get(run.id);
+  const decision = () =>
+    db
+      .prepare(
+        "SELECT id FROM native_decisions WHERE run_id=? AND state='pending'",
+      )
+      .get(run.id) as { id: string } | undefined;
+  try {
+    await until(() => !!decision());
+    expect(checkpoint()).toMatchObject({ output: "" });
+    expect(checkpoint()).not.toMatchObject({ stage: "done" });
+    expect(ownedRun(run.id, OWNER).state).toBe("awaiting_approval");
+    await sessions.decisions.answer(decision()!.id, "reactive-approval", {
+      choice: "allow",
+    });
+    const reactiveOutput = () =>
+      db
+        .prepare("SELECT item FROM native_items WHERE run_id=?")
+        .all(run.id)
+        .some((row) =>
+          JSON.parse((row as { item: string }).item).text?.includes("Done."),
+        );
+    await until(reactiveOutput, 5000);
+    await sessions.interrupt(run.id);
+    expect(await execution).toMatchObject({
+      kind: "already-moved",
+      reason: "native-interrupted",
+    });
+    expect(checkpoint()).toMatchObject({ stage: "native", output: "" });
+    expect(reactiveOutput()).toBe(true);
+    expect(prompts().slice(before)).toEqual([
+      "Saved fixture instructions\n\nExplicit task",
+    ]);
+  } finally {
+    delete process.env.LOOP_TEST_AGY_MODE;
+    await sessions.interrupt(run.id);
+    await execution;
+  }
+}, 10_000);
+
 it("replaces an idle ACP session after refreshing workspace-tool support while retaining native context", async () => {
   const { run } = task("agy-acp-upgrade");
   const before = await sessions.session(run);

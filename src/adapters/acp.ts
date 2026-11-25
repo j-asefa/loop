@@ -73,6 +73,8 @@ function matchEcho(echo: Echo, chunk: string) {
 }
 // agy echoes a prompt within a second of receiving it.
 const ECHO_WAIT = 5000;
+const REACTIVE_IDLE_MS = 60_000;
+const REACTIVE_WATCHDOG_MS = 60 * 60_000;
 const wait = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms).unref());
 const text = (value: unknown) =>
@@ -141,6 +143,18 @@ export class Acp implements Adapter {
   protected resumeWithoutReplay = false;
   /** Report each turn's cumulative token usage from prompt responses. */
   protected reportsUsage = false;
+  /** agy can return end_turn before its background work wakes the model. */
+  protected waitsForReactiveTurns = false;
+  private reactiveTools = new Set<string>();
+  private reactiveEnd = false;
+  private reactiveIdle?: NodeJS.Timeout;
+  private reactiveWatchdog?: NodeJS.Timeout;
+  private reactiveWatchdogStarted = 0;
+  private reactiveBudget = REACTIVE_WATCHDOG_MS;
+  private retireReactiveSession = false;
+  get reusable() {
+    return !this.retireReactiveSession;
+  }
   /** Prompt requests open in the current turn. A steering agent answers an
    * earlier request when it folds a later one into the same turn; the turn
    * ends only when the last open request settles. */
@@ -154,6 +168,8 @@ export class Acp implements Adapter {
   private steering = false;
   /** The steering input's echo arrived, so it joined the running turn. */
   private steerJoined = false;
+  private toolsAtFirstSteerDispatch?: Set<string>;
+  private workWhileSteerUnconfirmed = false;
   /** An earlier request of this turn ended it normally. */
   private earlierEnd = false;
   private end!: () => void;
@@ -241,6 +257,8 @@ export class Acp implements Adapter {
     );
     this.child = child;
     child.once("error", () => {
+      clearTimeout(this.reactiveIdle);
+      clearTimeout(this.reactiveWatchdog);
       this.end();
       this.cancelPermissions();
       if (!this.closed && !this.terminalReported) {
@@ -258,6 +276,8 @@ export class Acp implements Adapter {
     });
     child.stderr.resume();
     child.once("exit", () => {
+      clearTimeout(this.reactiveIdle);
+      clearTimeout(this.reactiveWatchdog);
       this.end();
       const memory = nativeMemoryFailure(child);
       this.modeConfirmation?.reject(memory || new Error("ACP agent exited"));
@@ -581,6 +601,7 @@ export class Acp implements Adapter {
       !this.connection ||
       !this.session ||
       this.active ||
+      !this.reusable ||
       this.pendingSettingWrites
     )
       throw new Error("ACP session is unavailable or busy");
@@ -592,6 +613,10 @@ export class Acp implements Adapter {
     this.messageId = randomUUID();
     this.turnUsage = undefined;
     this.earlierEnd = false;
+    this.toolsAtFirstSteerDispatch = undefined;
+    this.reactiveTools.clear();
+    this.reactiveEnd = false;
+    this.reactiveBudget = REACTIVE_WATCHDOG_MS;
     const expected = this.echoOf(value).trim();
     this.promptEcho = undefined;
     this.promptEchoed = expected
@@ -608,6 +633,7 @@ export class Acp implements Adapter {
   /** Sends one prompt request in the current turn. Only the last open request
    * to settle reports the turn's terminal status. */
   private send(value: string, steer = false) {
+    clearTimeout(this.reactiveIdle);
     this.openPrompts++;
     const request = this.connection!.prompt({
       sessionId: this.session!,
@@ -618,33 +644,76 @@ export class Acp implements Adapter {
         (result) => {
           const last = --this.openPrompts === 0;
           this.addUsage(result);
-          if (!last && result.stopReason === "end_turn") this.earlierEnd = true;
-          if (!last || this.closed || this.terminalReported) return;
+          if (this.closed || this.terminalReported) return;
+          if (result.stopReason === "end_turn") {
+            if (!last) this.earlierEnd = true;
+            // Antigravity gives reactive passes no definitive end signal.
+            // Preserve their output as partial instead of publishing it
+            // based on usage, steering replies, or elapsed time.
+            const inheritedWork = [
+              ...(this.toolsAtFirstSteerDispatch ?? []),
+            ].some((id) => this.reactiveTools.has(id));
+            if (
+              (last ||
+                inheritedWork ||
+                (!this.steerJoined && this.permissions.size)) &&
+              this.waitForReactiveTurn()
+            )
+              return;
+            if (!last && this.waitsForReactiveTurns) {
+              if (
+                this.echo &&
+                (this.reactiveTools.size || this.permissions.size)
+              )
+                this.workWhileSteerUnconfirmed = true;
+              this.refreshReactiveWait();
+            }
+          }
+          if (!last) return;
           this.terminalReported = true;
           const limited = ["max_tokens", "max_turn_requests"].includes(
             result.stopReason,
           );
+          const interrupted =
+            this.cancelling ||
+            this.reactiveEnd ||
+            limited ||
+            result.stopReason === "cancelled";
+          if (interrupted && (this.reactiveEnd || this.reactiveTools.size))
+            this.retireReactiveSession = true;
           this.emit({
             type: "status",
-            status:
-              this.cancelling ||
-              ["cancelled", "max_tokens", "max_turn_requests"].includes(
-                result.stopReason,
-              )
-                ? "interrupted"
-                : "completed",
+            status: interrupted ? "interrupted" : "completed",
             detail: limited
               ? "ACP turn stopped at the agent's limit."
               : undefined,
-            recoverable: true,
+            recoverable: !this.retireReactiveSession,
           });
         },
         (error: unknown) => {
           const last = --this.openPrompts === 0;
           if (!last || this.closed || this.terminalReported) return;
-          this.terminalReported = true;
           // A rejected steering input that never joined the turn does not
           // undo the turn's own normal end.
+          if (
+            this.cancelling &&
+            (this.reactiveEnd ||
+              (this.waitsForReactiveTurns && this.earlierEnd))
+          ) {
+            this.interruptReactiveTurn();
+            return;
+          }
+          if (
+            steer &&
+            (this.reactiveEnd ||
+              (this.earlierEnd &&
+                (!this.steerJoined ||
+                  this.reactiveTools.size ||
+                  this.permissions.size))) &&
+            this.waitForReactiveTurn(this.workWhileSteerUnconfirmed)
+          )
+            return;
+          this.terminalReported = true;
           if (steer && !this.steerJoined && this.earlierEnd) {
             this.emit({
               type: "status",
@@ -665,11 +734,87 @@ export class Acp implements Adapter {
         },
       )
       .finally(() => {
-        if (this.openPrompts) return;
+        if (this.openPrompts || !this.terminalReported) return;
+        clearTimeout(this.reactiveIdle);
+        clearTimeout(this.reactiveWatchdog);
+        this.reactiveWatchdog = undefined;
         this.active = false;
         this.cancelPermissions();
       });
     return request;
+  }
+  private waitForReactiveTurn(observedContinuation = false) {
+    if (
+      this.cancelling ||
+      !this.waitsForReactiveTurns ||
+      !(
+        observedContinuation ||
+        this.reactiveEnd ||
+        this.reactiveTools.size ||
+        this.permissions.size
+      )
+    )
+      return false;
+    this.reactiveEnd = true;
+    this.refreshReactiveWait();
+    return true;
+  }
+  private refreshReactiveWait() {
+    clearTimeout(this.reactiveIdle);
+    if (
+      this.closed ||
+      this.terminalReported ||
+      !(this.reactiveEnd || (this.earlierEnd && this.openPrompts))
+    )
+      return;
+    if (this.cancelling) {
+      this.interruptReactiveTurn();
+      return;
+    }
+    if (this.permissions.size) return;
+    // The reactive wait stays bounded even if a concurrent steer never
+    // answers. Human approval time does not count against the watchdog.
+    if (!this.reactiveWatchdog) {
+      this.reactiveWatchdogStarted = performance.now();
+      this.reactiveWatchdog = setTimeout(
+        () =>
+          this.interruptReactiveTurn(
+            "Antigravity did not finish its reactive turn within an hour.",
+          ),
+        this.reactiveBudget,
+      ).unref();
+    }
+    if (!this.reactiveEnd || this.openPrompts || this.reactiveTools.size)
+      return;
+    // ACP usage updates also occur mid-pass. A quiet reactive wait can
+    // preserve partial output, but cannot certify a completed Result.
+    this.reactiveIdle = setTimeout(
+      () =>
+        this.interruptReactiveTurn(
+          "Antigravity did not confirm the end of its reactive turn.",
+        ),
+      REACTIVE_IDLE_MS,
+    ).unref();
+  }
+  private interruptReactiveTurn(detail?: string) {
+    if (!this.cancelling && this.session && this.connection) {
+      this.cancelling = true;
+      // The supervisor also retires the process when it sees this adapter
+      // is no longer reusable. A blocked cancel write cannot delay that.
+      void this.connection.cancel({ sessionId: this.session }).catch(() => {});
+    }
+    clearTimeout(this.reactiveIdle);
+    clearTimeout(this.reactiveWatchdog);
+    this.reactiveWatchdog = undefined;
+    this.retireReactiveSession = true;
+    this.terminalReported = true;
+    this.active = false;
+    this.emit({
+      type: "status",
+      status: "interrupted",
+      detail,
+      recoverable: false,
+    });
   }
   private addUsage(result: unknown) {
     if (!this.reportsUsage) return;
@@ -750,6 +895,8 @@ export class Acp implements Adapter {
       throw new NotDelivered("ACP session is busy.");
     beforeDispatch?.();
     this.steerJoined = false;
+    this.toolsAtFirstSteerDispatch ??= new Set(this.reactiveTools);
+    this.workWhileSteerUnconfirmed = false;
     const echoed = new Promise<void>((resolve) => {
       if (expected)
         this.echo = {
@@ -782,10 +929,17 @@ export class Acp implements Adapter {
   }
   async cancel() {
     this.cancelling = true;
+    clearTimeout(this.reactiveIdle);
+    clearTimeout(this.reactiveWatchdog);
+    this.reactiveWatchdog = undefined;
     this.finishCommandDiscovery(false);
     this.cancelPermissions();
-    if (!this.closed && this.session && this.connection && this.active)
-      await this.connection.cancel({ sessionId: this.session });
+    const notification =
+      !this.closed && this.session && this.connection && this.active
+        ? this.connection.cancel({ sessionId: this.session })
+        : undefined;
+    this.refreshReactiveWait();
+    await notification;
   }
   async answer(
     id: string,
@@ -805,9 +959,13 @@ export class Acp implements Adapter {
       outcome: { outcome: "selected", optionId: answer.choice },
     });
     this.emit({ type: "resolved", id });
+    if (this.waitsForReactiveTurns && !this.cancelling)
+      this.refreshReactiveWait();
   }
   async dispose() {
     this.closed = true;
+    clearTimeout(this.reactiveIdle);
+    clearTimeout(this.reactiveWatchdog);
     this.creatingSession = false;
     this.startupCommands = undefined;
     this.finishCommandDiscovery(false);
@@ -1102,11 +1260,21 @@ export class Acp implements Adapter {
     if (!choices.length)
       return Promise.resolve({ outcome: { outcome: "cancelled" } });
     const id = randomUUID();
+    clearTimeout(this.reactiveIdle);
+    if (this.reactiveWatchdog)
+      this.reactiveBudget = Math.max(
+        0,
+        this.reactiveBudget -
+          (performance.now() - this.reactiveWatchdogStarted),
+      );
+    clearTimeout(this.reactiveWatchdog);
+    this.reactiveWatchdog = undefined;
     return new Promise((resolve) => {
       this.permissions.set(id, {
         choices: new Set(choices.map((choice) => choice.optionId)),
         resolve,
       });
+      if (this.earlierEnd && this.echo) this.workWhileSteerUnconfirmed = true;
       this.emit({
         type: "request",
         request: {
@@ -1170,18 +1338,64 @@ export class Acp implements Adapter {
       return;
     }
     if (u.sessionUpdate === "agent_message_chunk") {
-      if (!this.loading && u.content.type === "text")
+      if (!this.loading && u.content.type === "text") {
         this.emit({
           type: "delta",
           id: this.messageId,
           text: text(u.content.text),
         });
+      }
+      if (this.earlierEnd && this.echo) this.workWhileSteerUnconfirmed = true;
+      this.refreshReactiveWait();
+      return;
+    }
+    if (
+      u.sessionUpdate === "agent_thought_chunk" &&
+      (this.earlierEnd || this.reactiveEnd) &&
+      !this.cancelling
+    ) {
+      if (this.earlierEnd && this.echo) this.workWhileSteerUnconfirmed = true;
+      this.refreshReactiveWait();
+      return;
+    }
+    if (
+      u.sessionUpdate === "usage_update" &&
+      this.reactiveEnd &&
+      !this.cancelling
+    ) {
+      this.refreshReactiveWait();
       return;
     }
     if (
       u.sessionUpdate === "tool_call" ||
       u.sessionUpdate === "tool_call_update"
     ) {
+      let reactiveWorkChanged = false;
+      if (this.waitsForReactiveTurns && !this.loading) {
+        const input = u.rawInput;
+        const title = u.title ?? this.toolItems.get(u.toolCallId)?.title;
+        const command =
+          input &&
+          typeof input === "object" &&
+          "CommandLine" in input &&
+          typeof input.CommandLine === "string";
+        const daemon =
+          (command || title === "run_command" || title === "schedule") &&
+          input &&
+          typeof input === "object" &&
+          "IsDaemon" in input &&
+          input.IsDaemon === true;
+        if (daemon || u.status === "completed" || u.status === "failed") {
+          reactiveWorkChanged = this.reactiveTools.delete(u.toolCallId);
+        } else if (u.sessionUpdate === "tool_call") {
+          this.reactiveTools.add(u.toolCallId);
+          // A pending steer might own this tool. Its successful response
+          // decides whether work remains; a rejection retains the evidence.
+          if (this.earlierEnd && this.echo)
+            this.workWhileSteerUnconfirmed = true;
+          reactiveWorkChanged = true;
+        }
+      }
       const old = this.toolItems.get(u.toolCallId);
       const title = text(u.title) || old?.title || "ACP tool";
       const memoryTool =
@@ -1196,6 +1410,8 @@ export class Acp implements Adapter {
         };
         this.toolItems.set(u.toolCallId, item);
         this.emit({ type: "item", item });
+        if (reactiveWorkChanged || this.reactiveTools.has(u.toolCallId))
+          this.refreshReactiveWait();
         return;
       }
       const kind = u.kind ?? this.toolKinds.get(u.toolCallId);
@@ -1414,6 +1630,8 @@ export class Acp implements Adapter {
         },
         this.loading,
       );
+      if (reactiveWorkChanged || this.reactiveTools.has(u.toolCallId))
+        this.refreshReactiveWait();
       return;
     }
     if (u.sessionUpdate === "plan") {

@@ -29,6 +29,7 @@ class AntigravityAcp extends Acp {
   protected override requireWorkspaceTools = false;
   protected override resumeWithoutReplay = true;
   protected override reportsUsage = true;
+  protected override waitsForReactiveTurns = true;
   override capabilities = {
     approvals: true,
     questions: false,
@@ -207,6 +208,7 @@ export class Antigravity implements Adapter {
   }
   canReuse(registration: Options) {
     return (
+      this.reusable !== false &&
       meetsMinimum(registration.version, ANTIGRAVITY_ACP_MINIMUM_VERSION) ===
         this.adapter instanceof Acp &&
       meetsMinimum(
