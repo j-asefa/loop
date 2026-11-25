@@ -1,20 +1,92 @@
+import type { ApiFeedItem } from "./api/types";
+
 export type FeedTab = "done" | "working" | "queued" | "replies";
 
 export type NativeResultCard = {
   id: string;
   conversationId: string;
   tab: FeedTab;
+  agentId?: string | null;
   agentName: string;
   projectName: string;
   model: string;
   prompt: string;
   fallbackTitle: string;
   body: string;
+  bodyTruncated?: boolean;
   createdAt: number;
   saved: boolean;
   unread: boolean;
   statusLabel?: string;
+  /** Live companion identifiers for mutations (read, dismiss, save, reply). */
+  messageId?: string;
+  doneCardKey?: string;
+  replyCardKey?: string;
+  unreadVersion?: number;
+  runId?: string;
+  runState?: string;
+  runError?: string | null;
 };
+
+export function feedItemToNativeCard(
+  item: ApiFeedItem,
+  tab: FeedTab,
+): NativeResultCard {
+  const msg = item.last_message;
+  const doneBody =
+    item.card?.display?.last_message?.content ??
+    item.card?.display?.last_message?.preview ??
+    item.live_preview ??
+    msg?.content ??
+    msg?.preview ??
+    "";
+  const prompt =
+    item.reply?.content ?? item.run?.input ?? item.title ?? "Result";
+  const id =
+    item.done_card_key ??
+    item.reply_card_key ??
+    msg?.id ??
+    `${item.conversation_id}:${item.last_activity_at}`;
+
+  const statusLabel =
+    tab === "working"
+      ? "Working"
+      : tab === "queued"
+        ? "Queued"
+        : item.reply && item.reply.read_at === null
+          ? "Reply"
+          : undefined;
+
+  return {
+    id,
+    conversationId: item.conversation_id,
+    tab,
+    agentId: item.agent_id,
+    agentName: item.agent_name || "agent",
+    projectName: item.project_name || "Workspace",
+    model: item.run?.resolved_model || item.run?.model || "",
+    prompt,
+    fallbackTitle: item.title || "Result",
+    body: doneBody,
+    bodyTruncated: Boolean(msg?.content_truncated),
+    createdAt: msg?.created_at ?? item.last_activity_at,
+    saved: Boolean(msg?.saved),
+    unread:
+      tab === "done"
+        ? item.read_at === null
+        : tab === "replies"
+          ? item.reply?.read_at === null
+          : false,
+    statusLabel,
+    messageId: msg?.id ?? item.reply?.message_id,
+    doneCardKey: item.done_card_key,
+    replyCardKey: item.reply_card_key,
+    unreadVersion: item.unread_version,
+    runId: item.run?.id,
+    runState: item.run?.state,
+    runError: item.run?.error,
+  };
+}
 
 export type QuickReplyOption = {
   id: string;
@@ -59,11 +131,11 @@ const MINUTE = 60_000;
 
 export function createInitialCards(now = Date.now()): NativeResultCard[] {
   return [
-    // @willow's 4-card Done stack (newest first)
     {
       id: "willow-4",
       conversationId: "conv-willow",
       tab: "done",
+      agentId: "agent-willow",
       agentName: "willow",
       projectName: "Loop Mobile",
       model: "claude-sonnet-4",
@@ -75,15 +147,17 @@ export function createInitialCards(now = Date.now()): NativeResultCard[] {
         "- **Stack on Done:** Newest card sits on top with earlier cards peeking cleanly beneath it\n" +
         "- **120fps native carousel:** Flip left/right across every discrete result with haptic detents\n" +
         "- **Direct thread search:** Tap the search icon above and try **Hetzner**, **residency**, or **latency**\n\n" +
-        "Send a reply below to watch a live simulated result card arrive in this stack.",
+        "Tap **Pair** in the header to connect your live Loop workspace with `loop pair`.",
       createdAt: now - 5 * MINUTE,
       saved: false,
       unread: true,
+      messageId: "willow-4",
     },
     {
       id: "willow-3",
       conversationId: "conv-willow",
       tab: "done",
+      agentId: "agent-willow",
       agentName: "willow",
       projectName: "Loop Mobile",
       model: "claude-sonnet-4",
@@ -99,11 +173,13 @@ export function createInitialCards(now = Date.now()): NativeResultCard[] {
       createdAt: now - 1 * HOUR,
       saved: false,
       unread: true,
+      messageId: "willow-3",
     },
     {
       id: "willow-2",
       conversationId: "conv-willow",
       tab: "done",
+      agentId: "agent-willow",
       agentName: "willow",
       projectName: "Loop Mobile",
       model: "claude-sonnet-4",
@@ -123,11 +199,13 @@ export function createInitialCards(now = Date.now()): NativeResultCard[] {
       createdAt: now - 2 * HOUR,
       saved: true,
       unread: false,
+      messageId: "willow-2",
     },
     {
       id: "willow-1",
       conversationId: "conv-willow",
       tab: "done",
+      agentId: "agent-willow",
       agentName: "willow",
       projectName: "Loop Mobile",
       model: "claude-sonnet-4",
@@ -144,12 +222,13 @@ export function createInitialCards(now = Date.now()): NativeResultCard[] {
       createdAt: now - 3 * HOUR,
       saved: false,
       unread: false,
+      messageId: "willow-1",
     },
-    // @cedar's standalone Done card
     {
       id: "cedar-1",
       conversationId: "conv-cedar",
       tab: "done",
+      agentId: "agent-cedar",
       agentName: "cedar",
       projectName: "Loop Core",
       model: "gpt-5.4",
@@ -163,12 +242,13 @@ export function createInitialCards(now = Date.now()): NativeResultCard[] {
       createdAt: now - 42 * MINUTE,
       saved: false,
       unread: true,
+      messageId: "cedar-1",
     },
-    // Working tab (messages only — zero tool traces!)
     {
       id: "iris-1",
       conversationId: "conv-iris",
       tab: "working",
+      agentId: "agent-iris",
       agentName: "iris",
       projectName: "Loop Mobile",
       model: "claude-sonnet-4",
@@ -179,12 +259,13 @@ export function createInitialCards(now = Date.now()): NativeResultCard[] {
       saved: false,
       unread: false,
       statusLabel: "Working",
+      messageId: "iris-1",
     },
-    // Queued tab
     {
       id: "maple-1",
       conversationId: "conv-maple",
       tab: "queued",
+      agentId: "agent-maple",
       agentName: "maple",
       projectName: "Loop Core",
       model: "gpt-5.4",
@@ -195,12 +276,13 @@ export function createInitialCards(now = Date.now()): NativeResultCard[] {
       saved: false,
       unread: false,
       statusLabel: "Queued",
+      messageId: "maple-1",
     },
-    // Replies tab
     {
       id: "fern-1",
       conversationId: "conv-fern",
       tab: "replies",
+      agentId: "agent-fern",
       agentName: "fern",
       projectName: "Loop Mobile",
       model: "claude-sonnet-4",
@@ -215,6 +297,7 @@ export function createInitialCards(now = Date.now()): NativeResultCard[] {
       saved: false,
       unread: true,
       statusLabel: "Needs reply",
+      messageId: "fern-1",
     },
   ];
 }
@@ -248,12 +331,13 @@ export function buildSimulatedReply(
       "### Follow-up ready\n\n" +
       `Captured your follow-up cleanly as a new discrete card in **@${agentName}**'s stack.\n\n` +
       "- **Zero chat scroll:** Earlier results remain tucked to the right in this carousel\n" +
-      "- **Searchable immediately:** Tap `🔍` above to jump across every card in the thread\n" +
+      "- **Searchable immediately:** Tap search above to jump across every card in the thread\n" +
       "- **Native haptics:** Swipe left/right to feel the detent lock between cards";
   }
 
+  const id = `sim-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   return {
-    id: `sim-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    id,
     conversationId,
     tab: "done",
     agentName,
@@ -265,6 +349,7 @@ export function buildSimulatedReply(
     createdAt: Date.now(),
     saved: false,
     unread: true,
+    messageId: id,
   };
 }
 

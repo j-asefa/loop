@@ -1,6 +1,14 @@
-import React, { useMemo } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { CornerDownRight } from "lucide-react-native";
+import React, { useMemo, useState } from "react";
+import {
+  Linking,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import Svg, { Circle, Line, Path, Polyline, Rect } from "react-native-svg";
+import { CornerDownRight, ExternalLink } from "lucide-react-native";
 import { haptics } from "../haptics";
 import { avatarColors, type LoopTheme } from "../theme";
 
@@ -84,11 +92,13 @@ type InlineToken =
   | { kind: "text"; text: string }
   | { kind: "bold"; text: string }
   | { kind: "italic"; text: string }
-  | { kind: "code"; text: string };
+  | { kind: "code"; text: string }
+  | { kind: "link"; label: string; url: string };
 
 function tokenizeInline(text: string): InlineToken[] {
   const tokens: InlineToken[] = [];
-  const pattern = /(\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*)/g;
+  const pattern =
+    /(\[[^\]]+\]\(https?:\/\/[^)\s]+\)|\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*)/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(text)) !== null) {
@@ -96,7 +106,14 @@ function tokenizeInline(text: string): InlineToken[] {
       tokens.push({ kind: "text", text: text.slice(lastIndex, match.index) });
     }
     const raw = match[0];
-    if (raw.startsWith("**") && raw.endsWith("**")) {
+    if (raw.startsWith("[")) {
+      const linkMatch = /^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/.exec(raw);
+      if (linkMatch) {
+        tokens.push({ kind: "link", label: linkMatch[1], url: linkMatch[2] });
+      } else {
+        tokens.push({ kind: "text", text: raw });
+      }
+    } else if (raw.startsWith("**") && raw.endsWith("**")) {
       tokens.push({ kind: "bold", text: raw.slice(2, -2) });
     } else if (raw.startsWith("`") && raw.endsWith("`")) {
       tokens.push({ kind: "code", text: raw.slice(1, -1) });
@@ -162,6 +179,20 @@ export function InlineFormattedText({
             </Text>
           );
         }
+        if (tok.kind === "link") {
+          return (
+            <Text
+              key={idx}
+              style={{ color: theme.blue, textDecorationLine: "underline" }}
+              onPress={() => {
+                haptics.light();
+                void Linking.openURL(tok.url).catch(() => {});
+              }}
+            >
+              {tok.label}
+            </Text>
+          );
+        }
         return <React.Fragment key={idx}>{tok.text}</React.Fragment>;
       })}
     </Text>
@@ -173,11 +204,12 @@ type ContentBlock =
   | { kind: "paragraph"; text: string }
   | { kind: "bullet"; text: string }
   | { kind: "numbered"; num: string; text: string }
+  | { kind: "code"; lang: string; code: string }
   | { kind: "spec"; spec: ParsedSpec };
 
 function parseMarkdownBlocks(content: string): ContentBlock[] {
   const blocks: ContentBlock[] = [];
-  const fenceRegex = /```spec\s*\n([\s\S]*?)```/g;
+  const fenceRegex = /```([a-zA-Z0-9_-]*)\s*\n([\s\S]*?)```/g;
   let cursor = 0;
   let match: RegExpExecArray | null;
 
@@ -232,9 +264,17 @@ function parseMarkdownBlocks(content: string): ContentBlock[] {
     if (match.index > cursor) {
       pushMarkdown(content.slice(cursor, match.index));
     }
-    const parsed = parseSpecBlock(match[1]);
-    if (parsed) {
-      blocks.push({ kind: "spec", spec: parsed });
+    const lang = (match[1] ?? "").toLowerCase();
+    const body = match[2] ?? "";
+    if (lang === "spec") {
+      const parsed = parseSpecBlock(body);
+      if (parsed) {
+        blocks.push({ kind: "spec", spec: parsed });
+      } else {
+        blocks.push({ kind: "code", lang: "spec", code: body.trimEnd() });
+      }
+    } else {
+      blocks.push({ kind: "code", lang, code: body.trimEnd() });
     }
     cursor = match.index + match[0].length;
   }
@@ -242,6 +282,188 @@ function parseMarkdownBlocks(content: string): ContentBlock[] {
     pushMarkdown(content.slice(cursor));
   }
   return blocks;
+}
+
+const CHART_COLORS = ["#c9aa4f", "#78cf8a", "#86b0ff", "#e49d64"];
+
+function NativeSpecChart({
+  props,
+  theme,
+}: {
+  props: Record<string, unknown>;
+  theme: LoopTheme;
+}) {
+  const [showNumbers, setShowNumbers] = useState(false);
+  const title = typeof props.title === "string" ? props.title : undefined;
+  const chartType =
+    typeof props.type === "string" ? props.type.toLowerCase() : "bar";
+  const categories = Array.isArray(props.categories)
+    ? props.categories.map(String)
+    : [];
+  const rawSeries = Array.isArray(props.series)
+    ? (props.series as Array<{ name?: string; values?: unknown[] }>)
+    : [];
+  const series = rawSeries.map((s, i) => ({
+    name: s.name || `Series ${i + 1}`,
+    values: (Array.isArray(s.values) ? s.values : []).map((v) =>
+      Number.isFinite(Number(v)) ? Number(v) : 0,
+    ),
+    color: CHART_COLORS[i % CHART_COLORS.length],
+  }));
+
+  const allValues = series.flatMap((s) => s.values);
+  const maxVal = Math.max(1, ...allValues.map((v) => Math.abs(v)));
+  const svgW = 260;
+  const svgH = 136;
+  const pad = 16;
+  const plotW = svgW - pad * 2;
+  const plotH = svgH - pad * 2;
+
+  return (
+    <View
+      style={[
+        styles.chartBox,
+        { backgroundColor: theme.raised, borderColor: theme.line },
+      ]}
+    >
+      {title && (
+        <Text style={[styles.specCardTitle, { color: theme.text }]}>
+          {title}
+        </Text>
+      )}
+
+      {chartType === "pie" && series[0] ? (
+        <View style={styles.pieWrap}>
+          <Svg width={120} height={120} viewBox="0 0 120 120">
+            {(() => {
+              const vals = series[0].values;
+              const sum = vals.reduce((a, b) => a + Math.max(0, b), 0) || 1;
+              let acc = -Math.PI / 2;
+              return vals.map((v, i) => {
+                const frac = Math.max(0, v) / sum;
+                const next = acc + frac * Math.PI * 2;
+                const large = frac > 0.5 ? 1 : 0;
+                const x1 = 60 + 48 * Math.cos(acc);
+                const y1 = 60 + 48 * Math.sin(acc);
+                const x2 = 60 + 48 * Math.cos(next);
+                const y2 = 60 + 48 * Math.sin(next);
+                acc = next;
+                return (
+                  <Path
+                    key={i}
+                    d={`M 60 60 L ${x1} ${y1} A 48 48 0 ${large} 1 ${x2} ${y2} Z`}
+                    fill={CHART_COLORS[i % CHART_COLORS.length]}
+                  />
+                );
+              });
+            })()}
+          </Svg>
+        </View>
+      ) : (
+        <Svg width="100%" height={svgH} viewBox={`0 0 ${svgW} ${svgH}`}>
+          <Line
+            x1={pad}
+            y1={svgH - pad}
+            x2={svgW - pad}
+            y2={svgH - pad}
+            stroke={theme.line}
+            strokeWidth={1}
+          />
+          {chartType === "line" || chartType === "area"
+            ? series.map((s, sIdx) => {
+                const count = Math.max(1, s.values.length - 1);
+                const pts = s.values.map((v, i) => {
+                  const x = pad + (i / count) * plotW;
+                  const y = svgH - pad - (Math.max(0, v) / maxVal) * plotH;
+                  return `${x},${y}`;
+                });
+                return (
+                  <React.Fragment key={sIdx}>
+                    <Polyline
+                      points={pts.join(" ")}
+                      fill="none"
+                      stroke={s.color}
+                      strokeWidth={2.4}
+                    />
+                    {s.values.map((v, i) => {
+                      const x = pad + (i / count) * plotW;
+                      const y = svgH - pad - (Math.max(0, v) / maxVal) * plotH;
+                      return (
+                        <Circle key={i} cx={x} cy={y} r={3} fill={s.color} />
+                      );
+                    })}
+                  </React.Fragment>
+                );
+              })
+            : categories.map((_, cIdx) => {
+                const groupW = plotW / Math.max(1, categories.length);
+                const barW = Math.max(
+                  6,
+                  (groupW - 8) / Math.max(1, series.length),
+                );
+                return series.map((s, sIdx) => {
+                  const val = Math.max(0, s.values[cIdx] ?? 0);
+                  const h = (val / maxVal) * plotH;
+                  const x = pad + cIdx * groupW + 4 + sIdx * barW;
+                  const y = svgH - pad - h;
+                  return (
+                    <Rect
+                      key={`${cIdx}-${sIdx}`}
+                      x={x}
+                      y={y}
+                      width={Math.max(4, barW - 2)}
+                      height={Math.max(2, h)}
+                      rx={3}
+                      fill={s.color}
+                    />
+                  );
+                });
+              })}
+        </Svg>
+      )}
+
+      {categories.length > 0 && (
+        <View style={styles.chartLabels}>
+          {categories.slice(0, 6).map((c, idx) => (
+            <Text
+              key={idx}
+              style={[styles.chartLabelText, { color: theme.muted }]}
+              numberOfLines={1}
+            >
+              {c}
+            </Text>
+          ))}
+        </View>
+      )}
+
+      <Pressable
+        onPress={() => {
+          haptics.light();
+          setShowNumbers((v) => !v);
+        }}
+        style={styles.chartToggleBtn}
+      >
+        <Text style={[styles.chartToggleText, { color: theme.brassText }]}>
+          {showNumbers ? "Hide numbers" : "Show the numbers"}
+        </Text>
+      </Pressable>
+
+      {showNumbers && (
+        <View style={styles.chartNumbers}>
+          {categories.map((cat, cIdx) => (
+            <View key={cIdx} style={styles.chartNumRow}>
+              <Text style={[styles.chartNumCat, { color: theme.muted }]}>
+                {cat}
+              </Text>
+              <Text style={[styles.chartNumVal, { color: theme.text }]}>
+                {series.map((s) => s.values[cIdx] ?? 0).join(" / ")}
+              </Text>
+            </View>
+          ))}
+        </View>
+      )}
+    </View>
+  );
 }
 
 function SpecNode({
@@ -297,6 +519,55 @@ function SpecNode({
         baseStyle={styles.paragraph}
       />
     );
+  }
+
+  if (el.type === "Divider") {
+    return (
+      <View
+        style={{
+          height: StyleSheet.hairlineWidth,
+          backgroundColor: theme.line,
+          marginVertical: 4,
+        }}
+      />
+    );
+  }
+
+  if (el.type === "Fields") {
+    return (
+      <View style={styles.fieldsGrid}>
+        {(el.children ?? []).map((childKey) => (
+          <SpecNode
+            key={childKey}
+            nodeKey={childKey}
+            spec={spec}
+            theme={theme}
+            onReplyButton={onReplyButton}
+          />
+        ))}
+      </View>
+    );
+  }
+
+  if (el.type === "Field") {
+    const label = typeof props.label === "string" ? props.label : "";
+    const value =
+      typeof props.value === "string" ? props.value : String(props.value ?? "");
+    return (
+      <View
+        style={[
+          styles.fieldTile,
+          { backgroundColor: theme.raised, borderColor: theme.line },
+        ]}
+      >
+        <Text style={[styles.fieldLabel, { color: theme.muted }]}>{label}</Text>
+        <Text style={[styles.fieldValue, { color: theme.text }]}>{value}</Text>
+      </View>
+    );
+  }
+
+  if (el.type === "Chart") {
+    return <NativeSpecChart props={props} theme={theme} />;
   }
 
   if (el.type === "Table") {
@@ -395,6 +666,33 @@ function SpecNode({
           />
         ))}
       </View>
+    );
+  }
+
+  if (el.type === "LinkButton") {
+    const label = typeof props.label === "string" ? props.label : "Open link";
+    const url = typeof props.url === "string" ? props.url : "";
+    if (!/^https?:\/\//i.test(url)) return null;
+    return (
+      <Pressable
+        onPress={() => {
+          haptics.light();
+          void Linking.openURL(url).catch(() => {});
+        }}
+        style={({ pressed }) => [
+          styles.replySpecBtn,
+          {
+            backgroundColor: theme.raised,
+            borderColor: theme.line,
+            opacity: pressed ? 0.78 : 1,
+          },
+        ]}
+      >
+        <ExternalLink size={13} color={theme.blue} />
+        <Text style={[styles.replySpecBtnText, { color: theme.blue }]}>
+          {label}
+        </Text>
+      </Pressable>
     );
   }
 
@@ -512,6 +810,28 @@ export function RichContent({
             </View>
           );
         }
+        if (block.kind === "code") {
+          return (
+            <View
+              key={idx}
+              style={[
+                styles.codeBlock,
+                { backgroundColor: theme.raised, borderColor: theme.line },
+              ]}
+            >
+              {block.lang ? (
+                <Text style={[styles.codeLang, { color: theme.muted }]}>
+                  {block.lang}
+                </Text>
+              ) : null}
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <Text style={[styles.codeText, { color: theme.text }]}>
+                  {block.code}
+                </Text>
+              </ScrollView>
+            </View>
+          );
+        }
         return (
           <SpecNode
             key={idx}
@@ -529,10 +849,11 @@ export function RichContent({
 /** Plain clean snippet for Feed stack cards (strips fenced spec & markdown syntax). */
 export function feedPreviewText(markdown: string): string {
   return markdown
-    .replace(/```spec[\s\S]*?```/g, "")
+    .replace(/```[\s\S]*?```/g, "")
     .replace(/^#{1,3}\s+/gm, "")
     .replace(/\*\*([^*]+)\*\*/g, "$1")
     .replace(/`([^`]+)`/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
     .replace(/^[-*]\s+/gm, "• ")
     .replace(/\s+/g, " ")
     .trim();
@@ -576,6 +897,23 @@ const styles = StyleSheet.create({
     fontSize: 13.5,
     borderRadius: 4,
   },
+  codeBlock: {
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 11,
+    gap: 6,
+  },
+  codeLang: {
+    fontSize: 10.5,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  codeText: {
+    fontFamily: "Courier",
+    fontSize: 12.5,
+    lineHeight: 18.5,
+  },
   listRow: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -616,6 +954,69 @@ const styles = StyleSheet.create({
   },
   specChildren: {
     gap: 10,
+  },
+  fieldsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  fieldTile: {
+    minWidth: "46%",
+    flex: 1,
+    borderRadius: 10,
+    borderWidth: 1,
+    padding: 9,
+    gap: 3,
+  },
+  fieldLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  fieldValue: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  chartBox: {
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 11,
+    gap: 8,
+  },
+  pieWrap: {
+    alignItems: "center",
+    paddingVertical: 4,
+  },
+  chartLabels: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 4,
+  },
+  chartLabelText: {
+    fontSize: 10.5,
+    flex: 1,
+    textAlign: "center",
+  },
+  chartToggleBtn: {
+    alignSelf: "flex-start",
+  },
+  chartToggleText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  chartNumbers: {
+    gap: 4,
+  },
+  chartNumRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  chartNumCat: {
+    fontSize: 12,
+  },
+  chartNumVal: {
+    fontSize: 12,
+    fontWeight: "600",
+    fontVariant: ["tabular-nums"],
   },
   tableScroll: {
     borderRadius: 10,

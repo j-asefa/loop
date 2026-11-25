@@ -1,0 +1,658 @@
+import React, { useCallback, useEffect, useState } from "react";
+import {
+  ActivityIndicator,
+  Linking,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import {
+  AlarmClock,
+  BookmarkCheck,
+  CalendarClock,
+  Check,
+  FileText,
+  Link2,
+  LogOut,
+  Moon,
+  Rss,
+  Sun,
+  Trash2,
+} from "lucide-react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import type { LoopClient } from "../api/client";
+import type { SocketStatus } from "../api/socket";
+import type {
+  ApiLaterItem,
+  ApiPersonalFile,
+  ApiSavedEntry,
+  ApiScheduledSend,
+  ApiSocialStory,
+  PairedSession,
+} from "../api/types";
+import { relativeTime, type NativeResultCard } from "../fixtures";
+import { haptics } from "../haptics";
+import type { LoopTheme } from "../theme";
+
+type ProfileSection = "saved" | "reminders" | "scheduled" | "files" | "social";
+
+const SECTIONS: Array<{ id: ProfileSection; label: string }> = [
+  { id: "saved", label: "Saved" },
+  { id: "reminders", label: "Reminders" },
+  { id: "scheduled", label: "Scheduled" },
+  { id: "files", label: "Files" },
+  { id: "social", label: "Social" },
+];
+
+export function ProfileScreen({
+  client,
+  session,
+  socketStatus,
+  localCards,
+  theme,
+  onToggleTheme,
+  onOpenPairing,
+  onSignOut,
+  onOpenConversation,
+}: {
+  client: LoopClient | null;
+  session: PairedSession | null;
+  socketStatus: SocketStatus;
+  localCards: NativeResultCard[];
+  theme: LoopTheme;
+  onToggleTheme: () => void;
+  onOpenPairing: () => void;
+  onSignOut: () => void;
+  onOpenConversation: (input: {
+    conversationId: string;
+    title: string;
+    agentName: string;
+  }) => void;
+}) {
+  const insets = useSafeAreaInsets();
+  const [section, setSection] = useState<ProfileSection>("saved");
+  const [loading, setLoading] = useState(false);
+
+  const [saved, setSaved] = useState<ApiSavedEntry[]>([]);
+  const [reminders, setReminders] = useState<ApiLaterItem[]>([]);
+  const [scheduled, setScheduled] = useState<ApiScheduledSend[]>([]);
+  const [files, setFiles] = useState<ApiPersonalFile[]>([]);
+  const [stories, setStories] = useState<ApiSocialStory[]>([]);
+
+  const loadSection = useCallback(async () => {
+    if (!client) {
+      setSaved(
+        localCards
+          .filter((c) => c.saved)
+          .map((c) => ({
+            kind: "message",
+            key: `m:${c.id}`,
+            saved_at: c.createdAt,
+            label: null,
+            message: {
+              message_id: c.id,
+              conversation_id: c.conversationId,
+              conversation_title: c.fallbackTitle,
+              content: c.body,
+              preview: c.body.slice(0, 140),
+              agent_name: c.agentName,
+              project_name: c.projectName,
+              created_at: c.createdAt,
+            },
+          })),
+      );
+      return;
+    }
+
+    setLoading(true);
+    try {
+      if (section === "saved") setSaved(await client.savedList());
+      else if (section === "reminders") setReminders(await client.laterList());
+      else if (section === "scheduled")
+        setScheduled(await client.scheduledList());
+      else if (section === "files") setFiles(await client.personalFiles());
+      else if (section === "social") setStories(await client.socialStories());
+    } catch {
+      // keep existing items
+    } finally {
+      setLoading(false);
+    }
+  }, [client, section, localCards]);
+
+  useEffect(() => {
+    void loadSection();
+  }, [loadSection]);
+
+  const statusColor =
+    socketStatus === "live"
+      ? theme.green
+      : socketStatus === "connecting" || socketStatus === "reconnecting"
+        ? theme.brass
+        : theme.muted;
+
+  return (
+    <View style={[styles.root, { backgroundColor: theme.bg }]}>
+      <View
+        style={[
+          styles.header,
+          {
+            paddingTop: Math.max(insets.top + 8, 18),
+            borderBottomColor: theme.line,
+          },
+        ]}
+      >
+        <View style={styles.headerTop}>
+          <Text style={[styles.screenTitle, { color: theme.text }]}>
+            Profile & Later
+          </Text>
+          <Pressable
+            onPress={() => {
+              haptics.selection();
+              onToggleTheme();
+            }}
+            style={[
+              styles.iconBtn,
+              { backgroundColor: theme.surface, borderColor: theme.line },
+            ]}
+          >
+            {theme.isDark ? (
+              <Sun size={16} color={theme.brassText} />
+            ) : (
+              <Moon size={16} color={theme.brassText} />
+            )}
+          </Pressable>
+        </View>
+
+        {/* Workspace Connection Card */}
+        <View
+          style={[
+            styles.workspaceCard,
+            { backgroundColor: theme.surface, borderColor: theme.line },
+          ]}
+        >
+          <View style={styles.wsLeft}>
+            <View style={styles.wsStatusRow}>
+              <View
+                style={[styles.statusDot, { backgroundColor: statusColor }]}
+              />
+              <Text style={[styles.wsTitle, { color: theme.text }]}>
+                {session
+                  ? session.origin.replace(/^https?:\/\//, "")
+                  : "Offline Demo Deck"}
+              </Text>
+            </View>
+            <Text style={[styles.wsSub, { color: theme.muted }]}>
+              {session
+                ? `${session.deviceName} · ${socketStatus}`
+                : "Pair with `loop pair` to connect your live agents"}
+            </Text>
+          </View>
+
+          <View style={styles.wsActions}>
+            <Pressable
+              onPress={() => {
+                haptics.light();
+                onOpenPairing();
+              }}
+              style={[
+                styles.wsBtn,
+                {
+                  backgroundColor: theme.attention,
+                  borderColor: theme.attentionLine,
+                },
+              ]}
+            >
+              <Link2 size={14} color={theme.brassText} />
+              <Text style={[styles.wsBtnText, { color: theme.brassText }]}>
+                {session ? "Switch" : "Pair"}
+              </Text>
+            </Pressable>
+            {session && (
+              <Pressable
+                onPress={() => {
+                  haptics.warning();
+                  onSignOut();
+                }}
+                style={[
+                  styles.wsIconBtn,
+                  { backgroundColor: theme.soft, borderColor: theme.line },
+                ]}
+              >
+                <LogOut size={14} color={theme.orange} />
+              </Pressable>
+            )}
+          </View>
+        </View>
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.secRow}
+        >
+          {SECTIONS.map((sec) => {
+            const active = sec.id === section;
+            return (
+              <Pressable
+                key={sec.id}
+                onPress={() => {
+                  haptics.selection();
+                  setSection(sec.id);
+                }}
+                style={[
+                  styles.secChip,
+                  {
+                    backgroundColor: active ? theme.attention : theme.surface,
+                    borderColor: active ? theme.attentionLine : theme.line,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.secLabel,
+                    { color: active ? theme.brassText : theme.muted },
+                  ]}
+                >
+                  {sec.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </View>
+
+      <ScrollView
+        refreshControl={
+          <RefreshControl
+            refreshing={loading}
+            onRefresh={() => void loadSection()}
+            tintColor={theme.brass}
+          />
+        }
+        contentContainerStyle={[
+          styles.content,
+          { paddingBottom: Math.max(insets.bottom + 96, 110) },
+        ]}
+      >
+        {loading && (
+          <ActivityIndicator
+            color={theme.brass}
+            style={{ marginVertical: 12 }}
+          />
+        )}
+
+        {section === "saved" &&
+          (saved.length === 0 ? (
+            <Text style={[styles.emptyHint, { color: theme.muted }]}>
+              No saved cards yet. Swipe left on any Feed card or tap Save inside
+              the carousel.
+            </Text>
+          ) : (
+            saved.map((entry) => {
+              const title =
+                entry.message?.conversation_title ||
+                entry.result?.title ||
+                "Saved item";
+              const convId =
+                entry.message?.conversation_id || entry.result?.conversation_id;
+              const agentName = entry.message?.agent_name || "agent";
+              return (
+                <Pressable
+                  key={entry.key}
+                  onPress={() => {
+                    haptics.light();
+                    if (convId) {
+                      onOpenConversation({
+                        conversationId: convId,
+                        title,
+                        agentName,
+                      });
+                    }
+                  }}
+                  style={[
+                    styles.card,
+                    { backgroundColor: theme.surface, borderColor: theme.line },
+                  ]}
+                >
+                  <View style={styles.cardTop}>
+                    <View style={styles.rowLeft}>
+                      <BookmarkCheck size={14} color={theme.brassText} />
+                      <Text
+                        style={[styles.metaText, { color: theme.brassText }]}
+                      >
+                        @{agentName}
+                      </Text>
+                    </View>
+                    <Text style={[styles.metaText, { color: theme.muted }]}>
+                      {relativeTime(entry.saved_at)}
+                    </Text>
+                  </View>
+                  <Text style={[styles.cardTitle, { color: theme.text }]}>
+                    {title}
+                  </Text>
+                  {entry.message?.preview ? (
+                    <Text
+                      style={[styles.cardSub, { color: theme.muted }]}
+                      numberOfLines={2}
+                    >
+                      {entry.message.preview}
+                    </Text>
+                  ) : null}
+                </Pressable>
+              );
+            })
+          ))}
+
+        {section === "reminders" &&
+          (reminders.length === 0 ? (
+            <Text style={[styles.emptyHint, { color: theme.muted }]}>
+              No active reminders.
+            </Text>
+          ) : (
+            reminders.map((rem) => (
+              <View
+                key={rem.id}
+                style={[
+                  styles.card,
+                  { backgroundColor: theme.surface, borderColor: theme.line },
+                ]}
+              >
+                <View style={styles.cardTop}>
+                  <View style={styles.rowLeft}>
+                    <AlarmClock size={14} color={theme.brassText} />
+                    <Text style={[styles.metaText, { color: theme.brassText }]}>
+                      {rem.due_at
+                        ? new Date(rem.due_at).toLocaleString()
+                        : rem.condition}
+                    </Text>
+                  </View>
+                  {client && (
+                    <Pressable
+                      onPress={async () => {
+                        haptics.success();
+                        await client.finishLater(rem.id);
+                        setReminders((prev) =>
+                          prev.filter((r) => r.id !== rem.id),
+                        );
+                      }}
+                      hitSlop={8}
+                    >
+                      <Check size={16} color={theme.green} />
+                    </Pressable>
+                  )}
+                </View>
+                <Text style={[styles.cardTitle, { color: theme.text }]}>
+                  {rem.title || "Reminder"}
+                </Text>
+              </View>
+            ))
+          ))}
+
+        {section === "scheduled" &&
+          (scheduled.length === 0 ? (
+            <Text style={[styles.emptyHint, { color: theme.muted }]}>
+              No scheduled messages.
+            </Text>
+          ) : (
+            scheduled.map((s) => (
+              <View
+                key={s.id}
+                style={[
+                  styles.card,
+                  { backgroundColor: theme.surface, borderColor: theme.line },
+                ]}
+              >
+                <View style={styles.cardTop}>
+                  <View style={styles.rowLeft}>
+                    <CalendarClock size={14} color={theme.brassText} />
+                    <Text style={[styles.metaText, { color: theme.brassText }]}>
+                      {new Date(s.send_at).toLocaleString()}
+                    </Text>
+                  </View>
+                  {client && (
+                    <Pressable
+                      onPress={async () => {
+                        haptics.warning();
+                        await client.cancelScheduled(s.id);
+                        setScheduled((prev) =>
+                          prev.filter((x) => x.id !== s.id),
+                        );
+                      }}
+                    >
+                      <Trash2 size={15} color={theme.orange} />
+                    </Pressable>
+                  )}
+                </View>
+                <Text
+                  style={[styles.cardTitle, { color: theme.text }]}
+                  numberOfLines={3}
+                >
+                  {s.input}
+                </Text>
+              </View>
+            ))
+          ))}
+
+        {section === "files" &&
+          (files.length === 0 ? (
+            <Text style={[styles.emptyHint, { color: theme.muted }]}>
+              No published agent files yet.
+            </Text>
+          ) : (
+            files.map((f) => (
+              <View
+                key={f.id}
+                style={[
+                  styles.card,
+                  { backgroundColor: theme.surface, borderColor: theme.line },
+                ]}
+              >
+                <View style={styles.cardTop}>
+                  <View style={styles.rowLeft}>
+                    <FileText size={14} color={theme.brassText} />
+                    <Text style={[styles.metaText, { color: theme.muted }]}>
+                      {f.mime || "file"}
+                    </Text>
+                  </View>
+                  <Text style={[styles.metaText, { color: theme.muted }]}>
+                    {relativeTime(f.created_at)}
+                  </Text>
+                </View>
+                <Text style={[styles.cardTitle, { color: theme.text }]}>
+                  {f.title || f.filename || "Published file"}
+                </Text>
+              </View>
+            ))
+          ))}
+
+        {section === "social" &&
+          (stories.length === 0 ? (
+            <Text style={[styles.emptyHint, { color: theme.muted }]}>
+              No RSS stories yet. Follow feeds in Loop to read them here.
+            </Text>
+          ) : (
+            stories.map((st) => (
+              <Pressable
+                key={st.id}
+                onPress={() => {
+                  haptics.light();
+                  if (client && !st.read) {
+                    void client.socialMarkRead([st.id]).catch(() => {});
+                  }
+                  if (st.url) void Linking.openURL(st.url).catch(() => {});
+                }}
+                style={[
+                  styles.card,
+                  { backgroundColor: theme.surface, borderColor: theme.line },
+                ]}
+              >
+                <View style={styles.cardTop}>
+                  <View style={styles.rowLeft}>
+                    <Rss size={13} color={theme.brassText} />
+                    <Text style={[styles.metaText, { color: theme.brassText }]}>
+                      {st.feed_title || "Feed"}
+                    </Text>
+                  </View>
+                  {st.published_at ? (
+                    <Text style={[styles.metaText, { color: theme.muted }]}>
+                      {relativeTime(st.published_at)}
+                    </Text>
+                  ) : null}
+                </View>
+                <Text style={[styles.cardTitle, { color: theme.text }]}>
+                  {st.title}
+                </Text>
+                {st.summary ? (
+                  <Text
+                    style={[styles.cardSub, { color: theme.muted }]}
+                    numberOfLines={2}
+                  >
+                    {st.summary}
+                  </Text>
+                ) : null}
+              </Pressable>
+            ))
+          ))}
+      </ScrollView>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: { flex: 1 },
+  header: {
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    gap: 12,
+  },
+  headerTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  screenTitle: {
+    fontSize: 22,
+    fontWeight: "700",
+    letterSpacing: -0.4,
+  },
+  iconBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  workspaceCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    padding: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  wsLeft: {
+    flex: 1,
+    gap: 2,
+  },
+  wsStatusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  wsTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    flexShrink: 1,
+  },
+  wsSub: {
+    fontSize: 12,
+  },
+  wsActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  wsBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  wsBtnText: {
+    fontSize: 12.5,
+    fontWeight: "700",
+  },
+  wsIconBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  secRow: {
+    gap: 6,
+  },
+  secChip: {
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  secLabel: {
+    fontSize: 12.5,
+    fontWeight: "600",
+  },
+  content: {
+    padding: 16,
+    gap: 10,
+  },
+  card: {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 14,
+    gap: 6,
+  },
+  cardTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  rowLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  metaText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  cardTitle: {
+    fontSize: 15.5,
+    fontWeight: "700",
+    lineHeight: 21,
+  },
+  cardSub: {
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  emptyHint: {
+    fontSize: 14,
+    textAlign: "center",
+    paddingVertical: 32,
+    lineHeight: 20,
+  },
+});

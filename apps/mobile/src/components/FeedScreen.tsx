@@ -1,5 +1,12 @@
 import React, { useMemo } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   interpolate,
@@ -9,13 +16,14 @@ import Animated, {
   withSpring,
 } from "react-native-reanimated";
 import {
+  AlertTriangle,
   Bookmark,
   BookmarkCheck,
   Check,
   Layers,
-  Moon,
-  RotateCcw,
-  Sun,
+  Link2,
+  ShieldAlert,
+  X,
 } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -23,6 +31,12 @@ import {
   stackDoneCards,
   type StackedCardEntry,
 } from "../../../../src/shared/done-stack";
+import type { SocketStatus } from "../api/socket";
+import type {
+  ApiApproval,
+  ApiNativeDecision,
+  ApiFeedSummary,
+} from "../api/types";
 import { relativeTime, type FeedTab, type NativeResultCard } from "../fixtures";
 import { haptics } from "../haptics";
 import type { LoopTheme } from "../theme";
@@ -40,29 +54,57 @@ const SWIPE_THRESHOLD = 82;
 type FeedScreenProps = {
   cards: NativeResultCard[];
   activeTab: FeedTab;
+  summary?: ApiFeedSummary | null;
+  approvals: ApiApproval[];
+  decisions: ApiNativeDecision[];
+  isLive: boolean;
+  environmentName?: string;
+  socketStatus: SocketStatus;
+  refreshing: boolean;
   theme: LoopTheme;
+  scrollRef?: React.RefObject<React.ComponentRef<typeof ScrollView> | null>;
+  onRefresh: () => void;
   onSelectTab: (tab: FeedTab) => void;
-  onToggleTheme: () => void;
-  onResetDemo: () => void;
+  onOpenPairing: () => void;
   onOpenStack: (conversationId: string, cards: NativeResultCard[]) => void;
   onSwipeDone: (card: NativeResultCard) => void;
   onSwipeSave: (card: NativeResultCard) => void;
+  onDecideApproval: (id: string, decision: "approve" | "reject") => void;
+  onAnswerDecision: (id: string, answer: Record<string, unknown>) => void;
 };
 
 export function FeedScreen({
   cards,
   activeTab,
+  summary,
+  approvals,
+  decisions,
+  isLive,
+  environmentName,
+  socketStatus,
+  refreshing,
   theme,
+  scrollRef,
+  onRefresh,
   onSelectTab,
-  onToggleTheme,
-  onResetDemo,
+  onOpenPairing,
   onOpenStack,
   onSwipeDone,
   onSwipeSave,
+  onDecideApproval,
+  onAnswerDecision,
 }: FeedScreenProps) {
   const insets = useSafeAreaInsets();
 
   const tabCounts = useMemo(() => {
+    if (isLive && summary) {
+      return {
+        done: summary.done_unread ?? 0,
+        working: summary.working ?? 0,
+        queued: summary.queued ?? 0,
+        replies: summary.replies_unread ?? 0,
+      };
+    }
     const counts: Record<FeedTab, number> = {
       done: 0,
       working: 0,
@@ -81,7 +123,7 @@ export function FeedScreen({
       }
     }
     return counts;
-  }, [cards]);
+  }, [cards, isLive, summary]);
 
   const stacks = useMemo<StackedCardEntry<NativeResultCard>[]>(() => {
     const visible = cards.filter((c) => c.tab === activeTab);
@@ -104,6 +146,23 @@ export function FeedScreen({
       })),
     );
   }, [cards, activeTab]);
+
+  const pendingApprovals = useMemo(
+    () => approvals.filter((a) => a.state === "pending"),
+    [approvals],
+  );
+  const pendingDecisions = useMemo(
+    () => decisions.filter((d) => d.state === "pending"),
+    [decisions],
+  );
+  const needsTotal = pendingApprovals.length + pendingDecisions.length;
+
+  const liveColor =
+    socketStatus === "live"
+      ? theme.green
+      : socketStatus === "connecting" || socketStatus === "reconnecting"
+        ? theme.brass
+        : theme.muted;
 
   return (
     <View style={[styles.root, { backgroundColor: theme.bg }]}>
@@ -130,61 +189,43 @@ export function FeedScreen({
               />
             </View>
             <Text style={[styles.brandTitle, { color: theme.text }]}>Loop</Text>
-            <View
-              style={[
-                styles.spikePill,
-                {
-                  backgroundColor: theme.attention,
-                  borderColor: theme.attentionLine,
-                },
-              ]}
-            >
-              <Text style={[styles.spikePillText, { color: theme.brassText }]}>
-                Native
-              </Text>
-            </View>
           </View>
 
-          <View style={styles.headerActions}>
-            <Pressable
-              accessibilityLabel="Reset demo cards"
-              onPress={() => {
-                haptics.light();
-                onResetDemo();
-              }}
-              style={({ pressed }) => [
-                styles.headerIconBtn,
-                {
-                  backgroundColor: theme.surface,
-                  borderColor: theme.line,
-                  opacity: pressed ? 0.7 : 1,
-                },
-              ]}
-            >
-              <RotateCcw size={16} color={theme.muted} />
-            </Pressable>
-            <Pressable
-              accessibilityLabel="Toggle dark or light theme"
-              onPress={() => {
-                haptics.selection();
-                onToggleTheme();
-              }}
-              style={({ pressed }) => [
-                styles.headerIconBtn,
-                {
-                  backgroundColor: theme.surface,
-                  borderColor: theme.line,
-                  opacity: pressed ? 0.7 : 1,
-                },
-              ]}
-            >
-              {theme.isDark ? (
-                <Sun size={16} color={theme.brassText} />
-              ) : (
-                <Moon size={16} color={theme.brassText} />
-              )}
-            </Pressable>
-          </View>
+          <Pressable
+            onPress={() => {
+              haptics.light();
+              onOpenPairing();
+            }}
+            style={({ pressed }) => [
+              styles.connPill,
+              {
+                backgroundColor: isLive ? theme.surface : theme.attention,
+                borderColor: isLive ? theme.line : theme.attentionLine,
+                opacity: pressed ? 0.8 : 1,
+              },
+            ]}
+          >
+            {isLive ? (
+              <>
+                <View
+                  style={[styles.liveDot, { backgroundColor: liveColor }]}
+                />
+                <Text
+                  style={[styles.connPillText, { color: theme.text }]}
+                  numberOfLines={1}
+                >
+                  {environmentName || "Connected"}
+                </Text>
+              </>
+            ) : (
+              <>
+                <Link2 size={13} color={theme.brassText} />
+                <Text style={[styles.connPillText, { color: theme.brassText }]}>
+                  Pair live workspace
+                </Text>
+              </>
+            )}
+          </Pressable>
         </View>
 
         {/* Merged 4-Tab Bar (Threads merged into Done) */}
@@ -234,7 +275,7 @@ export function FeedScreen({
                         { color: active ? theme.onBrass : theme.muted },
                       ]}
                     >
-                      {count}
+                      {count > 9 ? "9+" : count}
                     </Text>
                   </View>
                 )}
@@ -246,17 +287,158 @@ export function FeedScreen({
 
       {/* Feed List */}
       <ScrollView
+        ref={scrollRef}
         style={styles.list}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={theme.brass}
+          />
+        }
         contentContainerStyle={[
           styles.listContent,
-          { paddingBottom: Math.max(insets.bottom + 28, 36) },
+          { paddingBottom: Math.max(insets.bottom + 104, 120) },
         ]}
         showsVerticalScrollIndicator={false}
       >
-        {activeTab === "done" && stacks.length > 0 && (
+        {/* Actionable Needs You Stack (only shown when approvals or decisions wait) */}
+        {needsTotal > 0 && (
+          <View style={styles.needsSection}>
+            <View style={styles.needsHead}>
+              <ShieldAlert size={14} color={theme.orange} />
+              <Text style={[styles.needsLabel, { color: theme.orange }]}>
+                NEEDS YOU · {needsTotal}
+              </Text>
+            </View>
+
+            {pendingApprovals.slice(0, 2).map((app) => (
+              <View
+                key={app.id}
+                style={[
+                  styles.needsCard,
+                  {
+                    backgroundColor: theme.surface,
+                    borderColor: theme.orange,
+                  },
+                ]}
+              >
+                <View style={styles.cardMetaRow}>
+                  <Text style={[styles.needsAgent, { color: theme.text }]}>
+                    @{app.agent_name || "agent"} · {app.tool_name}
+                  </Text>
+                  <Text style={[styles.cardTime, { color: theme.muted }]}>
+                    {relativeTime(app.created_at)}
+                  </Text>
+                </View>
+                <Text
+                  style={[styles.needsBody, { color: theme.muted }]}
+                  numberOfLines={3}
+                >
+                  {app.summary || app.arguments || "Approval requested"}
+                </Text>
+                <View style={styles.needsBtnRow}>
+                  <Pressable
+                    onPress={() => {
+                      haptics.success();
+                      onDecideApproval(app.id, "approve");
+                    }}
+                    style={[
+                      styles.needsApproveBtn,
+                      { backgroundColor: theme.brass },
+                    ]}
+                  >
+                    <Check size={14} color={theme.onBrass} />
+                    <Text
+                      style={[
+                        styles.needsApproveText,
+                        { color: theme.onBrass },
+                      ]}
+                    >
+                      Approve
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => {
+                      haptics.warning();
+                      onDecideApproval(app.id, "reject");
+                    }}
+                    style={[
+                      styles.needsDenyBtn,
+                      { backgroundColor: theme.soft, borderColor: theme.line },
+                    ]}
+                  >
+                    <X size={14} color={theme.text} />
+                    <Text style={[styles.needsDenyText, { color: theme.text }]}>
+                      Deny
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+            ))}
+
+            {pendingDecisions.slice(0, 2).map((dec) => (
+              <View
+                key={dec.id}
+                style={[
+                  styles.needsCard,
+                  {
+                    backgroundColor: theme.surface,
+                    borderColor: theme.attentionLine,
+                  },
+                ]}
+              >
+                <View style={styles.cardMetaRow}>
+                  <View style={styles.rowLeft}>
+                    <AlertTriangle size={14} color={theme.brassText} />
+                    <Text style={[styles.needsAgent, { color: theme.text }]}>
+                      {dec.title || "Decision needed"}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={[styles.needsBody, { color: theme.muted }]}>
+                  {dec.question || dec.prompt || "Choose an option to continue"}
+                </Text>
+                {Array.isArray(dec.options) && dec.options.length > 0 && (
+                  <View style={styles.decisionOpts}>
+                    {dec.options.map((opt, idx) => (
+                      <Pressable
+                        key={opt.id || idx}
+                        onPress={() => {
+                          haptics.success();
+                          onAnswerDecision(dec.id, {
+                            optionId: opt.id ?? opt.label,
+                            label: opt.label,
+                          });
+                        }}
+                        style={[
+                          styles.decisionPill,
+                          {
+                            backgroundColor: theme.attention,
+                            borderColor: theme.attentionLine,
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.decisionPillText,
+                            { color: theme.brassText },
+                          ]}
+                        >
+                          {opt.label}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                )}
+              </View>
+            ))}
+          </View>
+        )}
+
+        {activeTab === "done" && stacks.length > 0 && !isLive && (
           <Text style={[styles.gestureHint, { color: theme.muted }]}>
-            Tap a stack to enter carousel · Swipe right for Done · Swipe left to
-            Save
+            Tap a stack for carousel · Swipe right for Done · Swipe left to Save
           </Text>
         )}
 
@@ -271,7 +453,9 @@ export function FeedScreen({
               All clear in {TABS.find((t) => t.id === activeTab)?.label}
             </Text>
             <Text style={[styles.emptyBody, { color: theme.muted }]}>
-              Tap the reset icon above any time to restore the sample cards.
+              {isLive
+                ? "Pull down to refresh or tap + to start a new task."
+                : "Tap + to ask an agent or pair your live Loop workspace above."}
             </Text>
           </View>
         ) : (
@@ -344,7 +528,6 @@ function SwipeableStackCard({
         .activeOffsetX([-16, 16])
         .failOffsetY([-12, 12])
         .onUpdate((e) => {
-          // Soft rubber-band resistance beyond 115pt
           const raw = e.translationX;
           const clamped =
             Math.abs(raw) <= 115
@@ -436,7 +619,6 @@ function SwipeableStackCard({
         stackDepth === 2 && { marginBottom: 12 },
       ]}
     >
-      {/* Underlying swipe reveal actions */}
       {interactive && (
         <View style={styles.swipeTrack} pointerEvents="none">
           <Animated.View
@@ -477,16 +659,12 @@ function SwipeableStackCard({
         </View>
       )}
 
-      {/* Physical stacked card layers tucked cleanly underneath */}
       {stackDepth >= 3 && (
         <View
           pointerEvents="none"
           style={[
             styles.stackLayerBack,
-            {
-              backgroundColor: theme.surface,
-              borderColor: theme.line,
-            },
+            { backgroundColor: theme.surface, borderColor: theme.line },
           ]}
         />
       )}
@@ -495,10 +673,7 @@ function SwipeableStackCard({
           pointerEvents="none"
           style={[
             styles.stackLayerMid,
-            {
-              backgroundColor: theme.surface,
-              borderColor: theme.line,
-            },
+            { backgroundColor: theme.surface, borderColor: theme.line },
           ]}
         />
       )}
@@ -528,7 +703,6 @@ function SwipeableStackCard({
               },
             ]}
           >
-            {/* Card Header Row */}
             <View style={styles.cardMetaRow}>
               <View style={styles.cardAgentGroup}>
                 <AgentAvatar name={item.agentName} size={26} />
@@ -548,20 +722,19 @@ function SwipeableStackCard({
               </Text>
             </View>
 
-            {/* Full wrapped card title (never clipped on Feed) */}
             <Text style={[styles.cardTitle, { color: theme.text }]}>
               {header.title}
             </Text>
 
-            {/* Messages-only body snippet (zero tool traces!) */}
-            <Text
-              style={[styles.cardPreview, { color: theme.muted }]}
-              numberOfLines={3}
-            >
-              {preview}
-            </Text>
+            {preview ? (
+              <Text
+                style={[styles.cardPreview, { color: theme.muted }]}
+                numberOfLines={3}
+              >
+                {preview}
+              </Text>
+            ) : null}
 
-            {/* Stack count + status pills */}
             <View style={styles.cardFooterRow}>
               {stackCount > 1 && (
                 <View
@@ -605,10 +778,7 @@ function SwipeableStackCard({
                 <View
                   style={[
                     styles.savedPill,
-                    {
-                      backgroundColor: theme.soft,
-                      borderColor: theme.line,
-                    },
+                    { backgroundColor: theme.soft, borderColor: theme.line },
                   ]}
                 >
                   <BookmarkCheck size={12} color={theme.brassText} />
@@ -658,9 +828,7 @@ function SwipeableStackCard({
 }
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-  },
+  root: { flex: 1 },
   header: {
     paddingHorizontal: 16,
     paddingBottom: 10,
@@ -671,6 +839,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: 10,
   },
   brandLeft: {
     flexDirection: "row",
@@ -695,29 +864,25 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: -0.4,
   },
-  spikePill: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 999,
-    borderWidth: 1,
-  },
-  spikePillText: {
-    fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 0.2,
-  },
-  headerActions: {
+  connPill: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-  },
-  headerIconBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    gap: 6,
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+    borderRadius: 999,
     borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
+    maxWidth: "60%",
+  },
+  liveDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+  },
+  connPillText: {
+    fontSize: 12,
+    fontWeight: "700",
+    flexShrink: 1,
   },
   tabRow: {
     flexDirection: "row",
@@ -750,12 +915,90 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     fontVariant: ["tabular-nums"],
   },
-  list: {
-    flex: 1,
-  },
+  list: { flex: 1 },
   listContent: {
     padding: 16,
     gap: 14,
+  },
+  needsSection: {
+    gap: 8,
+    marginBottom: 4,
+  },
+  needsHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  needsLabel: {
+    fontSize: 11.5,
+    fontWeight: "800",
+    letterSpacing: 0.6,
+  },
+  needsCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 14,
+    gap: 8,
+  },
+  needsAgent: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  needsBody: {
+    fontSize: 13.5,
+    lineHeight: 19,
+  },
+  needsBtnRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 2,
+  },
+  needsApproveBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    paddingVertical: 9,
+    borderRadius: 12,
+  },
+  needsApproveText: {
+    fontSize: 13.5,
+    fontWeight: "700",
+  },
+  needsDenyBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  needsDenyText: {
+    fontSize: 13.5,
+    fontWeight: "600",
+  },
+  decisionOpts: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 7,
+  },
+  decisionPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  decisionPillText: {
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  rowLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
   },
   gestureHint: {
     fontSize: 12,

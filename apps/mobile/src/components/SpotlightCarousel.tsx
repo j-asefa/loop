@@ -51,6 +51,8 @@ import {
   stepMatchIndex,
   type SearchableThreadCard,
 } from "../../../../src/shared/done-stack";
+import type { LoopClient } from "../api/client";
+import type { ApiSnippet } from "../api/types";
 import {
   QUICK_REPLIES,
   relativeTime,
@@ -65,25 +67,25 @@ const DISMISS_THRESHOLD = 100;
 
 type SpotlightCarouselProps = {
   cards: NativeResultCard[];
+  client?: LoopClient | null;
+  snippets?: ApiSnippet[];
   theme: LoopTheme;
   onClose: () => void;
-  onMarkRead: (cardId: string) => void;
-  onToggleSaved: (cardId: string) => void;
+  onOpenThread?: (card: NativeResultCard) => void;
+  onMarkRead: (card: NativeResultCard) => void;
+  onToggleSaved: (card: NativeResultCard) => void;
   onRemind: (card: NativeResultCard) => void;
-  onDismissCard: (cardId: string) => void;
-  onSendReply: (
-    conversationId: string,
-    agentName: string,
-    projectName: string,
-    model: string,
-    prompt: string,
-  ) => void;
+  onDismissCard: (card: NativeResultCard) => void;
+  onSendReply: (card: NativeResultCard, prompt: string) => Promise<void> | void;
 };
 
 export function SpotlightCarousel({
   cards,
+  client,
+  snippets = [],
   theme,
   onClose,
+  onOpenThread,
   onMarkRead,
   onToggleSaved,
   onRemind,
@@ -111,15 +113,91 @@ export function SpotlightCarousel({
     newestLiveId && !pinnedIds.includes(newestLiveId),
   );
 
+  // In live mode, lazily hydrate full conversation history + truncated bodies
+  const [historyPrompts, setHistoryPrompts] = useState<Map<string, string>>(
+    () => new Map(),
+  );
+  const [historySlides, setHistorySlides] = useState<NativeResultCard[]>([]);
+  const [fullBodies, setFullBodies] = useState<Map<string, string>>(
+    () => new Map(),
+  );
+  const conversationId = cards[0]?.conversationId;
+
+  useEffect(() => {
+    if (!client || !conversationId) return;
+    let cancelled = false;
+    void client
+      .conversation(conversationId)
+      .then((page) => {
+        if (cancelled) return;
+        const promptMap = new Map<string, string>();
+        const savedSet = new Set(page.saved);
+        const extra: NativeResultCard[] = [];
+        let lastPrompt = "";
+        const base = cards[0];
+        for (const msg of page.messages) {
+          if (msg.role === "user") {
+            lastPrompt = msg.content;
+            continue;
+          }
+          if (msg.role !== "assistant" || !msg.content.trim()) continue;
+          if (lastPrompt) promptMap.set(msg.id, lastPrompt);
+          extra.push({
+            id: msg.id,
+            conversationId,
+            tab: "done",
+            agentId: base?.agentId,
+            agentName: base?.agentName ?? "agent",
+            projectName: base?.projectName ?? "Workspace",
+            model: base?.model ?? "",
+            prompt: lastPrompt || page.conversation.title,
+            fallbackTitle: page.conversation.title || "Result",
+            body: msg.content,
+            createdAt: msg.created_at,
+            saved: savedSet.has(msg.id),
+            unread: false,
+            messageId: msg.id,
+          });
+          lastPrompt = "";
+        }
+        extra.reverse();
+        setHistoryPrompts(promptMap);
+        setHistorySlides(extra);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [client, conversationId]);
+
   const slides = useMemo(() => {
     const ordered: NativeResultCard[] = [];
+    const seenMsgs = new Set<string>();
+    const hydrate = (card: NativeResultCard): NativeResultCard => {
+      const msgId = card.messageId;
+      if (msgId) seenMsgs.add(msgId);
+      const exactPrompt = msgId ? historyPrompts.get(msgId) : undefined;
+      const fullBody = msgId ? fullBodies.get(msgId) : undefined;
+      return {
+        ...card,
+        ...(exactPrompt ? { prompt: exactPrompt } : {}),
+        ...(fullBody ? { body: fullBody, bodyTruncated: false } : {}),
+      };
+    };
     for (const id of pinnedIds) {
       const card = cardsById.get(id);
-      if (card) ordered.push(card);
+      if (card) ordered.push(hydrate(card));
     }
-    if (!ordered.length) return cards;
+    if (!ordered.length) {
+      for (const card of cards) ordered.push(hydrate(card));
+    }
+    for (const hist of historySlides) {
+      if (!hist.messageId || !seenMsgs.has(hist.messageId)) {
+        ordered.push(hist);
+      }
+    }
     return ordered;
-  }, [pinnedIds, cardsById, cards]);
+  }, [pinnedIds, cardsById, cards, historyPrompts, historySlides, fullBodies]);
 
   const [activeIndex, setActiveIndex] = useState(0);
   const safeIndex = Math.max(
@@ -171,13 +249,33 @@ export function SpotlightCarousel({
     };
   }, []);
 
-  // Mark active card read when viewed
+  // Mark active card read + lazily hydrate full body when truncated
   useEffect(() => {
-    if (!activeCard || !activeCard.unread) return;
-    if (markedReadRef.current.has(activeCard.id)) return;
-    markedReadRef.current.add(activeCard.id);
-    onMarkRead(activeCard.id);
-  }, [activeCard, onMarkRead]);
+    if (!activeCard) return;
+    if (activeCard.unread && !markedReadRef.current.has(activeCard.id)) {
+      markedReadRef.current.add(activeCard.id);
+      onMarkRead(activeCard);
+    }
+    if (
+      client &&
+      activeCard.bodyTruncated &&
+      activeCard.messageId &&
+      !fullBodies.has(activeCard.messageId)
+    ) {
+      const msgId = activeCard.messageId;
+      void client
+        .messageDetail(msgId)
+        .then((detail) => {
+          setFullBodies((prev) => {
+            if (prev.has(msgId)) return prev;
+            const next = new Map(prev);
+            next.set(msgId, detail.content);
+            return next;
+          });
+        })
+        .catch(() => {});
+    }
+  }, [activeCard, client, fullBodies, onMarkRead]);
 
   // Close cleanly when all cards in the stack are dismissed
   useEffect(() => {
@@ -382,17 +480,12 @@ export function SpotlightCarousel({
     setSending(true);
     setDraft("");
     Keyboard.dismiss();
-    onSendReply(
-      activeCard.conversationId,
-      activeCard.agentName,
-      activeCard.projectName,
-      activeCard.model,
-      trimmed,
-    );
-    setTimeout(() => {
-      setSending(false);
-    }, 1150);
-  }, [draft, sending, activeCard, onSendReply]);
+    Promise.resolve(onSendReply(activeCard, trimmed))
+      .catch(() => {})
+      .finally(() => {
+        setTimeout(() => setSending(false), client ? 350 : 1150);
+      });
+  }, [draft, sending, activeCard, onSendReply, client]);
 
   const viewNewestArrival = useCallback(() => {
     haptics.medium();
@@ -709,7 +802,7 @@ export function SpotlightCarousel({
                     }}
                     onToggleSaved={() => {
                       haptics.medium();
-                      onToggleSaved(slide.id);
+                      onToggleSaved(slide);
                     }}
                     onRemind={() => {
                       haptics.light();
@@ -721,7 +814,7 @@ export function SpotlightCarousel({
                     }}
                     onDone={() => {
                       haptics.success();
-                      onDismissCard(slide.id);
+                      onDismissCard(slide);
                     }}
                     onReplyButton={prefillReply}
                   />
@@ -916,6 +1009,18 @@ export function SpotlightCarousel({
                 maxLength={1200}
                 returnKeyType="default"
               />
+              {onOpenThread && activeCard && (
+                <Pressable
+                  accessibilityLabel="Open full thread"
+                  onPress={() => {
+                    haptics.light();
+                    onOpenThread(activeCard);
+                  }}
+                  style={styles.replyOpenThreadBtn}
+                >
+                  <ArrowUpRight size={17} color={theme.muted} />
+                </Pressable>
+              )}
               <Pressable
                 accessibilityLabel="Send reply"
                 disabled={!draft.trim() || sending}
@@ -997,6 +1102,37 @@ export function SpotlightCarousel({
                     style={[styles.quickOptionHint, { color: theme.muted }]}
                   >
                     {opt.hint}
+                  </Text>
+                </View>
+              </Pressable>
+            ))}
+            {snippets.slice(0, 4).map((snip) => (
+              <Pressable
+                key={snip.id}
+                onPress={() => {
+                  haptics.light();
+                  prefillReply(snip.content);
+                }}
+                style={({ pressed }) => [
+                  styles.quickOption,
+                  {
+                    backgroundColor: pressed ? theme.attention : theme.soft,
+                    borderColor: pressed ? theme.attentionLine : theme.line,
+                  },
+                ]}
+              >
+                <Sparkles size={16} color={theme.brassText} />
+                <View style={styles.quickOptionText}>
+                  <Text
+                    style={[styles.quickOptionLabel, { color: theme.text }]}
+                  >
+                    /{snip.title}
+                  </Text>
+                  <Text
+                    style={[styles.quickOptionHint, { color: theme.muted }]}
+                    numberOfLines={1}
+                  >
+                    {snip.content}
                   </Text>
                 </View>
               </Pressable>
@@ -1798,6 +1934,12 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     maxHeight: 90,
     paddingVertical: 6,
+  },
+  replyOpenThreadBtn: {
+    width: 32,
+    height: 34,
+    alignItems: "center",
+    justifyContent: "center",
   },
   replySendBtn: {
     width: 34,
