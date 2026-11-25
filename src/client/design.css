@@ -1553,27 +1553,6 @@ button:not(:disabled):active,
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-/* B3: a Done card open in place. */
-.feed-expanded-body {
-  display: grid;
-  gap: 10px;
-  margin-top: 6px;
-  cursor: auto;
-  user-select: text;
-}
-.feed-expanded-you {
-  margin: 0;
-  padding: 8px 12px;
-  border-radius: 12px;
-  background: var(--soft);
-  color: var(--muted);
-  font-size: 14px;
-}
-.feed-expanded-actions {
-  flex-wrap: wrap;
-  gap: 4px 14px;
-}
-
 /* B2: a reply typed on the card, and the echo of what was sent. */
 .inline-reply {
   display: grid;

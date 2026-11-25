@@ -12,7 +12,6 @@ import { chromiumExecutable, selectedEngines } from "./helpers/engines.mjs";
 import { designFixture } from "./helpers/design-fixture.mjs";
 import { trackSmokeCleanup } from "./helpers/smoke-lifecycle.mjs";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
-import { openCardReading } from "./helpers/open-card.mjs";
 
 const mathAsset = /\/assets\/mathPlugins-[^/]+\.(?:js|css)$/;
 const wide = String.raw`\underbrace{${Array(30).fill("a+b").join("+")}}_{n}`;
@@ -114,7 +113,7 @@ for (const engine of selectedEngines()) {
         window.dispatchEvent(new Event("loop-source-refresh")),
       );
       await expect(card.locator(".katex")).toHaveCount(7);
-      await openCardReading(card.locator(".feed-row"));
+      await card.locator(".feed-row").click();
       const reader = page.locator("dialog.feed-reading-sheet[open]");
       await expect(reader.locator(".katex")).toHaveCount(7);
       await expect(reader.locator(".katex-error")).toHaveCount(0);
@@ -210,9 +209,10 @@ for (const engine of selectedEngines()) {
       });
       await fallback.goto(fixture.base);
       await failed;
-      await openCardReading(
-        fallback.locator(".feed-row").filter({ hasText: done.title }),
-      );
+      await fallback
+        .locator(".feed-row")
+        .filter({ hasText: done.title })
+        .click();
       const fallbackReader = fallback.locator(
         "dialog.feed-reading-sheet[open]",
       );

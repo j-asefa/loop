@@ -276,9 +276,6 @@ function FeedCard({
   onReply,
   canQuickReply = false,
   canInlineReply = false,
-  expanded = false,
-  onExpand,
-  onSave,
   onRead,
   onReadingChange,
   onQuestion,
@@ -309,12 +306,6 @@ function FeedCard({
   canQuickReply?: boolean;
   /** Feed can reply in a thread, so a card may offer its own reply box. */
   canInlineReply?: boolean;
-  /** Open in place (B3): the whole answer, Save and the reply box. */
-  expanded?: boolean;
-  /** Present when this card opens in place instead of in a sheet. */
-  onExpand?: (open: boolean) => void;
-  /** Save or unsave the card's latest message. */
-  onSave?: () => void;
   onRead?: () => void;
   onReadingChange?: (open: boolean) => void;
   onQuestion?: () => void;
@@ -503,14 +494,8 @@ function FeedCard({
   // Opening the sheet always reads the current message, as before, so a
   // revised answer replaces a prefetched copy.
   useEffect(() => {
-    if (reading || expanded) loadFull(true);
-  }, [reading, expanded, fetchKey, canLoadFull]);
-  // The sheet takes over from the card open in place, which closes.
-  const openSheet = () => {
-    onReadingChange?.(true);
-    setReading(true);
-    onExpand?.(false);
-  };
+    if (reading) loadFull(true);
+  }, [reading, fetchKey, canLoadFull]);
   const content =
     item.live_preview ||
     (awaitingUpdate
@@ -526,14 +511,6 @@ function FeedCard({
       onSelect();
       return;
     }
-    if (onExpand && readAsCard) {
-      // Opens in place; tapping again closes it. "Open full thread" opens
-      // the reading sheet.
-      onReadingChange?.(!expanded);
-      if (!expanded) onRead?.();
-      onExpand(!expanded);
-      return;
-    }
     if (readAsCard) onReadingChange?.(true);
     onRead?.();
     if (readAsCard) setReading(true);
@@ -541,8 +518,7 @@ function FeedCard({
   };
   const closeReading = () => {
     setReading(false);
-    // A card still open in place is still being read.
-    if (!expanded) onReadingChange?.(false);
+    onReadingChange?.(false);
   };
   const leaveReading = (action: () => void) => {
     closeReading();
@@ -566,10 +542,8 @@ function FeedCard({
           "feed-card feed-item-card swipe-track" +
           (aggregationId ? " done-card-interactive" : "") +
           (selected ? " card-selected" : "") +
-          (swipe.lifted || swipe.dragging ? " card-dragging" : "") +
-          (expanded ? " card-expanded" : "")
+          (swipe.lifted || swipe.dragging ? " card-dragging" : "")
         }
-        data-expanded={expanded || undefined}
         {...swipe.handlers}
       >
         <div className="card-byline">
@@ -643,12 +617,9 @@ function FeedCard({
           tabIndex={0}
           aria-label={`${item.title}${status.label ? `, ${status.label}` : ""}`}
           aria-pressed={onSelect ? !!selected : undefined}
-          aria-expanded={onExpand && readAsCard ? expanded : undefined}
           onClick={(e) => {
-            const target = e.target as HTMLElement;
-            // Reading or selecting an open answer does not close it.
-            if (expanded && target.closest(".feed-expanded-body")) return;
-            if (!target.closest("a,button,summary,input")) openReading();
+            if (!(e.target as HTMLElement).closest("a,button,summary,input"))
+              openReading();
           }}
           onKeyDown={(e) => {
             if (e.target !== e.currentTarget) return;
@@ -746,40 +717,6 @@ function FeedCard({
                 ? "Waiting for agent update…"
                 : "No agent update yet."}
             </p>
-          ) : expanded ? (
-            <div className="feed-expanded-body">
-              {item.reply && (
-                <blockquote
-                  className="feed-expanded-you"
-                  aria-label="Your message"
-                >
-                  <RichText content={item.reply.content} compact />
-                </blockquote>
-              )}
-              {/* As the reading sheet: a card body only with an answer. */}
-              {content.trim() && item.card ? (
-                <SourceProvider
-                  sourceId={item.sourceId ?? scopedSource}
-                  capabilities={capabilities}
-                >
-                  <CardBody card={item.card} />
-                </SourceProvider>
-              ) : content.trim() ? (
-                <RichText
-                  content={content}
-                  cappedPreview={!loadedMessage && messagePreviewCapped}
-                />
-              ) : (
-                <p className="field-hint">
-                  No answer text. Open full thread for its files and details.
-                </p>
-              )}
-              {readError && (
-                <p className="error" role="alert">
-                  {readError}
-                </p>
-              )}
-            </div>
           ) : (
             !!(
               item.last_message?.content ?? item.last_message?.preview
@@ -814,40 +751,9 @@ function FeedCard({
               </div>
             )
           )}
-          {(expanded || !!(item.last_message || item.run)) &&
+          {!!(item.last_message || item.run) &&
             !onSelect &&
-            (expanded ? (
-              <span className="preview-links feed-expanded-actions">
-                {onSave && item.last_message && (
-                  <button
-                    className="text-button"
-                    aria-pressed={!!item.last_message.saved}
-                    onClick={onSave}
-                  >
-                    {item.last_message.saved ? (
-                      <BookmarkCheck size={14} aria-hidden="true" />
-                    ) : (
-                      <Bookmark size={14} aria-hidden="true" />
-                    )}
-                    {item.last_message.saved ? "Saved" : "Save"}
-                  </button>
-                )}
-                <button
-                  className="text-button preview-open"
-                  aria-haspopup="dialog"
-                  onClick={openSheet}
-                >
-                  Open full thread <ArrowUpRight size={14} />
-                </button>
-                <button
-                  className="text-button"
-                  aria-expanded="true"
-                  onClick={openReading}
-                >
-                  Show less <ChevronUp size={14} aria-hidden="true" />
-                </button>
-              </span>
-            ) : takeaway ? (
+            (takeaway ? (
               <span className="preview-links">
                 <button
                   className="text-button preview-open"
@@ -923,17 +829,9 @@ function FeedCard({
               {next?.kind !== "draft" && (
                 <button
                   aria-expanded={inlineTarget ? inlineReplyOpen : undefined}
-                  onClick={(event) => {
-                    if (!inlineTarget) return onReply();
-                    setInlineReplyOpen(true);
-                    // Open in place, the box is already there: focus it.
-                    event.currentTarget
-                      .closest("article")
-                      ?.querySelector<HTMLTextAreaElement>(
-                        ".inline-reply textarea",
-                      )
-                      ?.focus();
-                  }}
+                  onClick={() =>
+                    inlineTarget ? setInlineReplyOpen(true) : onReply()
+                  }
                 >
                   <MessageSquare size={16} />
                   {groupCount ? "Reply to latest" : "Reply"}
@@ -948,9 +846,8 @@ function FeedCard({
             </>
           )}
         </div>
-        {(inlineReplyOpen || expanded) && inlineTarget && (
+        {inlineReplyOpen && inlineTarget && (
           <InlineReplyBox
-            autoFocus={inlineReplyOpen}
             reply={{
               source: fetchSource,
               conversation: item.conversation_id,
@@ -968,7 +865,7 @@ function FeedCard({
                 message_id: null,
               });
             }}
-            onClose={expanded ? undefined : () => setInlineReplyOpen(false)}
+            onClose={() => setInlineReplyOpen(false)}
           />
         )}
       </article>
@@ -1699,8 +1596,6 @@ type FeedCardCallbacks = Pick<
   | "onMenu"
   | "onDismiss"
   | "onLater"
-  | "onExpand"
-  | "onSave"
 >;
 
 export function Feed({
@@ -2127,23 +2022,21 @@ export function Feed({
   // Unchanged cards keep their props' identity, so a refresh re-renders only
   // the cards whose content changed (MemoFeedCard).
   const stableCards = useStableCardProps();
-  // One Done card open in place at a time (B3), by its card slot. Another
-  // tab or project starts with every card closed.
-  const [expandedCard, setExpandedCard] = useState<string | null>(null);
-  useEffect(() => setExpandedCard(null), [filter, project]);
-  // Cards slide to their new places after one opens, closes or leaves
-  // (D6): places are taken just before the change and played after the
-  // commit that applies it. No other render measures anything.
+  // Cards slide to their new places after one leaves or comes back (D6):
+  // places are taken just before the change and played after the commit
+  // that applies it. No other render measures anything.
   const resultsList = useRef<HTMLUListElement>(null);
   const cardPlaces = useRef<CardPlaces | null>(null);
   const slideNextChange = () => {
     const places = captureCardPlaces(resultsList.current);
     cardPlaces.current = places;
-    // The change commits in this task; places left after a frame belong to
-    // a change that never rendered and must not move a later one.
-    requestAnimationFrame(() => {
+    // React may commit the change in a later task (a swipe's archive is
+    // scheduled, not flushed with the event). Places still unused after
+    // 250 ms belong to a change that never rendered and must not move a
+    // later one.
+    setTimeout(() => {
       if (cardPlaces.current === places) cardPlaces.current = null;
-    });
+    }, 250);
   };
   useLayoutEffect(() => {
     if (!cardPlaces.current) return;
@@ -2216,11 +2109,6 @@ export function Feed({
   const [aggregate, setAggregate] = useState<ThreadSelection | null>(null);
   const [combineFrom, setCombineFrom] = useState<string | null>(null);
   const [selectedCards, setSelectedCards] = useState<string[] | null>(null);
-  // Selecting cards closes the one open in place.
-  const selecting = selectedCards !== null;
-  useEffect(() => {
-    if (selecting) setExpandedCard(null);
-  }, [selecting]);
   const [bulkReadBusy, setBulkReadBusy] = useState(false);
   const [readingCard, setReadingCard] = useState<{
     item: FeedItem;
@@ -4894,20 +4782,6 @@ export function Feed({
               ? () => void dismissFeedCard(item)
               : undefined,
       onLater: () => setLater(item),
-      onExpand:
-        !inNeeds &&
-        !thread &&
-        !selectedCards &&
-        ((filter === "done" && item.done_card_key) ||
-          (filter === "replies" && item.reply_card_key))
-          ? (open) => {
-              slideNextChange();
-              setExpandedCard((current) =>
-                open ? slot : current === slot ? null : current,
-              );
-            }
-          : undefined,
-      onSave: item.last_message ? () => void toggleSaved(item) : undefined,
     });
     return (
       <MemoFeedCard
@@ -4957,7 +4831,6 @@ export function Feed({
         )}
         canQuickReply={Boolean(onReply && feedReplyQuote(item))}
         canInlineReply={Boolean(onReply)}
-        expanded={!selectedCards && expandedCard === slot}
         draftText={
           threadDraft(sourceDraftId(item.conversation_id, source)).text
         }

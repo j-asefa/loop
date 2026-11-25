@@ -2,7 +2,6 @@
 // Run after building the UI: node scripts/readme-screenshots.mjs
 import { fileURLToPath } from "node:url";
 import { mkdirSync } from "node:fs";
-import { openCardReading } from "./helpers/open-card.mjs";
 const root = fileURLToPath(new URL("../", import.meta.url)).replace(/\/$/, "");
 const out = root + "/docs/screenshots";
 mkdirSync(out, { recursive: true });
@@ -369,12 +368,11 @@ try {
   await page.waitForTimeout(500);
   await capture("saved");
   await page.goto(fixture.base + "/?filter=done", { waitUntil: "networkidle" });
-  await openCardReading(
-    page
-      .locator(".feed-results .feed-item-card")
-      .filter({ hasText: "off by a cent" })
-      .locator(".feed-row"),
-  );
+  await page
+    .locator(".feed-results .feed-item-card")
+    .filter({ hasText: "off by a cent" })
+    .locator(".feed-row")
+    .click();
   const reader = page.locator("dialog.feed-reading-sheet[open]");
   await reader.waitFor();
   await page.waitForTimeout(1000);
