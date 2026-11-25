@@ -151,6 +151,7 @@ export function SpotlightCarousel({
       .then((page) => {
         if (cancelled) return;
         const promptMap = new Map<string, string>();
+        const bodyMap = new Map<string, string>();
         const savedSet = new Set(page.saved);
         const extra: NativeResultCard[] = [];
         let lastPrompt = "";
@@ -162,6 +163,7 @@ export function SpotlightCarousel({
           }
           if (msg.role !== "assistant" || !msg.content.trim()) continue;
           if (lastPrompt) promptMap.set(msg.id, lastPrompt);
+          bodyMap.set(msg.id, msg.content);
           extra.push({
             id: msg.id,
             conversationId,
@@ -182,6 +184,16 @@ export function SpotlightCarousel({
         }
         extra.reverse();
         setHistoryPrompts(promptMap);
+        setFullBodies((prev) => {
+          const next = new Map(prev);
+          for (const [id, content] of bodyMap) {
+            const existing = next.get(id);
+            if (!existing || content.length > existing.length) {
+              next.set(id, content);
+            }
+          }
+          return next;
+        });
         setHistorySlides(extra);
       })
       .catch(() => {});
@@ -2344,7 +2356,7 @@ const styles = StyleSheet.create({
   cardScrollContent: {
     paddingHorizontal: 17,
     paddingTop: 2,
-    paddingBottom: 18,
+    paddingBottom: 28,
   },
   titleBlock: {
     marginBottom: 12,

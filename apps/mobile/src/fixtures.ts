@@ -68,7 +68,11 @@ export function feedItemToNativeCard(
     prompt,
     fallbackTitle: item.title || "Result",
     body: doneBody,
-    bodyTruncated: Boolean(msg?.content_truncated),
+    bodyTruncated: Boolean(
+      msg?.content_truncated ||
+      (tab === "replies" && doneBody.length >= 980) ||
+      (!msg?.content && Boolean(msg?.preview) && doneBody.length >= 980),
+    ),
     createdAt: msg?.created_at ?? item.last_activity_at,
     saved: Boolean(msg?.saved),
     unread:

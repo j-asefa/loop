@@ -1303,6 +1303,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 7,
+    flexShrink: 0,
   },
   unreadBadgeTop: {
     flexDirection: "row",
