@@ -125,77 +125,251 @@ type InlineToken =
   | { kind: "code"; text: string }
   | { kind: "link"; label: string; url: string; isLocalFile?: boolean };
 
+const ESCAPABLE_CHARS = new Set(Array.from("\\`*_{}[]()#+-.!~|"));
+
+function isWordChar(ch: string | undefined): boolean {
+  if (!ch) return false;
+  const c = ch.charCodeAt(0);
+  return (
+    (c >= 48 && c <= 57) ||
+    (c >= 65 && c <= 90) ||
+    (c >= 97 && c <= 122) ||
+    c === 95
+  );
+}
+
+function findClosingDelimiter(
+  text: string,
+  from: number,
+  delim: string,
+  requireEndBoundary = false,
+): number {
+  let i = from;
+  while (i <= text.length - delim.length) {
+    const ch = text[i];
+    if (ch === "\n") return -1;
+    if (ch === "\\") {
+      i += 2;
+      continue;
+    }
+    if (ch === "`") {
+      let ticks = 1;
+      while (text[i + ticks] === "`") ticks++;
+      const closeTick = text.indexOf("`".repeat(ticks), i + ticks);
+      if (closeTick !== -1) {
+        i = closeTick + ticks;
+        continue;
+      }
+    }
+    if (text.startsWith(delim, i)) {
+      if (!requireEndBoundary || !isWordChar(text[i + delim.length])) {
+        return i;
+      }
+    }
+    i += 1;
+  }
+  return -1;
+}
+
+function parseLinkAt(
+  text: string,
+  start: number,
+): { label: string; url: string; end: number } | null {
+  if (text[start] !== "[") return null;
+  let i = start + 1;
+  let bracketDepth = 1;
+  while (i < text.length && bracketDepth > 0) {
+    const ch = text[i];
+    if (ch === "\n") return null;
+    if (ch === "\\") {
+      i += 2;
+      continue;
+    }
+    if (ch === "[") bracketDepth++;
+    else if (ch === "]") bracketDepth--;
+    i++;
+  }
+  if (bracketDepth !== 0 || text[i] !== "(") return null;
+  const label = text.slice(start + 1, i - 1);
+  if (!label) return null;
+
+  let j = i + 1;
+  let parenDepth = 1;
+  while (j < text.length && parenDepth > 0) {
+    const ch = text[j];
+    if (ch === "\n" || ch === " " || ch === "\t") return null;
+    if (ch === "(") parenDepth++;
+    else if (ch === ")") parenDepth--;
+    j++;
+  }
+  if (parenDepth !== 0) return null;
+  const url = text.slice(i + 1, j - 1);
+  if (!/^(https?:\/\/|exps:\/\/|file:\/\/|mailto:)/i.test(url)) {
+    return null;
+  }
+  return { label, url, end: j };
+}
+
 function tokenizeInline(text: string, depth = 0): InlineToken[] {
   if (!text || depth > 4) return text ? [{ kind: "text", text }] : [];
   const tokens: InlineToken[] = [];
+  let i = 0;
+  let plain = "";
 
-  // Order matters: inline code first (protects inner syntax), then links,
-  // then bold+italic, bold, strike, italic, bare URLs, escaped punctuation.
-  const pattern =
-    /(``[^`]+``|`[^`\n]+`|\[([^\]]+)\]\(((?:https?|exps|mailto|file):\/\/[^)\s]+|mailto:[^)\s]+)\)|\*\*\*([^*\n]+?)\*\*\*|___([^_\n]+?)___|\*\*((?:[^*]|\*(?!\*))+?)\*\*|(?<!\w)__((?:[^_]|_(?!_))+)__(?!\w)|~~([^~\n]+?)~~|\*([^*\n]+?)\*|(?<!\w)_([^_\n]+?)_(?!\w)|(https?:\/\/[^\s<>()]+)|\\([\\`*_{}[\]()#+\-.!~|]))/g;
-
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-
-  while ((match = pattern.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      tokens.push({ kind: "text", text: text.slice(lastIndex, match.index) });
+  const flushPlain = () => {
+    if (plain) {
+      tokens.push({ kind: "text", text: plain });
+      plain = "";
     }
-    const raw = match[0];
+  };
 
-    if (raw.startsWith("``") && raw.endsWith("``") && raw.length > 4) {
-      tokens.push({ kind: "code", text: raw.slice(2, -2).trim() });
-    } else if (raw.startsWith("`") && raw.endsWith("`") && raw.length > 2) {
-      tokens.push({ kind: "code", text: raw.slice(1, -1) });
-    } else if (match[2] !== undefined && match[3] !== undefined) {
-      const url = match[3];
-      tokens.push({
-        kind: "link",
-        label: match[2],
-        url,
-        isLocalFile: url.startsWith("file://"),
-      });
-    } else if (match[4] !== undefined || match[5] !== undefined) {
-      const inner = match[4] ?? match[5];
-      tokens.push({
-        kind: "boldItalic",
-        children: tokenizeInline(inner, depth + 1),
-      });
-    } else if (match[6] !== undefined || match[7] !== undefined) {
-      const inner = match[6] ?? match[7];
-      tokens.push({
-        kind: "bold",
-        children: tokenizeInline(inner, depth + 1),
-      });
-    } else if (match[8] !== undefined) {
-      tokens.push({
-        kind: "strike",
-        children: tokenizeInline(match[8], depth + 1),
-      });
-    } else if (match[9] !== undefined || match[10] !== undefined) {
-      const inner = match[9] ?? match[10];
-      tokens.push({
-        kind: "italic",
-        children: tokenizeInline(inner, depth + 1),
-      });
-    } else if (match[11] !== undefined) {
-      // Trim trailing sentence punctuation from bare URLs
-      const cleaned = match[11].replace(/[.,;:!?]+$/, "");
-      const trailing = match[11].slice(cleaned.length);
-      tokens.push({ kind: "link", label: cleaned, url: cleaned });
-      if (trailing) tokens.push({ kind: "text", text: trailing });
-    } else if (match[12] !== undefined) {
-      tokens.push({ kind: "text", text: match[12] });
-    } else {
-      tokens.push({ kind: "text", text: raw });
+  while (i < text.length) {
+    const ch = text[i];
+
+    // Escaped markdown punctuation
+    if (
+      ch === "\\" &&
+      i + 1 < text.length &&
+      ESCAPABLE_CHARS.has(text[i + 1])
+    ) {
+      plain += text[i + 1];
+      i += 2;
+      continue;
     }
 
-    lastIndex = match.index + raw.length;
+    // Inline code (`code` or ``code``)
+    if (ch === "`") {
+      let ticks = 1;
+      while (text[i + ticks] === "`") ticks++;
+      const delim = "`".repeat(ticks);
+      const close = text.indexOf(delim, i + ticks);
+      if (close !== -1 && !text.slice(i + ticks, close).includes("\n")) {
+        flushPlain();
+        const rawCode = text.slice(i + ticks, close);
+        tokens.push({
+          kind: "code",
+          text: ticks >= 2 ? rawCode.trim() : rawCode,
+        });
+        i = close + ticks;
+        continue;
+      }
+    }
+
+    // Markdown link [label](url)
+    if (ch === "[") {
+      const link = parseLinkAt(text, i);
+      if (link) {
+        flushPlain();
+        tokens.push({
+          kind: "link",
+          label: link.label,
+          url: link.url,
+          isLocalFile: link.url.startsWith("file://"),
+        });
+        i = link.end;
+        continue;
+      }
+    }
+
+    // Bold + Italic (*** or ___)
+    if (
+      text.startsWith("***", i) ||
+      (text.startsWith("___", i) && !isWordChar(text[i - 1]))
+    ) {
+      const delim = text.slice(i, i + 3);
+      const close = findClosingDelimiter(text, i + 3, delim, delim === "___");
+      if (close > i + 3) {
+        flushPlain();
+        tokens.push({
+          kind: "boldItalic",
+          children: tokenizeInline(text.slice(i + 3, close), depth + 1),
+        });
+        i = close + 3;
+        continue;
+      }
+    }
+
+    // Bold (** or __)
+    if (
+      text.startsWith("**", i) ||
+      (text.startsWith("__", i) && !isWordChar(text[i - 1]))
+    ) {
+      const delim = text.slice(i, i + 2);
+      const close = findClosingDelimiter(text, i + 2, delim, delim === "__");
+      if (close > i + 2) {
+        flushPlain();
+        tokens.push({
+          kind: "bold",
+          children: tokenizeInline(text.slice(i + 2, close), depth + 1),
+        });
+        i = close + 2;
+        continue;
+      }
+    }
+
+    // Strikethrough (~~)
+    if (text.startsWith("~~", i)) {
+      const close = findClosingDelimiter(text, i + 2, "~~");
+      if (close > i + 2) {
+        flushPlain();
+        tokens.push({
+          kind: "strike",
+          children: tokenizeInline(text.slice(i + 2, close), depth + 1),
+        });
+        i = close + 2;
+        continue;
+      }
+    }
+
+    // Italic (* or _)
+    if (
+      (ch === "*" &&
+        text[i + 1] &&
+        text[i + 1] !== " " &&
+        text[i + 1] !== "*") ||
+      (ch === "_" &&
+        !isWordChar(text[i - 1]) &&
+        text[i + 1] &&
+        text[i + 1] !== " " &&
+        text[i + 1] !== "_")
+    ) {
+      const close = findClosingDelimiter(text, i + 1, ch, ch === "_");
+      if (close > i + 1 && text[close - 1] !== " ") {
+        flushPlain();
+        tokens.push({
+          kind: "italic",
+          children: tokenizeInline(text.slice(i + 1, close), depth + 1),
+        });
+        i = close + 1;
+        continue;
+      }
+    }
+
+    // Bare URLs (http:// or https://)
+    if (
+      ch === "h" &&
+      (text.startsWith("https://", i) || text.startsWith("http://", i)) &&
+      !isWordChar(text[i - 1])
+    ) {
+      let j = i;
+      while (j < text.length && !/[\s<>()"']/.test(text[j])) j++;
+      let url = text.slice(i, j);
+      while (url.length > 0 && /[.,;:!?]/.test(url[url.length - 1])) {
+        url = url.slice(0, -1);
+      }
+      if (url.length > 8) {
+        flushPlain();
+        tokens.push({ kind: "link", label: url, url });
+        i += url.length;
+        continue;
+      }
+    }
+
+    plain += ch;
+    i += 1;
   }
 
-  if (lastIndex < text.length) {
-    tokens.push({ kind: "text", text: text.slice(lastIndex) });
-  }
+  flushPlain();
   return tokens;
 }
 
@@ -323,9 +497,21 @@ type ContentBlock =
 
 function splitTableRow(line: string): string[] {
   const trimmed = line.trim().replace(/^\|/, "").replace(/\|$/, "");
-  return trimmed
-    .split(/(?<!\\)\|/)
-    .map((cell) => cell.replace(/\\\|/g, "|").trim());
+  const cells: string[] = [];
+  let current = "";
+  for (let i = 0; i < trimmed.length; i++) {
+    if (trimmed[i] === "\\" && trimmed[i + 1] === "|") {
+      current += "|";
+      i += 1;
+    } else if (trimmed[i] === "|") {
+      cells.push(current.trim());
+      current = "";
+    } else {
+      current += trimmed[i];
+    }
+  }
+  cells.push(current.trim());
+  return cells;
 }
 
 function isTableSeparator(line: string): boolean {
@@ -1204,7 +1390,7 @@ export function feedPreviewText(markdown: string): string {
     .replace(/__([^_]+)__/g, "$1")
     .replace(/~~([^~]+)~~/g, "$1")
     .replace(/\*([^*\n]+)\*/g, "$1")
-    .replace(/(?<!\w)_([^_\n]+)_(?!\w)/g, "$1")
+    .replace(/(^|\s)_([^_\n]+)_(?=\s|$|[.,;:!?])/g, "$1$2")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
     .replace(/^\s*[-*+]\s+\[[ xX]\]\s+/gm, "• ")
