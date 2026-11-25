@@ -3,6 +3,7 @@ import { ErrorNotice } from "./ErrorNotice";
 import { listenClientEvent } from "./clientEvents";
 import type { ActivityLine } from "../shared/activity-line";
 import { InlineReplyBox } from "./InlineReplyBox";
+import { captureCardPlaces, slideCards, type CardPlaces } from "./slideCards";
 import { useStableCardProps } from "./stableIdentity";
 import { useProjectionRoute } from "./SourceContext";
 import { AgentSourceId } from "../shared/contract-ids";
@@ -2130,6 +2131,60 @@ export function Feed({
   // tab or project starts with every card closed.
   const [expandedCard, setExpandedCard] = useState<string | null>(null);
   useEffect(() => setExpandedCard(null), [filter, project]);
+  // Cards slide to their new places after one opens, closes or leaves
+  // (D6): places are taken just before the change and played after the
+  // commit that applies it. No other render measures anything.
+  const resultsList = useRef<HTMLUListElement>(null);
+  const cardPlaces = useRef<CardPlaces | null>(null);
+  const slideNextChange = () => {
+    const places = captureCardPlaces(resultsList.current);
+    cardPlaces.current = places;
+    // The change commits in this task; places left after a frame belong to
+    // a change that never rendered and must not move a later one.
+    requestAnimationFrame(() => {
+      if (cardPlaces.current === places) cardPlaces.current = null;
+    });
+  };
+  useLayoutEffect(() => {
+    if (!cardPlaces.current) return;
+    slideCards(cardPlaces.current);
+    cardPlaces.current = null;
+  });
+  // The selected tab's bar slides between tabs. It is placed directly after
+  // each Feed commit (reading the selected tab's offset) and when the tab
+  // row resizes, so moving it costs no render.
+  const tabList = useRef<HTMLDivElement>(null);
+  const tabIndicator = useRef<HTMLSpanElement>(null);
+  const placeTabIndicator = useRef(() => {});
+  placeTabIndicator.current = () => {
+    const bar = tabIndicator.current;
+    const tab = tabList.current?.querySelector<HTMLElement>(
+      '[role="tab"][aria-selected="true"]',
+    );
+    if (!bar) return;
+    bar.hidden = !tab;
+    if (!tab) return;
+    bar.style.width = `${Math.max(0, tab.offsetWidth - 24)}px`;
+    bar.style.transform = `translateX(${tab.offsetLeft + 12}px)`;
+    // Animate only moves after the first placement.
+    if (!bar.classList.contains("placed")) {
+      bar.classList.add("placed");
+      requestAnimationFrame(() => bar.classList.add("ready"));
+    }
+  };
+  useLayoutEffect(() => {
+    placeTabIndicator.current();
+  });
+  const tabRow = !hideFilters;
+  useEffect(() => {
+    const list = tabList.current;
+    if (!list || typeof ResizeObserver !== "function") return;
+    const observer = new ResizeObserver(() => placeTabIndicator.current());
+    observer.observe(list);
+    for (const tab of list.querySelectorAll('[role="tab"]'))
+      observer.observe(tab);
+    return () => observer.disconnect();
+  }, [tabRow]);
   // Cards show relative times; they re-render at most once a minute for them.
   const clockMinute = Math.floor(Date.now() / 60_000);
   const grouping = useDoneThreads(
@@ -4012,6 +4067,8 @@ export function Feed({
     };
     const itemKey = feedItemKey(item, source);
     const remove = () => {
+      // The cards below slide up into its place.
+      slideNextChange();
       updateCard(true);
       update((old) =>
         old.filter(
@@ -4020,6 +4077,7 @@ export function Feed({
       );
     };
     const restore = () => {
+      slideNextChange();
       updateCard(false);
       update((old) =>
         [
@@ -4086,7 +4144,7 @@ export function Feed({
           let retried = false;
           notify({
             // True whether or not the card is shown again (see onExpire).
-            text: "Archive not saved.",
+            text: "Archive not confirmed.",
             tone: "error",
             link: {
               label: "Retry",
@@ -4842,10 +4900,12 @@ export function Feed({
         !selectedCards &&
         ((filter === "done" && item.done_card_key) ||
           (filter === "replies" && item.reply_card_key))
-          ? (open) =>
+          ? (open) => {
+              slideNextChange();
               setExpandedCard((current) =>
                 open ? slot : current === slot ? null : current,
-              )
+              );
+            }
           : undefined,
       onSave: item.last_message ? () => void toggleSaved(item) : undefined,
     });
@@ -4984,7 +5044,12 @@ export function Feed({
         </NeedsStack>
       )}
       {!hideFilters && (
-        <div className="chip-row feed-tabs" role="tablist" aria-label="Show">
+        <div
+          ref={tabList}
+          className="chip-row feed-tabs"
+          role="tablist"
+          aria-label="Show"
+        >
           {feedCategories.map((f) => (
             <button
               key={f.id}
@@ -5001,6 +5066,12 @@ export function Feed({
               )}
             </button>
           ))}
+          {/* One bar that slides to the selected tab (placed below). */}
+          <span
+            ref={tabIndicator}
+            className="feed-tab-indicator"
+            aria-hidden="true"
+          />
         </div>
       )}
       <CollectionReadNotice
@@ -5157,7 +5228,7 @@ export function Feed({
               <span />
             </div>
           ) : interleaved.rows.length ? (
-            <ul className="feed-list feed">
+            <ul ref={resultsList} className="feed-list feed">
               {interleaved.rows.map((entry) => {
                 if (entry.kind === "stream") {
                   return (
