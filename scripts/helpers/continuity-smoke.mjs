@@ -4,7 +4,6 @@ import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
 import { seedCheckout } from "./checkout-fixture.mjs";
 import { runReceipt } from "./run-receipt.mjs";
-import { openCardReading } from "./open-card.mjs";
 
 // Everything goes through the production routes and persisted state; the
 // fixture has no worker, so queued and scheduled work stays put.
@@ -293,12 +292,9 @@ export async function continuitySmoke(page, fixture, capture) {
     // Pending requests have a direct approval card, not a duplicate thread card.
     await expect(card(asking.title)).toHaveCount(0);
     await capture("continuity-feed-actions");
-    await openCardReading(
-      card(done.title).getByRole("button", {
-        name: "Review result",
-        exact: true,
-      }),
-    );
+    await card(done.title)
+      .getByRole("button", { name: "Review result", exact: true })
+      .click();
     await expect(page.locator("dialog.feed-reading-sheet[open]")).toBeVisible();
     await page
       .locator("dialog.feed-reading-sheet[open]")

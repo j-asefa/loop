@@ -28,7 +28,6 @@ import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 import { tsImport } from "tsx/esm/api";
 import { build } from "esbuild";
 import { fileURLToPath } from "node:url";
-import { openCardReading } from "./helpers/open-card.mjs";
 
 // Exercise rendering modes with the actual component, including clipped text
 // before a full-message read resolves. No test hook is added to the app bundle.
@@ -416,7 +415,7 @@ for (const engine of selectedEngines()) {
       await card.evaluate((element) => {
         element.dataset.recoveryProbe = "mounted";
       });
-      await openCardReading(card.locator(".feed-row"));
+      await card.locator(".feed-row").click();
       const failedReader = page.locator("dialog.feed-reading-sheet[open]");
       await expect(failedReader.locator(".markdown-fallback")).toBeVisible();
       await expect(failedReader.locator(".markdown-fallback pre")).toHaveCount(
@@ -436,7 +435,7 @@ for (const engine of selectedEngines()) {
       await expect(card).toHaveAttribute("data-recovery-probe", "mounted");
 
       // Reading sheet: every component, and the degraded ones.
-      await openCardReading(card.locator(".feed-row"));
+      await card.locator(".feed-row").click();
       const reader = page.locator("dialog.feed-reading-sheet[open]");
       const shown = reader.locator(".display-spec");
       await expect(shown).toHaveCount(1);
@@ -578,7 +577,7 @@ for (const engine of selectedEngines()) {
       await page.goto(`${fixture.base}/?filter=working`, {
         waitUntil: "networkidle",
       });
-      await openCardReading(workingCard().locator(".feed-row"));
+      await workingCard().locator(".feed-row").click();
       const workingSheet = page.locator("dialog.feed-reading-sheet[open]");
       await expect(workingSheet.locator(".display-field")).toHaveCount(2);
       await expect(workingSheet.locator(".display-placeholder")).toHaveCount(0);
@@ -602,7 +601,7 @@ for (const engine of selectedEngines()) {
       await page.goto(`${fixture.base}/?filter=working`, {
         waitUntil: "networkidle",
       });
-      await openCardReading(workingCard().locator(".feed-row"));
+      await workingCard().locator(".feed-row").click();
       const cutSheet = page.locator("dialog.feed-reading-sheet[open]");
       await expect(
         cutSheet.getByText("Continue reading in conversation"),
@@ -628,7 +627,7 @@ for (const engine of selectedEngines()) {
         waitUntil: "networkidle",
       });
       await expect(workingCard().getByText("Display loading…")).toBeVisible();
-      await openCardReading(workingCard().locator(".feed-row"));
+      await workingCard().locator(".feed-row").click();
       await expect(cutSheet.getByText("Display loading…")).toBeVisible();
       await expect(
         cutSheet.getByText("Continue reading in conversation"),
@@ -649,7 +648,7 @@ for (const engine of selectedEngines()) {
         await expect(workingCard().locator(".live-preview")).toContainText(
           "This display could not be drawn.",
         );
-        await openCardReading(workingCard().locator(".feed-row"));
+        await workingCard().locator(".feed-row").click();
         await expect(cutSheet).toContainText(
           "This display could not be drawn.",
         );
@@ -668,7 +667,7 @@ for (const engine of selectedEngines()) {
         waitUntil: "networkidle",
       });
       await expect(workingCard().getByText("Display loading…")).toBeVisible();
-      await openCardReading(workingCard().locator(".feed-row"));
+      await workingCard().locator(".feed-row").click();
       await expect(
         cutSheet.getByText("Continue reading in conversation"),
       ).toBeVisible();
@@ -679,7 +678,7 @@ for (const engine of selectedEngines()) {
         waitUntil: "networkidle",
       });
       await expect(workingCard().getByText("Display loading…")).toBeVisible();
-      await openCardReading(workingCard().locator(".feed-row"));
+      await workingCard().locator(".feed-row").click();
       await expect(cutSheet.getByText("Display loading…")).toBeVisible();
       await expect(cutSheet.locator("code.language-spec")).toHaveCount(0);
 
@@ -690,7 +689,7 @@ for (const engine of selectedEngines()) {
       await expect(workingCard().locator(".live-preview")).toContainText(
         "Deployment succeeded.",
       );
-      await openCardReading(workingCard().locator(".feed-row"));
+      await workingCard().locator(".feed-row").click();
       await expect(cutSheet).toContainText("Deployment succeeded.");
 
       update(working, " ".repeat(4000) + "Visible after whitespace.");
@@ -700,7 +699,7 @@ for (const engine of selectedEngines()) {
       await expect(workingCard().locator(".live-preview pre")).toContainText(
         "Visible after whitespace.",
       );
-      await openCardReading(workingCard().locator(".feed-row"));
+      await workingCard().locator(".feed-row").click();
       await expect(cutSheet.locator("pre")).toContainText(
         "Visible after whitespace.",
       );
@@ -741,7 +740,7 @@ for (const engine of selectedEngines()) {
           workingCard().locator(".live-preview code.language-text"),
         ).toHaveCount(1);
         await expect(workingCard().locator(".display-loading")).toHaveCount(0);
-        await openCardReading(workingCard().locator(".feed-row"));
+        await workingCard().locator(".feed-row").click();
         await expect(cutSheet.locator("code.language-text")).toHaveCount(1);
         await expect(cutSheet.locator(".display-loading")).toHaveCount(0);
       }
@@ -770,7 +769,7 @@ for (const engine of selectedEngines()) {
       await expect(workingCard().locator(".display-title")).toHaveText(
         "Earlier title",
       );
-      await openCardReading(workingCard().locator(".feed-row"));
+      await workingCard().locator(".feed-row").click();
       await expect(cutSheet.locator(".display-title")).toHaveText(
         "Earlier title",
       );
@@ -781,7 +780,7 @@ for (const engine of selectedEngines()) {
       await expect(workingCard().locator(".display-title")).toHaveText(
         "Clipped title",
       );
-      await openCardReading(workingCard().locator(".feed-row"));
+      await workingCard().locator(".feed-row").click();
       await expect(cutSheet.locator(".display-title")).toHaveText(
         "Clipped title",
       );
@@ -809,7 +808,7 @@ for (const engine of selectedEngines()) {
           waitUntil: "networkidle",
         });
         await expect(workingCard().getByText("Display loading…")).toBeVisible();
-        await openCardReading(workingCard().locator(".feed-row"));
+        await workingCard().locator(".feed-row").click();
         await expect(cutSheet.getByText("Display loading…")).toBeVisible();
       }
       const ordinaryFenceAtCut = "```javascript\n```";
@@ -828,7 +827,7 @@ for (const engine of selectedEngines()) {
         workingCard().locator(".live-preview code.language-javascript"),
       ).toHaveCount(1);
       await expect(workingCard().locator(".display-loading")).toHaveCount(0);
-      await openCardReading(workingCard().locator(".feed-row"));
+      await workingCard().locator(".feed-row").click();
       await expect(cutSheet.locator("code.language-javascript")).toHaveCount(1);
       await expect(cutSheet.locator(".display-loading")).toHaveCount(0);
 
@@ -865,7 +864,7 @@ for (const engine of selectedEngines()) {
       await page.goto(`${fixture.base}/?filter=working`, {
         waitUntil: "networkidle",
       });
-      await openCardReading(workingCard().locator(".feed-row"));
+      await workingCard().locator(".feed-row").click();
       await workingSheet
         .getByRole("button", { name: "Reply", exact: true })
         .click();
@@ -995,7 +994,7 @@ for (const engine of selectedEngines()) {
       await page.goto(`${fixture.base}/?filter=working`, {
         waitUntil: "networkidle",
       });
-      await openCardReading(workingCard().locator(".feed-row"));
+      await workingCard().locator(".feed-row").click();
       await workingSheet
         .getByRole("button", { name: "Reply", exact: true })
         .click();
@@ -1050,7 +1049,7 @@ for (const engine of selectedEngines()) {
             path: join(shots, `${engine.name()}-chart-card-${scheme}.png`),
           });
         }
-      await openCardReading(chartCard.locator(".feed-row"));
+      await chartCard.locator(".feed-row").click();
       const chartSheet = page.locator("dialog.feed-reading-sheet[open]");
       const figures = chartSheet.locator(".display-chart");
       await expect(figures).toHaveCount(4);
@@ -1133,9 +1132,7 @@ for (const engine of selectedEngines()) {
       // A block that cannot be drawn keeps the answer and shows its source.
       seal(done, broken);
       await page.goto(fixture.base);
-      await openCardReading(
-        page.locator(".feed-row").filter({ hasText: done.title }),
-      );
+      await page.locator(".feed-row").filter({ hasText: done.title }).click();
       const fallback = page.locator("dialog.feed-reading-sheet[open]");
       await expect(fallback).toContainText("Before the block.");
       await expect(fallback).toContainText("After the block.");

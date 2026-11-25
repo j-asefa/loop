@@ -32,7 +32,6 @@ import {
   stopAcceptanceCompanion,
   writeAcceptanceFile,
 } from "./helpers/fleet-acceptance-observations.mjs";
-import { openCardReading } from "./helpers/open-card.mjs";
 
 const { values } = parseArgs({
   options: {
@@ -893,11 +892,10 @@ async function browserMeasurements(gateway, destination) {
       const tunnelAfterIdle = await tunnelSnapshot();
       const beforeActive = { ...metrics },
         activeAt = performance.now();
-      await openCardReading(
-        page
-          .locator(".feed-row")
-          .filter({ hasText: "Fleet acceptance on " + destination.name }),
-      );
+      await page
+        .locator(".feed-row")
+        .filter({ hasText: "Fleet acceptance on " + destination.name })
+        .click();
       await page
         .locator("dialog.feed-reading-sheet")
         .getByRole("button", { name: "Reply", exact: true })

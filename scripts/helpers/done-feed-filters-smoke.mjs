@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
-import { openCardReading } from "./open-card.mjs";
 
 export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
   const agents = [];
@@ -617,7 +616,7 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
   await expect(unreadAction).toContainText("does not allow this operation");
   await capture("peer-unread-unavailable");
   await closeReader();
-  await openCardReading(card("Remote Filter result 0-83").getByRole("heading"));
+  await card("Remote Filter result 0-83").getByRole("heading").click();
   await expect(page.locator(".feed-reading-sheet")).toContainText(
     "Answer for filter result 0-83",
   );

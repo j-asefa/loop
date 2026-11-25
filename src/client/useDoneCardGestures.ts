@@ -2,9 +2,7 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import { useLongPress, useSwipe } from "./gestures";
 
 const CARD_TYPE = "application/x-loop-done-card";
-// Text in a card open in place is for reading and selecting, not dragging.
-const controls =
-  "a,button,summary,input,textarea,select,pre,.table-scroll,.feed-expanded-body";
+const controls = "a,button,summary,input,textarea,select,pre,.table-scroll";
 export type CardDragSession = {
   source: string;
   target: HTMLElement | null;
