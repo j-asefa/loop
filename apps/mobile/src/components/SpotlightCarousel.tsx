@@ -38,7 +38,6 @@ import {
   Bookmark,
   BookmarkCheck,
   Check,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   CornerUpLeft,
@@ -228,8 +227,7 @@ export function SpotlightCarousel({
   const [committedQuery, setCommittedQuery] = useState("");
   const [quickReplyOpen, setQuickReplyOpen] = useState(false);
 
-  // Detached floating Reply composer + hidden-by-default bottom controls + long-press sheet
-  const [controlsVisible, setControlsVisible] = useState(false);
+  // Detached floating Reply composer + long-press card action sheet
   const [actionSheetCard, setActionSheetCard] =
     useState<NativeResultCard | null>(null);
   const [draft, setDraft] = useState("");
@@ -488,76 +486,15 @@ export function SpotlightCarousel({
     setSearchOpen(false);
   }, []);
 
-  const openReplyControls = useCallback((focusInput = true) => {
-    haptics.medium();
-    setControlsVisible(true);
-    if (focusInput) {
-      setTimeout(() => replyInputRef.current?.focus(), 70);
-    }
-  }, []);
-
-  const hideReplyControls = useCallback(() => {
+  const focusReplyInput = useCallback(() => {
     haptics.light();
-    Keyboard.dismiss();
-    setControlsVisible(false);
+    setTimeout(() => replyInputRef.current?.focus(), 60);
   }, []);
-
-  const handleCardBottomChange = useCallback(
-    (reveal: boolean) => {
-      if (reveal) {
-        haptics.medium();
-        setControlsVisible(true);
-      } else if (
-        !keyboardVisible &&
-        !draft.trim() &&
-        replyAttachments.attachments.length === 0
-      ) {
-        setControlsVisible((prev) => (prev ? false : prev));
-      }
-    },
-    [keyboardVisible, draft, replyAttachments.attachments.length],
-  );
-
-  // When swiping to a different card, keep the reply bar hidden unless the user is actively typing/attaching
-  useEffect(() => {
-    if (
-      !keyboardVisible &&
-      !draft.trim() &&
-      replyAttachments.attachments.length === 0
-    ) {
-      setControlsVisible(false);
-    }
-  }, [safeIndex]);
-
-  const bottomPullUpGesture = useMemo(
-    () =>
-      Gesture.Pan()
-        .activeOffsetY([-10, 10])
-        .onEnd((e) => {
-          if (e.translationY < -24 || e.velocityY < -300) {
-            runOnJS(openReplyControls)(true);
-          }
-        }),
-    [openReplyControls],
-  );
-
-  const controlsPullDownGesture = useMemo(
-    () =>
-      Gesture.Pan()
-        .activeOffsetY([-10, 10])
-        .onEnd((e) => {
-          if (e.translationY > 24 || e.velocityY > 300) {
-            runOnJS(hideReplyControls)();
-          }
-        }),
-    [hideReplyControls],
-  );
 
   const prefillReply = useCallback((prompt: string) => {
     setDraft(prompt);
     setQuickReplyOpen(false);
-    setControlsVisible(true);
-    setTimeout(() => replyInputRef.current?.focus(), 70);
+    setTimeout(() => replyInputRef.current?.focus(), 60);
   }, []);
 
   const submitReply = useCallback(() => {
@@ -582,7 +519,6 @@ export function SpotlightCarousel({
     setDraft("");
     clearAttachments();
     Keyboard.dismiss();
-    setControlsVisible(false);
     Promise.resolve(onSendReply(activeCard, finalPrompt, readyIds))
       .catch(() => {})
       .finally(() => {
@@ -912,7 +848,6 @@ export function SpotlightCarousel({
                       scrollToSlide(index, true);
                     }}
                     onPullToSearch={() => openSearch()}
-                    onBottomChange={handleCardBottomChange}
                     onLongPress={() => {
                       haptics.medium();
                       setActionSheetCard(slide);
@@ -1055,149 +990,121 @@ export function SpotlightCarousel({
             </View>
           )}
 
-          {/* Bottom controls bar: hidden by default, revealed on pull-up to reply */}
-          {controlsVisible ? (
-            <View style={styles.controlsRevealWrap}>
-              <GestureDetector gesture={controlsPullDownGesture}>
-                <View style={styles.controlsHandleRow}>
-                  <Pressable
-                    accessibilityLabel="Hide reply controls"
-                    hitSlop={10}
-                    onPress={hideReplyControls}
-                    style={[
-                      styles.controlsCollapseBtn,
-                      {
-                        backgroundColor: theme.soft,
-                        borderColor: theme.line,
-                      },
-                    ]}
-                  >
-                    <ChevronDown size={14} color={theme.muted} />
-                  </Pressable>
-                  {slides.length > 1 && (
-                    <CarouselDotRail
-                      total={slides.length}
-                      activeIndex={safeIndex}
-                      committedQuery={committedQuery}
-                      hitIndexes={committedHits.map((h) => h.index)}
-                      theme={theme}
-                      onSelect={(index) => {
-                        haptics.selection();
-                        scrollToSlide(index, true);
-                      }}
-                    />
-                  )}
-                  <View style={styles.controlsSpacer} />
-                </View>
-              </GestureDetector>
+          {/* Sliding-Window Tactile Dot Rail */}
+          {slides.length > 1 && !keyboardVisible && (
+            <CarouselDotRail
+              total={slides.length}
+              activeIndex={safeIndex}
+              committedQuery={committedQuery}
+              hitIndexes={committedHits.map((h) => h.index)}
+              theme={theme}
+              onSelect={(index) => {
+                haptics.selection();
+                scrollToSlide(index, true);
+              }}
+            />
+          )}
 
-              {/* Detached Floating Reply Pill (Attach + Quick + Input + Open Thread + Send) */}
-              <View style={styles.replyFloatWrap}>
-                <AttachmentChipStrip
-                  attachments={replyAttachments.attachments}
-                  theme={theme}
-                  onRemove={replyAttachments.removeAttachment}
+          {/* Detached Floating Reply Pill along the bottom */}
+          <View style={styles.replyFloatWrap}>
+            <AttachmentChipStrip
+              attachments={replyAttachments.attachments}
+              theme={theme}
+              onRemove={replyAttachments.removeAttachment}
+            />
+            <View
+              style={[
+                styles.replyPill,
+                {
+                  backgroundColor: theme.pillBg,
+                  borderColor: theme.line,
+                },
+              ]}
+            >
+              <Pressable
+                accessibilityLabel="Attach photo or file"
+                disabled={!replyAttachments.canAddMore}
+                onPress={() => {
+                  haptics.light();
+                  Keyboard.dismiss();
+                  replyAttachments.setPickerOpen(true);
+                }}
+                style={[
+                  styles.replyQuickBtn,
+                  !replyAttachments.canAddMore && { opacity: 0.4 },
+                ]}
+              >
+                <Paperclip
+                  size={16}
+                  color={
+                    replyAttachments.attachments.length > 0
+                      ? theme.brassText
+                      : theme.muted
+                  }
                 />
-                <View
-                  style={[
-                    styles.replyPill,
-                    {
-                      backgroundColor: theme.pillBg,
-                      borderColor: theme.line,
-                    },
-                  ]}
+              </Pressable>
+              <Pressable
+                accessibilityLabel="Quick replies and snippets"
+                onPress={() => {
+                  haptics.light();
+                  setQuickReplyOpen(true);
+                }}
+                style={styles.replyQuickBtn}
+              >
+                <Zap size={16} color={theme.brassText} />
+              </Pressable>
+              <TextInput
+                ref={replyInputRef}
+                value={draft}
+                onChangeText={setDraft}
+                placeholder={`Reply to @${agentName}…`}
+                placeholderTextColor={theme.muted}
+                style={[styles.replyInput, { color: theme.text }]}
+                multiline
+                maxLength={1200}
+                returnKeyType="default"
+              />
+              {onOpenThread && activeCard && (
+                <Pressable
+                  accessibilityLabel="Open full thread"
+                  onPress={() => {
+                    haptics.light();
+                    onOpenThread(activeCard);
+                  }}
+                  style={styles.replyOpenThreadBtn}
                 >
-                  <Pressable
-                    accessibilityLabel="Attach photo or file"
-                    disabled={!replyAttachments.canAddMore}
-                    onPress={() => {
-                      haptics.light();
-                      Keyboard.dismiss();
-                      replyAttachments.setPickerOpen(true);
-                    }}
-                    style={[
-                      styles.replyQuickBtn,
-                      !replyAttachments.canAddMore && { opacity: 0.4 },
-                    ]}
-                  >
-                    <Paperclip
-                      size={16}
-                      color={
-                        replyAttachments.attachments.length > 0
-                          ? theme.brassText
-                          : theme.muted
-                      }
-                    />
-                  </Pressable>
-                  <Pressable
-                    accessibilityLabel="Quick replies and snippets"
-                    onPress={() => {
-                      haptics.light();
-                      setQuickReplyOpen(true);
-                    }}
-                    style={styles.replyQuickBtn}
-                  >
-                    <Zap size={16} color={theme.brassText} />
-                  </Pressable>
-                  <TextInput
-                    ref={replyInputRef}
-                    value={draft}
-                    onChangeText={setDraft}
-                    placeholder={`Reply to @${agentName}…`}
-                    placeholderTextColor={theme.muted}
-                    style={[styles.replyInput, { color: theme.text }]}
-                    multiline
-                    maxLength={1200}
-                    returnKeyType="default"
-                  />
-                  {onOpenThread && activeCard && (
-                    <Pressable
-                      accessibilityLabel="Open full thread"
-                      onPress={() => {
-                        haptics.light();
-                        onOpenThread(activeCard);
-                      }}
-                      style={styles.replyOpenThreadBtn}
-                    >
-                      <ArrowUpRight size={17} color={theme.muted} />
-                    </Pressable>
-                  )}
-                  <Pressable
-                    accessibilityLabel="Send reply"
-                    disabled={
+                  <ArrowUpRight size={17} color={theme.muted} />
+                </Pressable>
+              )}
+              <Pressable
+                accessibilityLabel="Send reply"
+                disabled={
+                  (!draft.trim() && replyAttachments.readyIds.length === 0) ||
+                  replyAttachments.uploading ||
+                  sending
+                }
+                onPress={submitReply}
+                style={({ pressed }) => [
+                  styles.replySendBtn,
+                  {
+                    backgroundColor: theme.brass,
+                    opacity:
                       (!draft.trim() &&
                         replyAttachments.readyIds.length === 0) ||
                       replyAttachments.uploading ||
                       sending
-                    }
-                    onPress={submitReply}
-                    style={({ pressed }) => [
-                      styles.replySendBtn,
-                      {
-                        backgroundColor: theme.brass,
-                        opacity:
-                          (!draft.trim() &&
-                            replyAttachments.readyIds.length === 0) ||
-                          replyAttachments.uploading ||
-                          sending
-                            ? 0.36
-                            : pressed
-                              ? 0.85
-                              : 1,
-                        transform: [{ scale: pressed ? 0.93 : 1 }],
-                      },
-                    ]}
-                  >
-                    <ArrowUp
-                      size={17}
-                      color={theme.onBrass}
-                      strokeWidth={2.4}
-                    />
-                  </Pressable>
-                </View>
-              </View>
+                        ? 0.36
+                        : pressed
+                          ? 0.85
+                          : 1,
+                    transform: [{ scale: pressed ? 0.93 : 1 }],
+                  },
+                ]}
+              >
+                <ArrowUp size={17} color={theme.onBrass} strokeWidth={2.4} />
+              </Pressable>
             </View>
-          ) : null}
+          </View>
         </Animated.View>
       </KeyboardAvoidingView>
 
@@ -1332,7 +1239,7 @@ export function SpotlightCarousel({
               <Pressable
                 onPress={() => {
                   setActionSheetCard(null);
-                  openReplyControls(true);
+                  focusReplyInput();
                 }}
                 style={({ pressed }) => [
                   styles.quickOption,
@@ -1537,7 +1444,6 @@ function FloatingCarouselCard({
   theme,
   onSelectNeighbor,
   onPullToSearch,
-  onBottomChange,
   onLongPress,
   onReplyButton,
 }: {
@@ -1552,24 +1458,15 @@ function FloatingCarouselCard({
   theme: LoopTheme;
   onSelectNeighbor: () => void;
   onPullToSearch: () => void;
-  onBottomChange: (atBottom: boolean) => void;
   onLongPress: () => void;
   onReplyButton: (prompt: string) => void;
 }) {
   const [pullHint, setPullHint] = useState<"idle" | "pulling" | "ready">(
     "idle",
   );
-  const [bottomHint, setBottomHint] = useState<"idle" | "pulling" | "ready">(
-    "idle",
-  );
   const pullArmedRef = useRef(false);
-  const bottomArmedRef = useRef(false);
   const dragStartAtTopRef = useRef(false);
-  const dragStartAtBottomRef = useRef(false);
   const lastPullYRef = useRef(0);
-  const lastBottomPullRef = useRef(0);
-  const viewportHeightRef = useRef(0);
-  const contentHeightRef = useRef(0);
 
   const animatedCardStyle = useAnimatedStyle(() => {
     const inputRange = [
@@ -1738,7 +1635,7 @@ function FloatingCarouselCard({
         </View>
       )}
 
-      {/* Scrollable Card Body: deliberate overscroll at top searches; deliberate overscroll while already at bottom reveals reply bar */}
+      {/* Scrollable Card Body: pull down at top to search, long-press for Save/Remind */}
       <ScrollView
         style={styles.cardScroll}
         contentContainerStyle={styles.cardScrollContent}
@@ -1747,35 +1644,13 @@ function FloatingCarouselCard({
         alwaysBounceVertical
         nestedScrollEnabled
         scrollEventThrottle={16}
-        onLayout={(e) => {
-          viewportHeightRef.current = e.nativeEvent.layout.height;
-        }}
-        onContentSizeChange={(_w, h) => {
-          contentHeightRef.current = h;
-        }}
         onScrollBeginDrag={(e) => {
-          const y = e.nativeEvent.contentOffset.y;
-          const maxScroll =
-            viewportHeightRef.current > 0 && contentHeightRef.current > 0
-              ? Math.max(
-                  0,
-                  contentHeightRef.current - viewportHeightRef.current,
-                )
-              : 0;
-          // Only arm top/bottom actions if this drag STARTED already resting at that edge.
-          dragStartAtTopRef.current = y <= 8;
-          dragStartAtBottomRef.current =
-            viewportHeightRef.current > 0 && y >= maxScroll - 8;
+          dragStartAtTopRef.current = e.nativeEvent.contentOffset.y <= 8;
           pullArmedRef.current = false;
-          bottomArmedRef.current = false;
-          lastBottomPullRef.current = 0;
         }}
         onScroll={(e) => {
-          const prevY = lastPullYRef.current;
           const y = e.nativeEvent.contentOffset.y;
           lastPullYRef.current = y;
-
-          // Pull down while already at top -> search thread
           if (dragStartAtTopRef.current) {
             if (y < -62) {
               if (!pullArmedRef.current) {
@@ -1791,58 +1666,16 @@ function FloatingCarouselCard({
               setPullHint("idle");
             }
           }
-
-          if (
-            isActive &&
-            viewportHeightRef.current > 0 &&
-            contentHeightRef.current > 0
-          ) {
-            const maxScroll = Math.max(
-              0,
-              contentHeightRef.current - viewportHeightRef.current,
-            );
-
-            // Deliberate scroll further while ALREADY resting at the bottom -> reveal reply box
-            if (dragStartAtBottomRef.current) {
-              const bottomPull = y - maxScroll;
-              lastBottomPullRef.current = bottomPull;
-              if (bottomPull > 44) {
-                if (!bottomArmedRef.current) {
-                  bottomArmedRef.current = true;
-                  haptics.light();
-                  setBottomHint("ready");
-                }
-              } else if (bottomPull > 16) {
-                bottomArmedRef.current = false;
-                if (bottomHint !== "pulling") setBottomHint("pulling");
-              } else if (bottomHint !== "idle") {
-                bottomArmedRef.current = false;
-                setBottomHint("idle");
-              }
-            } else if (y < prevY - 1 && y < maxScroll - 140) {
-              // Scrolling meaningfully back up tucks the reply bar away
-              onBottomChange(false);
-            }
-          }
         }}
         onScrollEndDrag={() => {
           const shouldSearch =
             dragStartAtTopRef.current &&
             (pullArmedRef.current || lastPullYRef.current < -62);
-          const shouldRevealReply =
-            dragStartAtBottomRef.current &&
-            (bottomArmedRef.current || lastBottomPullRef.current > 44);
           dragStartAtTopRef.current = false;
-          dragStartAtBottomRef.current = false;
           pullArmedRef.current = false;
-          bottomArmedRef.current = false;
-          lastBottomPullRef.current = 0;
           setPullHint("idle");
-          setBottomHint("idle");
           if (shouldSearch) {
             onPullToSearch();
-          } else if (shouldRevealReply) {
-            onBottomChange(true);
           }
         }}
       >
@@ -1870,39 +1703,6 @@ function FloatingCarouselCard({
           />
         </Pressable>
       </ScrollView>
-
-      {/* Tactile indicator only during a deliberate scroll past the bottom */}
-      {bottomHint !== "idle" && (
-        <View style={styles.pullReplyBar} pointerEvents="none">
-          <View
-            style={[
-              styles.pullSearchPill,
-              {
-                backgroundColor:
-                  bottomHint === "ready" ? theme.attention : theme.soft,
-                borderColor: bottomHint === "ready" ? theme.brass : theme.line,
-              },
-            ]}
-          >
-            <CornerUpLeft
-              size={12}
-              color={bottomHint === "ready" ? theme.brassText : theme.muted}
-            />
-            <Text
-              style={[
-                styles.pullSearchText,
-                {
-                  color: bottomHint === "ready" ? theme.brassText : theme.muted,
-                },
-              ]}
-            >
-              {bottomHint === "ready"
-                ? "Release to reply"
-                : "Scroll further to reply…"}
-            </Text>
-          </View>
-        </View>
-      )}
     </Animated.View>
   );
 }
