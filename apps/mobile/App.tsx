@@ -5,7 +5,14 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  Linking,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { BlurView } from "expo-blur";
 import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -106,6 +113,7 @@ function LoopShell() {
   const [session, setSession] = useState<PairedSession | null>(null);
   const [socketStatus, setSocketStatus] = useState<SocketStatus>("offline");
   const [pairingOpen, setPairingOpen] = useState(false);
+  const [pairingInitialUrl, setPairingInitialUrl] = useState("");
 
   // Navigation
   const [appTab, setAppTab] = useState<AppTab>("feed");
@@ -151,11 +159,29 @@ function LoopShell() {
     toastTimer.current = setTimeout(() => setToast(null), undo ? 4200 : 2400);
   }, []);
 
-  // Load saved Keychain session on startup
+  // Load saved Keychain session on startup & listen for deep-linked pairing URLs
   useEffect(() => {
     void loadPairedSession().then((saved) => {
       if (saved) setSession(saved);
     });
+    const inspectUrl = (incoming: string | null | undefined) => {
+      if (!incoming) return;
+      if (
+        incoming.includes("#pair=") ||
+        incoming.includes("?pair=") ||
+        incoming.includes("#fleet=")
+      ) {
+        setPairingInitialUrl(incoming);
+        setPairingOpen(true);
+      }
+    };
+    void Linking.getInitialURL()
+      .then(inspectUrl)
+      .catch(() => {});
+    const sub = Linking.addEventListener("url", (event) =>
+      inspectUrl(event.url),
+    );
+    return () => sub.remove();
   }, []);
 
   const handleUnauthorized = useCallback(() => {
@@ -791,10 +817,15 @@ function LoopShell() {
         <PairingModal
           theme={theme}
           canClose
-          onClose={() => setPairingOpen(false)}
+          initialUrl={pairingInitialUrl}
+          onClose={() => {
+            setPairingOpen(false);
+            setPairingInitialUrl("");
+          }}
           onPaired={(nextSession) => {
             setSession(nextSession);
             setPairingOpen(false);
+            setPairingInitialUrl("");
             showToast(
               `Paired with ${nextSession.origin.replace(/^https?:\/\//, "")}`,
             );

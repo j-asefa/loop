@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -12,76 +12,128 @@ import {
 import { BlurView } from "expo-blur";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Clipboard from "expo-clipboard";
-import { ClipboardPaste, QrCode, ShieldCheck, X } from "lucide-react-native";
+import {
+  CheckCircle2,
+  ClipboardPaste,
+  Link2,
+  QrCode,
+  ShieldCheck,
+  X,
+} from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { pairWithCompanion } from "../api/pairing";
+import {
+  pairWithCompanion,
+  pairWithOriginAndToken,
+  probeWorkspaceUrl,
+  tryParsePairingLink,
+} from "../api/pairing";
 import type { PairedSession } from "../api/types";
 import { haptics } from "../haptics";
 import type { LoopTheme } from "../theme";
 
+type PairMode = "url" | "qr";
+
 export function PairingModal({
   theme,
   canClose,
+  initialUrl = "",
   onClose,
   onPaired,
 }: {
   theme: LoopTheme;
   canClose: boolean;
+  initialUrl?: string;
   onClose: () => void;
   onPaired: (session: PairedSession) => void;
 }) {
   const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
-  const [scanning, setScanning] = useState(false);
-  const [linkText, setLinkText] = useState("");
+  const [mode, setMode] = useState<PairMode>("url");
+  const [urlText, setUrlText] = useState(initialUrl);
+  const [tokenText, setTokenText] = useState("");
+  const [verifiedOrigin, setVerifiedOrigin] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  async function submitLink(raw: string) {
+  useEffect(() => {
+    if (initialUrl) setUrlText(initialUrl);
+  }, [initialUrl]);
+
+  async function connectWithUrl(rawUrl: string, rawToken = tokenText) {
     if (busy) return;
     setBusy(true);
     setError("");
     try {
-      const session = await pairWithCompanion(raw);
-      haptics.success();
-      onPaired(session);
+      const { origin, pairing } = tryParsePairingLink(rawUrl);
+      if (pairing) {
+        const session = await pairWithCompanion(rawUrl);
+        haptics.success();
+        onPaired(session);
+        return;
+      }
+
+      if (rawToken.trim()) {
+        const session = await pairWithOriginAndToken(origin, rawToken);
+        haptics.success();
+        onPaired(session);
+        return;
+      }
+
+      // Bare workspace URL: check reachability and any existing cookie session
+      const probe = await probeWorkspaceUrl(rawUrl);
+      if (probe.session) {
+        haptics.success();
+        onPaired(probe.session);
+        return;
+      }
+      setVerifiedOrigin(probe.origin);
+      haptics.light();
     } catch (err) {
       haptics.warning();
       setError(
-        err instanceof Error ? err.message : "Could not pair with workspace.",
+        err instanceof Error ? err.message : "Could not connect to workspace.",
       );
-      setScanning(false);
+      if (mode === "qr") setMode("url");
     } finally {
       setBusy(false);
     }
   }
 
-  async function startScanner() {
-    haptics.light();
+  async function switchToQr() {
+    haptics.selection();
     setError("");
     if (!permission?.granted) {
       const next = await requestPermission();
       if (!next.granted) {
         setError(
-          "Camera permission is required to scan a QR code. You can paste a pairing link below instead.",
+          "Camera permission is required to scan QR codes. You can paste a URL instead.",
         );
         return;
       }
     }
-    setScanning(true);
+    setMode("qr");
   }
 
   async function pasteFromClipboard() {
     haptics.light();
-    const clip = await Clipboard.getStringAsync();
-    if (!clip.trim()) {
+    const clip = (await Clipboard.getStringAsync()).trim();
+    if (!clip) {
       setError("Clipboard is empty. Run `loop pair` on your machine first.");
       return;
     }
-    setLinkText(clip.trim());
     setError("");
-    if (clip.includes("#pair=") || clip.includes("#fleet=")) {
-      void submitLink(clip.trim());
+    if (verifiedOrigin && !clip.includes("://") && !clip.includes(".")) {
+      setTokenText(clip);
+      void connectWithUrl(verifiedOrigin, clip);
+      return;
+    }
+    setUrlText(clip);
+    if (
+      clip.includes("#pair=") ||
+      clip.includes("?pair=") ||
+      clip.includes("#fleet=")
+    ) {
+      void connectWithUrl(clip);
     }
   }
 
@@ -138,13 +190,66 @@ export function PairingModal({
               )}
             </View>
 
-            <Text style={[styles.subtitle, { color: theme.muted }]}>
-              Run <Text style={{ color: theme.brassText }}>loop pair</Text> on
-              your computer, then scan the QR code or paste the full pairing
-              link. Credentials stay in iOS Keychain.
-            </Text>
+            {/* Mode Segmented Toggle: Pair via URL | Scan QR */}
+            <View
+              style={[
+                styles.segmentRow,
+                { backgroundColor: theme.bg, borderColor: theme.line },
+              ]}
+            >
+              <Pressable
+                onPress={() => {
+                  haptics.selection();
+                  setMode("url");
+                }}
+                style={[
+                  styles.segmentBtn,
+                  mode === "url" && {
+                    backgroundColor: theme.attention,
+                    borderColor: theme.attentionLine,
+                  },
+                ]}
+              >
+                <Link2
+                  size={15}
+                  color={mode === "url" ? theme.brassText : theme.muted}
+                />
+                <Text
+                  style={[
+                    styles.segmentLabel,
+                    { color: mode === "url" ? theme.brassText : theme.muted },
+                  ]}
+                >
+                  Pair via URL
+                </Text>
+              </Pressable>
 
-            {scanning ? (
+              <Pressable
+                onPress={() => void switchToQr()}
+                style={[
+                  styles.segmentBtn,
+                  mode === "qr" && {
+                    backgroundColor: theme.attention,
+                    borderColor: theme.attentionLine,
+                  },
+                ]}
+              >
+                <QrCode
+                  size={15}
+                  color={mode === "qr" ? theme.brassText : theme.muted}
+                />
+                <Text
+                  style={[
+                    styles.segmentLabel,
+                    { color: mode === "qr" ? theme.brassText : theme.muted },
+                  ]}
+                >
+                  Scan QR
+                </Text>
+              </Pressable>
+            </View>
+
+            {mode === "qr" ? (
               <View style={[styles.cameraBox, { borderColor: theme.brass }]}>
                 <CameraView
                   style={StyleSheet.absoluteFill}
@@ -152,9 +257,9 @@ export function PairingModal({
                   barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
                   onBarcodeScanned={({ data }) => {
                     if (!busy && data) {
-                      setScanning(false);
-                      setLinkText(data);
-                      void submitLink(data);
+                      setMode("url");
+                      setUrlText(data);
+                      void connectWithUrl(data);
                     }
                   }}
                 />
@@ -162,103 +267,126 @@ export function PairingModal({
                   <View
                     style={[styles.cameraFrame, { borderColor: theme.brass }]}
                   />
-                  <Pressable
-                    onPress={() => setScanning(false)}
-                    style={[
-                      styles.cameraCancel,
-                      { backgroundColor: theme.pillBg },
-                    ]}
-                  >
-                    <Text style={{ color: theme.text, fontWeight: "600" }}>
-                      Stop scanner
-                    </Text>
-                  </Pressable>
+                  <Text style={styles.cameraHint}>
+                    Point at the QR code from `loop pair`
+                  </Text>
                 </View>
               </View>
             ) : (
-              <View style={styles.actionRow}>
+              <View style={styles.form}>
+                <Text style={[styles.subtitle, { color: theme.muted }]}>
+                  Paste the full link from{" "}
+                  <Text style={{ color: theme.brassText }}>loop pair</Text>{" "}
+                  (including <Text style={{ color: theme.text }}>#pair=…</Text>
+                  ), or enter your workspace URL.
+                </Text>
+
+                <View
+                  style={[
+                    styles.urlInputRow,
+                    { backgroundColor: theme.bg, borderColor: theme.line },
+                  ]}
+                >
+                  <TextInput
+                    value={urlText}
+                    onChangeText={(val) => {
+                      setUrlText(val);
+                      setVerifiedOrigin(null);
+                      setError("");
+                    }}
+                    placeholder="https://your-loop-host/#pair=…"
+                    placeholderTextColor={theme.muted}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    keyboardType="url"
+                    style={[styles.urlInput, { color: theme.text }]}
+                  />
+                  <Pressable
+                    onPress={() => void pasteFromClipboard()}
+                    style={[
+                      styles.pastePill,
+                      {
+                        backgroundColor: theme.soft,
+                        borderColor: theme.line,
+                      },
+                    ]}
+                  >
+                    <ClipboardPaste size={14} color={theme.brassText} />
+                    <Text
+                      style={[styles.pasteText, { color: theme.brassText }]}
+                    >
+                      Paste
+                    </Text>
+                  </Pressable>
+                </View>
+
+                {verifiedOrigin && (
+                  <View
+                    style={[
+                      styles.verifiedBox,
+                      {
+                        backgroundColor: theme.greenSoft,
+                        borderColor: theme.green,
+                      },
+                    ]}
+                  >
+                    <View style={styles.verifiedHead}>
+                      <CheckCircle2 size={15} color={theme.green} />
+                      <Text
+                        style={[styles.verifiedTitle, { color: theme.green }]}
+                      >
+                        Reached {verifiedOrigin.replace(/^https?:\/\//, "")}
+                      </Text>
+                    </View>
+                    <Text style={[styles.verifiedBody, { color: theme.text }]}>
+                      Run{" "}
+                      <Text style={{ color: theme.brassText }}>loop pair</Text>{" "}
+                      on that machine and paste the full link or the token after{" "}
+                      <Text style={{ fontWeight: "700" }}>#pair=</Text>:
+                    </Text>
+                    <TextInput
+                      value={tokenText}
+                      onChangeText={setTokenText}
+                      placeholder="Paste pairing token or full #pair= link"
+                      placeholderTextColor={theme.muted}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      style={[
+                        styles.tokenInput,
+                        {
+                          backgroundColor: theme.bg,
+                          borderColor: theme.line,
+                          color: theme.text,
+                        },
+                      ]}
+                    />
+                  </View>
+                )}
+
                 <Pressable
-                  disabled={busy}
-                  onPress={() => void startScanner()}
+                  disabled={busy || !urlText.trim()}
+                  onPress={() => void connectWithUrl(urlText, tokenText)}
                   style={({ pressed }) => [
                     styles.primaryBtn,
                     {
                       backgroundColor: theme.brass,
-                      opacity: pressed || busy ? 0.8 : 1,
+                      opacity:
+                        !urlText.trim() || busy ? 0.4 : pressed ? 0.85 : 1,
                     },
                   ]}
                 >
-                  <QrCode size={17} color={theme.onBrass} />
-                  <Text
-                    style={[styles.primaryBtnText, { color: theme.onBrass }]}
-                  >
-                    Scan QR code
-                  </Text>
-                </Pressable>
-
-                <Pressable
-                  disabled={busy}
-                  onPress={() => void pasteFromClipboard()}
-                  style={({ pressed }) => [
-                    styles.secondaryBtn,
-                    {
-                      backgroundColor: theme.soft,
-                      borderColor: theme.line,
-                      opacity: pressed || busy ? 0.8 : 1,
-                    },
-                  ]}
-                >
-                  <ClipboardPaste size={16} color={theme.text} />
-                  <Text
-                    style={[styles.secondaryBtnText, { color: theme.text }]}
-                  >
-                    Paste link
-                  </Text>
+                  {busy ? (
+                    <ActivityIndicator size="small" color={theme.onBrass} />
+                  ) : (
+                    <Text
+                      style={[styles.primaryBtnText, { color: theme.onBrass }]}
+                    >
+                      {verifiedOrigin ? "Pair & connect" : "Connect workspace"}
+                    </Text>
+                  )}
                 </Pressable>
               </View>
             )}
-
-            <View style={styles.inputGroup}>
-              <TextInput
-                value={linkText}
-                onChangeText={setLinkText}
-                placeholder="https://…/#pair=…"
-                placeholderTextColor={theme.muted}
-                autoCapitalize="none"
-                autoCorrect={false}
-                style={[
-                  styles.input,
-                  {
-                    backgroundColor: theme.bg,
-                    borderColor: theme.line,
-                    color: theme.text,
-                  },
-                ]}
-              />
-              <Pressable
-                disabled={busy || !linkText.trim()}
-                onPress={() => void submitLink(linkText)}
-                style={({ pressed }) => [
-                  styles.connectBtn,
-                  {
-                    backgroundColor: theme.attention,
-                    borderColor: theme.attentionLine,
-                    opacity:
-                      !linkText.trim() || busy ? 0.45 : pressed ? 0.8 : 1,
-                  },
-                ]}
-              >
-                {busy ? (
-                  <ActivityIndicator size="small" color={theme.brassText} />
-                ) : (
-                  <Text
-                    style={[styles.connectText, { color: theme.brassText }]}
-                  >
-                    Connect workspace
-                  </Text>
-                )}
-              </Pressable>
-            </View>
 
             {error ? (
               <Text style={[styles.errorText, { color: theme.orange }]}>
@@ -307,43 +435,101 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  subtitle: {
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  actionRow: {
+  segmentRow: {
     flexDirection: "row",
-    gap: 10,
+    padding: 4,
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: 4,
   },
-  primaryBtn: {
+  segmentBtn: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 7,
-    paddingVertical: 12,
+    gap: 6,
+    paddingVertical: 9,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "transparent",
+  },
+  segmentLabel: {
+    fontSize: 13.5,
+    fontWeight: "700",
+  },
+  form: {
+    gap: 12,
+  },
+  subtitle: {
+    fontSize: 13.5,
+    lineHeight: 19.5,
+  },
+  urlInputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingLeft: 12,
+    paddingRight: 6,
+    paddingVertical: 6,
+  },
+  urlInput: {
+    flex: 1,
+    fontSize: 16,
+    paddingVertical: 6,
+  },
+  pastePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  pasteText: {
+    fontSize: 12.5,
+    fontWeight: "700",
+  },
+  verifiedBox: {
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 12,
+    gap: 8,
+  },
+  verifiedHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  verifiedTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  verifiedBody: {
+    fontSize: 12.5,
+    lineHeight: 18,
+  },
+  tokenInput: {
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingHorizontal: 11,
+    paddingVertical: 9,
+    fontSize: 15,
+  },
+  primaryBtn: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 13,
     borderRadius: 14,
   },
   primaryBtnText: {
-    fontSize: 14.5,
+    fontSize: 15,
     fontWeight: "700",
   },
-  secondaryBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 14,
-    borderWidth: 1,
-  },
-  secondaryBtnText: {
-    fontSize: 14,
-    fontWeight: "600",
-  },
   cameraBox: {
-    height: 240,
+    height: 250,
     borderRadius: 16,
     overflow: "hidden",
     borderWidth: 1.5,
@@ -353,40 +539,24 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFill,
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: 18,
+    paddingVertical: 20,
   },
   cameraFrame: {
-    width: 150,
-    height: 150,
+    width: 155,
+    height: 155,
     borderRadius: 18,
     borderWidth: 2,
-    marginTop: 12,
+    marginTop: 10,
   },
-  cameraCancel: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
+  cameraHint: {
+    color: "#ffffff",
+    fontSize: 12.5,
+    fontWeight: "600",
+    backgroundColor: "rgba(0,0,0,0.6)",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderRadius: 999,
-  },
-  inputGroup: {
-    gap: 10,
-  },
-  input: {
-    borderRadius: 14,
-    borderWidth: 1,
-    paddingHorizontal: 13,
-    paddingVertical: 11,
-    fontSize: 16,
-  },
-  connectBtn: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 11,
-    borderRadius: 14,
-    borderWidth: 1,
-  },
-  connectText: {
-    fontSize: 14.5,
-    fontWeight: "700",
+    overflow: "hidden",
   },
   errorText: {
     fontSize: 13,
