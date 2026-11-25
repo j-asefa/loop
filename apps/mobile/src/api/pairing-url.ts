@@ -27,8 +27,13 @@ export function isLocalHost(hostname: string): boolean {
   if (host === "localhost" || host === "127.0.0.1" || host.endsWith(".local")) {
     return true;
   }
-  // Single-label local LAN hostnames (e.g. "mybox")
-  if (!host.includes(".") && /^[a-z0-9-]+$/.test(host)) {
+  // Single-label local LAN hostnames (e.g. "mybox") — reject pure numeric / hex IPv4 forms like 134744072 or 0x08080808
+  if (
+    !host.includes(".") &&
+    /^[a-z0-9-]+$/.test(host) &&
+    /[a-z]/.test(host) &&
+    !/^0x[0-9a-f]+$/.test(host)
+  ) {
     return true;
   }
   if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) return true;

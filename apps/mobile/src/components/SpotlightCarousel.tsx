@@ -55,7 +55,11 @@ import {
   stepMatchIndex,
   type SearchableThreadCard,
 } from "../../../../src/shared/done-stack";
-import { randomUuid, type LoopClient } from "../api/client";
+import {
+  isUncertainOutcomeError,
+  randomUuid,
+  type LoopClient,
+} from "../api/client";
 import type { ApiSnippet } from "../api/types";
 import type { AgentRunSummary } from "./AgentProfileSheet";
 import {
@@ -557,7 +561,9 @@ export function SpotlightCarousel({
       setHistorySlides((prev) =>
         prev.map((c) => (matches(c) ? { ...c, saved: nextSaved } : c)),
       );
-      void Promise.resolve(onToggleSaved(target)).catch(() => {
+      void Promise.resolve(onToggleSaved(target)).catch((err) => {
+        // Preserve optimistic state on uncertain timeout/disconnect; only revert on definite rejection
+        if (isUncertainOutcomeError(err)) return;
         setHistorySlides((prev) =>
           prev.map((c) => (matches(c) ? { ...c, saved: !nextSaved } : c)),
         );

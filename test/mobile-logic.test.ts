@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { LoopClient } from "../apps/mobile/src/api/client.js";
+import {
+  isUncertainOutcomeError,
+  LoopApiError,
+  LoopClient,
+} from "../apps/mobile/src/api/client.js";
 import { shouldRefreshForFrame } from "../apps/mobile/src/api/socket.js";
 import {
   assertSameOriginResponse,
@@ -134,10 +138,16 @@ describe("mobile pairing URL security", () => {
     );
   });
 
-  it("rejects cleartext http:// for public IPv6 literals while allowing ::1 and IPv6 ULA", () => {
+  it("rejects cleartext http:// for public IPv6 literals and dotless numeric IPv4 while allowing ::1 and IPv6 ULA", () => {
     expect(() =>
       normalizeWorkspaceUrl("http://[2606:4700:4700::1111]:3131"),
     ).toThrow(/https:\/\//i);
+    expect(() => normalizeWorkspaceUrl("http://134744072:3131")).toThrow(
+      /https:\/\//i,
+    );
+    expect(() => normalizeWorkspaceUrl("http://0x08080808:3131")).toThrow(
+      /https:\/\//i,
+    );
     expect(normalizeWorkspaceUrl("http://[::1]:3131").origin).toBe(
       "http://[::1]:3131",
     );
@@ -374,6 +384,7 @@ describe("mobile LoopClient redirect, timeout, and doneCards contracts", () => {
       origin: "https://loop.example.com",
       cookie: "__Host-loop=tok",
       csrf: "csrf-1",
+      deviceName: "Test iPhone",
       pairedAt: 1,
     });
 
@@ -384,7 +395,78 @@ describe("mobile LoopClient redirect, timeout, and doneCards contracts", () => {
     );
   });
 
-  it("does not fabricate a d:-prefixed messageId in doneCards when last_message is absent", async () => {
+  it("classifies 408/5xx/network aborts as uncertain outcomes and 4xx rejections as definite", async () => {
+    expect(isUncertainOutcomeError(new LoopApiError(408, "Timeout"))).toBe(
+      true,
+    );
+    expect(isUncertainOutcomeError(new LoopApiError(503, "Unavailable"))).toBe(
+      true,
+    );
+    expect(
+      isUncertainOutcomeError(new TypeError("Network request failed")),
+    ).toBe(true);
+    expect(isUncertainOutcomeError(new LoopApiError(400, "Bad request"))).toBe(
+      false,
+    );
+    expect(isUncertainOutcomeError(new LoopApiError(409, "Conflict"))).toBe(
+      false,
+    );
+
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(
+      Object.assign(new Error("The operation was aborted"), {
+        name: "AbortError",
+      }),
+    );
+    const client = new LoopClient({
+      origin: "https://loop.example.com",
+      cookie: "__Host-loop=tok",
+      csrf: "csrf-1",
+      deviceName: "Test iPhone",
+      pairedAt: 1,
+    });
+    const err = await client
+      .decideApproval("apr-1", "approve", "idem-1")
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(LoopApiError);
+    expect((err as LoopApiError).status).toBe(408);
+    expect(isUncertainOutcomeError(err)).toBe(true);
+  });
+
+  it("reuses explicit idempotencyKey/commandId on runAction, decideApproval, and answerNativeDecision", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      redirected: false,
+      url: "https://loop.example.com/api/runs/r1/cancel",
+      text: async () => JSON.stringify({ ok: true, state: "answered" }),
+    } as unknown as Response);
+
+    const client = new LoopClient({
+      origin: "https://loop.example.com",
+      cookie: "__Host-loop=tok",
+      csrf: "csrf-1",
+      deviceName: "Test iPhone",
+      pairedAt: 1,
+    });
+
+    await client.runAction("r1", "cancel", "fixed-cancel-key");
+    await client.decideApproval("a1", "approve", "fixed-approval-key");
+    await client.answerNativeDecision("d1", { ok: true }, "fixed-command-id");
+
+    expect(JSON.parse(String(fetchSpy.mock.calls[0][1]?.body))).toEqual({
+      idempotencyKey: "fixed-cancel-key",
+    });
+    expect(JSON.parse(String(fetchSpy.mock.calls[1][1]?.body))).toEqual({
+      decision: "approve",
+      idempotencyKey: "fixed-approval-key",
+    });
+    expect(JSON.parse(String(fetchSpy.mock.calls[2][1]?.body))).toEqual({
+      commandId: "fixed-command-id",
+      answer: { ok: true },
+    });
+  });
+
+  it("does not fabricate a d:-prefixed messageId and prefers full card.content in doneCards", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue({
       ok: true,
       status: 200,
@@ -413,6 +495,32 @@ describe("mobile LoopClient redirect, timeout, and doneCards contracts", () => {
                 },
               },
             },
+            {
+              card: {
+                id: "d:conv-2:done:2",
+                type: "done",
+                content: "Full untruncated body from v1 cards endpoint",
+                created_at: 2100,
+                saved: true,
+                display: {
+                  conversation_id: "conv-2",
+                  title: "Title 2",
+                  agent_id: "a1",
+                  agent_name: "ebony",
+                  done_card_key: "done:2",
+                  read_at: null,
+                  last_activity_at: 2100,
+                  last_message: {
+                    id: "msg-2",
+                    role: "assistant",
+                    content: "Short truncated",
+                    created_at: 2100,
+                    saved: false,
+                  },
+                  pending_approvals: 0,
+                },
+              },
+            },
           ],
         }),
     } as unknown as Response);
@@ -421,14 +529,20 @@ describe("mobile LoopClient redirect, timeout, and doneCards contracts", () => {
       origin: "https://loop.example.com",
       cookie: "__Host-loop=tok",
       csrf: "csrf-1",
+      deviceName: "Test iPhone",
       pairedAt: 1,
     });
     const items = await client.doneCards();
-    expect(items).toHaveLength(1);
+    expect(items).toHaveLength(2);
     expect(items[0].last_message).toBeNull();
     expect(items[0].live_preview).toBe("Rendered body without last_message");
-    const card = feedItemToNativeCard(items[0], "done");
-    expect(card.messageId).toBeUndefined();
-    expect(card.body).toBe("Rendered body without last_message");
+    const card0 = feedItemToNativeCard(items[0], "done");
+    expect(card0.messageId).toBeUndefined();
+    expect(card0.body).toBe("Rendered body without last_message");
+
+    const card1 = feedItemToNativeCard(items[1], "done");
+    expect(card1.messageId).toBe("msg-2");
+    expect(card1.body).toBe("Full untruncated body from v1 cards endpoint");
+    expect(card1.saved).toBe(true);
   });
 });

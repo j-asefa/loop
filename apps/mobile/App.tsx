@@ -28,7 +28,12 @@ import {
   SafeAreaProvider,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
-import { LoopClient } from "./src/api/client";
+import {
+  isUncertainOutcomeError,
+  LoopApiError,
+  LoopClient,
+  randomUuid,
+} from "./src/api/client";
 import { clearPairedSession, loadPairedSession } from "./src/api/pairing";
 import { LoopEventSocket, type SocketStatus } from "./src/api/socket";
 import type {
@@ -222,6 +227,17 @@ function LoopShell() {
   const pendingRefreshRef = useRef<{ silent: boolean } | null>(null);
   const sessionRefreshedRef = useRef(false);
   const initialLoadDoneRef = useRef(false);
+  // Durable per-target idempotency/command keys so retries after uncertain timeouts reuse the same key
+  const actionKeysRef = useRef(new Map<string, string>());
+
+  const getOrCreateActionKey = useCallback((scopeKey: string) => {
+    let key = actionKeysRef.current.get(scopeKey);
+    if (!key) {
+      key = randomUuid();
+      actionKeysRef.current.set(scopeKey, key);
+    }
+    return key;
+  }, []);
 
   const loadWorkspace = useCallback(
     async (options?: { silent?: boolean }) => {
@@ -242,7 +258,16 @@ function LoopShell() {
       if (!silent) setRefreshing(true);
       try {
         if (!sessionRefreshedRef.current || !silent) {
-          await client.refreshSession().catch(() => {});
+          try {
+            await client.refreshSession();
+          } catch (refreshErr) {
+            if (
+              refreshErr instanceof LoopApiError &&
+              refreshErr.status === 401
+            ) {
+              return;
+            }
+          }
           if (gen !== workspaceGenRef.current) return;
           sessionRefreshedRef.current = true;
         }
@@ -324,6 +349,8 @@ function LoopShell() {
     pendingRefreshRef.current = null;
     sessionRefreshedRef.current = false;
     initialLoadDoneRef.current = false;
+    actionKeysRef.current.clear();
+    setToast(null);
     setRefreshing(false);
     setLiveCards([]);
     setFolders([]);
@@ -474,15 +501,20 @@ function LoopShell() {
             showToast(nextSaved ? "Saved card" : "Removed from Saved");
           }
         } catch (err) {
-          if (gen === workspaceGenRef.current) {
-            setLiveCards(applySaved(!nextSaved));
-            setCarouselOverrideCards((prev) =>
-              prev ? applySaved(!nextSaved)(prev) : prev,
-            );
-            showToast(
-              err instanceof Error ? err.message : "Could not update Saved.",
-            );
+          if (gen !== workspaceGenRef.current) return;
+          if (isUncertainOutcomeError(err)) {
+            // Timeout/disconnect leaves server state uncertain — do not roll back; re-read instead
+            showToast("Save status uncertain — syncing…");
+            scheduleSilentRefresh(500, gen);
+            return;
           }
+          setLiveCards(applySaved(!nextSaved));
+          setCarouselOverrideCards((prev) =>
+            prev ? applySaved(!nextSaved)(prev) : prev,
+          );
+          showToast(
+            err instanceof Error ? err.message : "Could not update Saved.",
+          );
           throw err;
         }
         return;
@@ -493,7 +525,7 @@ function LoopShell() {
       );
       showToast(nextSaved ? "Saved card" : "Removed from Saved");
     },
-    [client, showToast],
+    [client, scheduleSilentRefresh, showToast],
   );
 
   const handleDismissCard = useCallback(
@@ -517,6 +549,7 @@ function LoopShell() {
             .catch(() => {});
         }
         showToast(doneKey ? "Marked done" : "Archived reply", () => {
+          if (gen !== workspaceGenRef.current) return;
           haptics.light();
           const restores: Promise<unknown>[] = [];
           if (doneKey) {
@@ -668,38 +701,62 @@ function LoopShell() {
     (id: string, decision: "approve" | "reject") => {
       if (!client) return;
       const gen = workspaceGenRef.current;
+      const scopeKey = `approval:${id}:${decision}`;
+      const idempotencyKey = getOrCreateActionKey(scopeKey);
       setApprovals((prev) => prev.filter((a) => a.id !== id));
       void client
-        .decideApproval(id, decision)
+        .decideApproval(id, decision, idempotencyKey)
         .then(() => {
-          showToast(decision === "approve" ? "Approved" : "Denied");
-          scheduleSilentRefresh(400, gen);
+          if (gen === workspaceGenRef.current) {
+            actionKeysRef.current.delete(scopeKey);
+            showToast(decision === "approve" ? "Approved" : "Denied");
+            scheduleSilentRefresh(400, gen);
+          }
         })
         .catch((err) => {
+          if (gen !== workspaceGenRef.current) return;
+          if (isUncertainOutcomeError(err)) {
+            showToast("Decision timed out — checking status…");
+            scheduleSilentRefresh(600, gen);
+            return;
+          }
+          actionKeysRef.current.delete(scopeKey);
           showToast((err as Error).message);
           scheduleSilentRefresh(100, gen);
         });
     },
-    [client, scheduleSilentRefresh, showToast],
+    [client, getOrCreateActionKey, scheduleSilentRefresh, showToast],
   );
 
   const handleAnswerDecision = useCallback(
     (id: string, answer: Record<string, unknown>) => {
       if (!client) return;
       const gen = workspaceGenRef.current;
+      const scopeKey = `decision:${id}`;
+      const commandId = getOrCreateActionKey(scopeKey);
       setDecisions((prev) => prev.filter((d) => d.id !== id));
       void client
-        .answerNativeDecision(id, answer)
+        .answerNativeDecision(id, answer, commandId)
         .then(() => {
-          showToast("Response sent");
-          scheduleSilentRefresh(400, gen);
+          if (gen === workspaceGenRef.current) {
+            actionKeysRef.current.delete(scopeKey);
+            showToast("Response sent");
+            scheduleSilentRefresh(400, gen);
+          }
         })
         .catch((err) => {
+          if (gen !== workspaceGenRef.current) return;
+          if (isUncertainOutcomeError(err)) {
+            showToast("Response timed out — checking status…");
+            scheduleSilentRefresh(600, gen);
+            return;
+          }
+          actionKeysRef.current.delete(scopeKey);
           showToast((err as Error).message);
           scheduleSilentRefresh(100, gen);
         });
     },
-    [client, scheduleSilentRefresh, showToast],
+    [client, getOrCreateActionKey, scheduleSilentRefresh, showToast],
   );
 
   const handleCancelQueuedRun = useCallback(
@@ -710,16 +767,29 @@ function LoopShell() {
         return;
       }
       const gen = workspaceGenRef.current;
+      const scopeKey = `run-cancel:${runId}`;
+      const idempotencyKey = getOrCreateActionKey(scopeKey);
       const priorRun = activeRuns.find((r) => r.id === runId);
       setActiveRuns((prev) => prev.filter((r) => r.id !== runId));
       void client
-        .runAction(runId, "cancel")
+        .runAction(runId, "cancel", idempotencyKey)
         .then(() => {
-          showToast("Cancelled queued message");
-          scheduleSilentRefresh(350, gen);
+          if (gen === workspaceGenRef.current) {
+            actionKeysRef.current.delete(scopeKey);
+            showToast("Cancelled queued message");
+            scheduleSilentRefresh(350, gen);
+          }
         })
         .catch((err) => {
-          if (gen === workspaceGenRef.current && priorRun) {
+          if (gen !== workspaceGenRef.current) return;
+          if (isUncertainOutcomeError(err)) {
+            // Preserve uncertain outcome: do not restore optimistic state; re-read from server
+            showToast("Cancel timed out — checking status…");
+            scheduleSilentRefresh(500, gen);
+            return;
+          }
+          actionKeysRef.current.delete(scopeKey);
+          if (priorRun) {
             setActiveRuns((prev) =>
               prev.some((r) => r.id === runId) ? prev : [...prev, priorRun],
             );
@@ -727,7 +797,13 @@ function LoopShell() {
           showToast((err as Error).message);
         });
     },
-    [activeRuns, client, scheduleSilentRefresh, showToast],
+    [
+      activeRuns,
+      client,
+      getOrCreateActionKey,
+      scheduleSilentRefresh,
+      showToast,
+    ],
   );
 
   const handleSignOut = useCallback(async () => {
@@ -888,13 +964,9 @@ function LoopShell() {
 
   const openCarouselQueuedRuns = useMemo(() => {
     if (!openConversationId || openCarouselCards.length === 0) return [];
-    const primaryAgentId = openCarouselCards[0]?.agentId;
     return effectiveActiveRuns
       .filter(
-        (r) =>
-          r.state === "queued" &&
-          (r.conversation_id === openConversationId ||
-            (primaryAgentId && r.agent_id === primaryAgentId)),
+        (r) => r.state === "queued" && r.conversation_id === openConversationId,
       )
       .sort((a, b) => a.created_at - b.created_at);
   }, [effectiveActiveRuns, openCarouselCards, openConversationId]);

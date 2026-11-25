@@ -30,6 +30,21 @@ export class LoopApiError extends Error {
   }
 }
 
+/**
+ * Returns true when an error leaves the server-side effect uncertain
+ * (client timeout, gateway timeout/5xx, or network disconnect) so callers
+ * preserve state and re-read instead of rolling back or replaying under a new key.
+ */
+export function isUncertainOutcomeError(err: unknown): boolean {
+  if (err instanceof LoopApiError) {
+    return err.status === 408 || err.status >= 500;
+  }
+  if (err instanceof Error) {
+    return err.name === "AbortError" || err.name === "TypeError";
+  }
+  return false;
+}
+
 export type UploadedAttachment = {
   id: string;
   objectId: string;
@@ -274,7 +289,11 @@ export class LoopClient {
             ? {
                 last_message: {
                   ...msg,
-                  content: msg.content || entry.card.content,
+                  content:
+                    entry.card.content &&
+                    entry.card.content.length >= (msg.content?.length ?? 0)
+                      ? entry.card.content
+                      : msg.content || entry.card.content,
                   saved: entry.card.saved ?? msg.saved,
                 },
               }
@@ -400,11 +419,12 @@ export class LoopClient {
   runAction(
     runId: string,
     action: "cancel" | "retry" | "dismiss",
+    idempotencyKey?: string,
   ): Promise<unknown> {
     return this.request(
       "POST",
       `/api/runs/${encodeURIComponent(runId)}/${action}`,
-      { idempotencyKey: randomUuid() },
+      { idempotencyKey: idempotencyKey ?? randomUuid() },
     );
   }
 
@@ -473,10 +493,11 @@ export class LoopClient {
   decideApproval(
     id: string,
     decision: "approve" | "reject",
+    idempotencyKey?: string,
   ): Promise<{ ok: boolean }> {
     return this.request("POST", `/api/approvals/${encodeURIComponent(id)}`, {
       decision,
-      idempotencyKey: randomUuid(),
+      idempotencyKey: idempotencyKey ?? randomUuid(),
     });
   }
 
@@ -487,12 +508,13 @@ export class LoopClient {
   answerNativeDecision(
     id: string,
     answer: Record<string, unknown>,
+    commandId?: string,
   ): Promise<{ state: string }> {
     return this.request(
       "POST",
       `/api/native/decisions/${encodeURIComponent(id)}`,
       {
-        commandId: randomUuid(),
+        commandId: commandId ?? randomUuid(),
         answer,
       },
     );

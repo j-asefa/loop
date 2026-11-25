@@ -149,8 +149,11 @@ export function AgentProfileSheet({
     return folders.find((f) => f.id === agent.folder_id)?.name || "Workspace";
   }, [folders, agent.folder_id]);
 
-  const allCardsRef = useRef(allCards);
-  allCardsRef.current = allCards;
+  const seenFeedIdsRef = useRef(new Set<string>());
+
+  useEffect(() => {
+    seenFeedIdsRef.current = new Set();
+  }, [client, agent.id]);
 
   // Demo mode: keep local results synced without re-fetching in live mode
   useEffect(() => {
@@ -229,6 +232,50 @@ export function AgentProfileSheet({
       cancelled = true;
     };
   }, [client, agent.id, agent.name, agent.model, projectName]);
+
+  // Overlay live feed updates (unread, saved, new arrivals, dismissals) onto fetched
+  // agentResults without re-triggering the loading spinner on every socket refresh.
+  const displayedResults = useMemo(() => {
+    if (!client) return agentResults;
+    const liveMine = allCards.filter(
+      (c) =>
+        c.agentId === agent.id ||
+        c.agentName.toLowerCase() === agent.name.toLowerCase(),
+    );
+    const liveById = new Map<string, NativeResultCard>();
+    const liveByMsg = new Map<string, NativeResultCard>();
+    for (const c of liveMine) {
+      liveById.set(c.id, c);
+      if (c.messageId) liveByMsg.set(c.messageId, c);
+      seenFeedIdsRef.current.add(c.id);
+    }
+
+    const merged: NativeResultCard[] = [];
+    const includedIds = new Set<string>();
+    const includedMsgs = new Set<string>();
+    for (const card of agentResults) {
+      const liveMatch =
+        liveById.get(card.id) ??
+        (card.messageId ? liveByMsg.get(card.messageId) : undefined);
+      if (liveMatch) {
+        merged.push(liveMatch);
+        includedIds.add(liveMatch.id);
+        if (liveMatch.messageId) includedMsgs.add(liveMatch.messageId);
+      } else if (!seenFeedIdsRef.current.has(card.id)) {
+        // Keep older history cards that were never part of the top-N feed page
+        merged.push(card);
+        includedIds.add(card.id);
+        if (card.messageId) includedMsgs.add(card.messageId);
+      }
+    }
+    for (const c of liveMine) {
+      if (includedIds.has(c.id)) continue;
+      if (c.messageId && includedMsgs.has(c.messageId)) continue;
+      merged.push(c);
+    }
+    merged.sort((a, b) => b.createdAt - a.createdAt);
+    return merged;
+  }, [agent.id, agent.name, agentResults, allCards, client]);
 
   useEffect(() => {
     if (tab !== "traces" || !client) return;
@@ -458,7 +505,11 @@ export function AgentProfileSheet({
           <View style={[styles.tabsRow, { borderBottomColor: theme.line }]}>
             {(
               [
-                { id: "results", label: "Results", count: agentResults.length },
+                {
+                  id: "results",
+                  label: "Results",
+                  count: displayedResults.length,
+                },
                 {
                   id: "threads",
                   label: "Threads",
@@ -497,13 +548,13 @@ export function AgentProfileSheet({
           {loading ? (
             <ActivityIndicator color={theme.brass} style={{ marginTop: 24 }} />
           ) : tab === "results" ? (
-            agentResults.length === 0 ? (
+            displayedResults.length === 0 ? (
               <Text style={[styles.emptyHint, { color: theme.muted }]}>
                 No completed results from @{agent.name} yet.
               </Text>
             ) : (
               <View style={styles.listGap}>
-                {agentResults.map((card) => (
+                {displayedResults.map((card) => (
                   <Pressable
                     key={card.id}
                     onPress={() => {
