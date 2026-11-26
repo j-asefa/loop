@@ -782,12 +782,12 @@ describe("mobile production workspace runtime & feed previews", () => {
   });
 });
 
-describe("mobile sage & risograph palette themes", () => {
-  it("exposes matching semantic tokens for sage light and dark ink themes", () => {
+describe("mobile garden palette themes", () => {
+  it("exposes matching semantic tokens for the day and night themes", () => {
     const checkTheme = (t: LoopTheme) => {
       expect(t.bg).toMatch(/^#/);
       expect(t.surface).toMatch(/^#/);
-      expect(t.brass).toBe("#e0a350");
+      expect(t.brass).toMatch(/^#[0-9a-f]{6}$/);
       expect(t.onGreen).toMatch(/^#/);
       expect(t.onBlue).toMatch(/^#/);
       expect(t.unreadSurface).toMatch(/^#/);
@@ -795,14 +795,16 @@ describe("mobile sage & risograph palette themes", () => {
       expect(t.unreadLine).not.toBe(t.line);
       expect(t.purple).toMatch(/^#/);
       expect(t.rose).toMatch(/^#/);
-      expect(t.tabBarBg).toMatch(/^rgba\(/);
+      expect(t.tabBarBg).toMatch(/^#[0-9a-f]{6}$/);
     };
     expect(LIGHT_THEME.isDark).toBe(false);
     expect(LIGHT_THEME.bg).toBe("#7eb098");
+    expect(LIGHT_THEME.brass).toBe("#e0a350");
     expect(LIGHT_THEME.brassText).not.toBe(LIGHT_THEME.brass);
     expect(LIGHT_THEME.greenSoft).toMatch(/^#/);
     expect(DARK_THEME.isDark).toBe(true);
-    expect(DARK_THEME.bg).toBe("#171d1a");
+    expect(DARK_THEME.bg).toBe("#101f19");
+    expect(DARK_THEME.brass).toBe("#edc47e");
     checkTheme(LIGHT_THEME);
     checkTheme(DARK_THEME);
   });
