@@ -17,7 +17,7 @@ export const PALETTES: readonly AnimalPalette[] = [
     eye: "#1c211e",
   },
   {
-    bg: "#7eb098",
+    bg: "#a8ccb9",
     main: "#2288dc",
     dark: "#155a96",
     light: "#f7f5ee",
@@ -51,13 +51,13 @@ export const PALETTES: readonly AnimalPalette[] = [
   {
     bg: "#787870",
     main: "#32884a",
-    dark: "#1c211e",
+    dark: "#265c36",
     light: "#f7f5ee",
     accent: "#e098a8",
     eye: "#1c211e",
   },
   {
-    bg: "#7eb098",
+    bg: "#a8ccb9",
     main: "#7878ac",
     dark: "#494982",
     light: "#f7f5ee",

@@ -794,6 +794,10 @@ describe("mobile sage & risograph palette themes", () => {
 
   it("maps agent avatars and Charley-Harper habitats to the coordinated palette", () => {
     expect(PALETTES).toHaveLength(9);
+    for (const p of PALETTES) {
+      expect(p.dark).not.toBe(p.eye);
+      expect(p.bg).not.toBe(LIGHT_THEME.bg);
+    }
     const willowArt = getAgentArt("@willow");
     const cedarArt = getAgentArt("cedar");
     expect(willowArt.avatarSvg).toContain(willowArt.palette.bg);
