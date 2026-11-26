@@ -13,12 +13,15 @@ export type LoopTheme = {
   attention: string;
   attentionTile: string;
   attentionLine: string;
+  unreadSurface: string;
+  unreadLine: string;
   green: string;
   onGreen: string;
   greenSoft: string;
   orange: string;
   orangeSoft: string;
   blue: string;
+  onBlue: string;
   blueSoft: string;
   purple: string;
   purpleSoft: string;
@@ -49,13 +52,16 @@ export const DARK_THEME: LoopTheme = {
   attention: "#2c281f",
   attentionTile: "#342f24",
   attentionLine: "rgba(224, 163, 80, 0.36)",
+  unreadSurface: "#312b1b",
+  unreadLine: "rgba(224, 163, 80, 0.62)",
   green: "#7eb098",
   onGreen: "#171d1a",
   greenSoft: "rgba(126, 176, 152, 0.18)",
   orange: "#e07b77",
   orangeSoft: "rgba(210, 96, 92, 0.18)",
   blue: "#5aaef0",
-  blueSoft: "rgba(34, 136, 220, 0.18)",
+  onBlue: "#0d1a26",
+  blueSoft: "rgba(34, 136, 220, 0.22)",
   purple: "#b4b4e8",
   purpleSoft: "rgba(120, 120, 172, 0.20)",
   rose: "#e098a8",
@@ -85,12 +91,15 @@ export const LIGHT_THEME: LoopTheme = {
   attention: "#f5ebd8",
   attentionTile: "#faf4e8",
   attentionLine: "rgba(224, 163, 80, 0.58)",
+  unreadSurface: "#f5e4be",
+  unreadLine: "#c9892f",
   green: "#1f6835",
   onGreen: "#ffffff",
   greenSoft: "#e6f3ea",
   orange: "#6c1c18",
   orangeSoft: "#fae6e5",
-  blue: "#0a3966",
+  blue: "#135ba0",
+  onBlue: "#ffffff",
   blueSoft: "#e5f0fa",
   purple: "#494982",
   purpleSoft: "#ececf6",

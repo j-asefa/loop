@@ -789,6 +789,10 @@ describe("mobile sage & risograph palette themes", () => {
       expect(t.surface).toMatch(/^#/);
       expect(t.brass).toBe("#e0a350");
       expect(t.onGreen).toMatch(/^#/);
+      expect(t.onBlue).toMatch(/^#/);
+      expect(t.unreadSurface).toMatch(/^#/);
+      expect(t.unreadSurface).not.toBe(t.surface);
+      expect(t.unreadLine).not.toBe(t.line);
       expect(t.purple).toMatch(/^#/);
       expect(t.rose).toMatch(/^#/);
       expect(t.tabBarBg).toMatch(/^rgba\(/);

@@ -569,6 +569,8 @@ export function AgentProfileSheet({
                 {displayedResults.map((card) => (
                   <Pressable
                     key={card.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${card.unread ? "Unread, " : ""}${card.fallbackTitle}, ${card.projectName}`}
                     onPress={() => {
                       haptics.medium();
                       onOpenStack(card.conversationId, card);
@@ -576,8 +578,12 @@ export function AgentProfileSheet({
                     style={[
                       styles.itemCard,
                       {
-                        backgroundColor: theme.surface,
-                        borderColor: theme.line,
+                        backgroundColor: card.unread
+                          ? theme.unreadSurface
+                          : theme.surface,
+                        borderColor: card.unread
+                          ? theme.unreadLine
+                          : theme.line,
                       },
                     ]}
                   >
