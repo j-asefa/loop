@@ -1374,7 +1374,8 @@ describe("mobile live run streaming & run controls", () => {
     expect(ov?.gapped).toBe(false);
     expect(ov?.text).toBe("café — 🚀 done!");
 
-    // Joining mid-reply (offset > 0 with no prior text) streams cleanly without marking gapped
+    // Joining mid-reply or receiving offset > 0 after a reconnect reset marks gapped
+    // rather than presenting a mid-stream fragment as the full reply body.
     let mid: LiveStreamOverlay | undefined;
     mid =
       applyLiveStreamEvent(
@@ -1389,8 +1390,9 @@ describe("mobile live run streaming & run controls", () => {
         },
         10,
       ) ?? undefined;
-    expect(mid?.gapped).toBe(false);
-    expect(mid?.byteEnd).toBe(400 + Buffer.byteLength("tail part 1 ", "utf8"));
+    expect(mid?.gapped).toBe(true);
+    expect(mid?.text).toBe("");
+    // A subsequent full message.upsert clears the gap cleanly
     mid =
       applyLiveStreamEvent(
         mid,
@@ -1398,14 +1400,88 @@ describe("mobile live run streaming & run controls", () => {
           kind: "delta",
           runId: "r-mid",
           messageId: "m-mid",
-          text: "tail part 2",
-          offset: 412,
-          revision: 11,
+          text: "Complete synced body",
+          replace: true,
         },
         11,
       ) ?? undefined;
     expect(mid?.gapped).toBe(false);
-    expect(mid?.text).toBe("tail part 1 tail part 2");
+    expect(mid?.text).toBe("Complete synced body");
+
+    // Conversation-scoped production delta (no runId in frame) resolves via activeRuns,
+    // and negative/fractional offsets are ignored cleanly.
+    const convScopedEvents = extractLiveStreamEvents(
+      JSON.stringify({
+        v: 3,
+        type: "events",
+        events: [
+          {
+            id: 10,
+            event: {
+              type: "message.delta",
+              scope: { kind: "conversation", id: "conv-prod" },
+              payload: {
+                messageId: "m-prod",
+                conversationId: "conv-prod",
+                text: "Hello ",
+                offset: 0,
+                revision: 1,
+              },
+            },
+          },
+          {
+            id: 11,
+            event: {
+              type: "message.delta",
+              scope: { kind: "conversation", id: "conv-prod" },
+              payload: {
+                messageId: "m-prod",
+                conversationId: "conv-prod",
+                text: "from prod",
+                offset: -5,
+                revision: 1.5,
+              },
+            },
+          },
+        ],
+      }),
+    );
+    expect(convScopedEvents[0]).toMatchObject({
+      conversationId: "conv-prod",
+      runId: undefined,
+      offset: 0,
+      revision: 1,
+    });
+    expect(convScopedEvents[1]).toMatchObject({
+      offset: undefined,
+      revision: undefined,
+    });
+    const prodMap = new Map<string, LiveStreamOverlay>();
+    applyLiveStreamBatch(
+      prodMap,
+      convScopedEvents,
+      [{ id: "r-prod", conversation_id: "conv-prod", state: "running" }],
+      100,
+    );
+    expect(prodMap.get("run:r-prod")?.text).toBe("Hello from prod");
+    expect(prodMap.get("conv:conv-prod")?.text).toBe("Hello from prod");
+
+    // Starting a new run in the same conversation never inherits the previous run's text
+    applyLiveStreamBatch(
+      prodMap,
+      [
+        {
+          kind: "delta",
+          runId: "r-next",
+          conversationId: "conv-prod",
+          text: "Fresh turn",
+        },
+      ],
+      [{ id: "r-next", conversation_id: "conv-prod", state: "running" }],
+      200,
+    );
+    expect(prodMap.get("run:r-next")?.text).toBe("Fresh turn");
+    expect(prodMap.get("conv:conv-prod")?.text).toBe("Fresh turn");
 
     // Streams past 80,000 chars keep advancing byteEnd without falsely setting gapped
     const big = "a".repeat(80_010);

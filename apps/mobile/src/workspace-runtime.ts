@@ -65,6 +65,12 @@ export class ActionKeyStore {
     this.keys.delete(scopeKey);
   }
 
+  deletePrefix(prefix: string): void {
+    for (const key of Array.from(this.keys.keys())) {
+      if (key.startsWith(prefix)) this.keys.delete(key);
+    }
+  }
+
   clear(): void {
     this.keys.clear();
   }

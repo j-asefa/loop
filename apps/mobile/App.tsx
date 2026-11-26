@@ -322,6 +322,7 @@ function LoopShell() {
           setDecisions(decList);
           setSnippets(snipList);
           setActiveRuns(runList);
+          actionKeysRef.current.deletePrefix("run-reorder:");
           if (pruneLiveStreams(liveStreamsRef.current, runList)) {
             setLiveStreams(new Map(liveStreamsRef.current));
           }
@@ -861,8 +862,34 @@ function LoopShell() {
         ? actionKeysRef.current.getOrCreate(retryScopeKey)
         : randomUuid();
       const priorRun = activeRuns.find((r) => r.id === runId);
+      const priorQueuedItems = action === "cancel" ? queuedFeedItems : null;
       if (action === "cancel") {
         setActiveRuns((prev) => prev.filter((r) => r.id !== runId));
+        setQueuedFeedItems((prev) =>
+          prev
+            .map((item) => {
+              const filteredQueued = item.queued_runs?.filter(
+                (q) => q.id !== runId,
+              );
+              const nextRun =
+                item.run?.id === runId && item.run.state === "queued"
+                  ? null
+                  : item.run;
+              if (filteredQueued === item.queued_runs && nextRun === item.run) {
+                return item;
+              }
+              return {
+                ...item,
+                run: nextRun,
+                ...(filteredQueued ? { queued_runs: filteredQueued } : {}),
+              };
+            })
+            .filter(
+              (item) =>
+                Boolean(item.run) ||
+                Boolean(item.queued_runs && item.queued_runs.length > 0),
+            ),
+        );
         if (
           clearRunFromLiveStreams(
             liveStreamsRef.current,
@@ -933,10 +960,13 @@ function LoopShell() {
               return [...prev, priorRun];
             });
           }
+          if (priorQueuedItems) {
+            setQueuedFeedItems(priorQueuedItems);
+          }
           showToast((err as Error).message);
         });
     },
-    [activeRuns, client, scheduleSilentRefresh, showToast],
+    [activeRuns, client, queuedFeedItems, scheduleSilentRefresh, showToast],
   );
 
   const handleReorderQueuedRun = useCallback(
@@ -946,11 +976,17 @@ function LoopShell() {
       const flightKey = `reorder:${runId}`;
       if (inFlightRunActionsRef.current.has(flightKey)) return;
       inFlightRunActionsRef.current.add(flightKey);
+      const scopeKey = actionKeysRef.current.scopeForRunReorder(
+        runId,
+        direction,
+      );
+      const idempotencyKey = actionKeysRef.current.getOrCreate(scopeKey);
       void client
-        .reorderRun(runId, direction, randomUuid())
+        .reorderRun(runId, direction, idempotencyKey)
         .then(() => {
           inFlightRunActionsRef.current.delete(flightKey);
           if (gen === workspaceGenRef.current) {
+            actionKeysRef.current.delete(scopeKey);
             scheduleSilentRefresh(200, gen);
           }
         })
@@ -962,6 +998,7 @@ function LoopShell() {
             scheduleSilentRefresh(500, gen);
             return;
           }
+          actionKeysRef.current.delete(scopeKey);
           showToast((err as Error).message);
         });
     },

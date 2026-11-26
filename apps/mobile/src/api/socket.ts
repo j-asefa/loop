@@ -367,12 +367,14 @@ export function extractLiveStreamEvents(raw: unknown): LiveStreamEvent[] {
           replace: false,
           offset:
             typeof payload.offset === "number" &&
-            Number.isFinite(payload.offset)
+            Number.isSafeInteger(payload.offset) &&
+            payload.offset >= 0
               ? payload.offset
               : undefined,
           revision:
             typeof payload.revision === "number" &&
-            Number.isFinite(payload.revision)
+            Number.isSafeInteger(payload.revision) &&
+            payload.revision >= 0
               ? payload.revision
               : undefined,
         });
@@ -616,8 +618,8 @@ export function applyLiveStreamEvent(
 
   // Server `message.delta` offsets are UTF-8 byte offsets (see `src/shared/transcript-projection.ts`).
   if (event.offset !== undefined) {
-    // Starting from offset 0 or joining a stream mid-reply (no prior text for this message).
-    if (event.offset === 0 || prevByteEnd === undefined) {
+    // Clean start from byte offset 0.
+    if (event.offset === 0) {
       const bounded =
         event.text.length > MAX_STREAM_TEXT_CHARS
           ? event.text.slice(event.text.length - MAX_STREAM_TEXT_CHARS)
@@ -629,13 +631,15 @@ export function applyLiveStreamEvent(
         activity: prev?.activity ?? "Streaming response…",
         state: prev?.state ?? "running",
         revision: event.revision ?? prev?.revision,
-        byteEnd: event.offset + eventBytes,
+        byteEnd: eventBytes,
         gapped: false,
         updatedAt: now,
       };
     }
 
-    if (prevGapped) {
+    // Offset > 0 with no prior text (e.g. after reconnect reset or mid-reply join):
+    // mark gapped instead of presenting a mid-stream fragment as the full card body.
+    if (prevByteEnd === undefined || prevGapped) {
       return {
         runId,
         text: baseText,
@@ -839,9 +843,13 @@ export function applyLiveStreamBatch(
       continue;
     }
 
+    const convExisting = convKey ? map.get(convKey) : undefined;
+    const convMatchesRun =
+      convExisting &&
+      (!runId || !convExisting.runId || convExisting.runId === runId);
     const existing =
       (runKey ? map.get(runKey) : undefined) ??
-      (convKey ? map.get(convKey) : undefined);
+      (convMatchesRun ? convExisting : undefined);
     const next = applyLiveStreamEvent(existing, { ...ev, runId }, now);
     if (next === null) continue;
 
