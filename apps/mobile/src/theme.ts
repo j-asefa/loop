@@ -30,45 +30,51 @@ export type LoopTheme = {
   scrim: string;
   pillBg: string;
   tabBarBg: string;
+  tabBarLine: string;
+  tabBarActiveBg: string;
+  tabBarActiveText: string;
   blurTint: "systemChromeMaterialDark" | "systemChromeMaterialLight";
 };
 
 /**
- * Dark counterpart to the sage & risograph swatch palette: deep pine-charcoal
- * surfaces paired with sage green, warm ochre, coral, cerulean, and rose.
+ * Garden at night: a deep evergreen background, brighter leaf-green surfaces,
+ * warm ivory text, and amber highlights.
  */
 export const DARK_THEME: LoopTheme = {
   isDark: true,
-  bg: "#171d1a",
-  surface: "#202824",
-  raised: "#28322d",
-  soft: "#252f2a",
-  text: "#f4f2ea",
-  muted: "#a3b3aa",
-  line: "#34413a",
-  brass: "#e0a350",
-  brassText: "#eab86f",
-  onBrass: "#171d1a",
-  attention: "#2c281f",
-  attentionTile: "#342f24",
-  attentionLine: "rgba(224, 163, 80, 0.36)",
-  unreadSurface: "#312b1b",
-  unreadLine: "rgba(224, 163, 80, 0.62)",
-  green: "#7eb098",
-  onGreen: "#171d1a",
-  greenSoft: "rgba(126, 176, 152, 0.18)",
-  orange: "#e07b77",
-  orangeSoft: "rgba(210, 96, 92, 0.18)",
-  blue: "#5aaef0",
-  onBlue: "#0d1a26",
-  blueSoft: "rgba(34, 136, 220, 0.22)",
-  purple: "#b4b4e8",
-  purpleSoft: "rgba(120, 120, 172, 0.20)",
-  rose: "#e098a8",
-  roseSoft: "rgba(224, 152, 168, 0.20)",
-  scrim: "rgba(15, 20, 17, 0.72)",
-  pillBg: "rgba(32, 40, 36, 0.88)",
-  tabBarBg: "rgba(23, 29, 26, 0.84)",
+  bg: "#101f19",
+  surface: "#23382e",
+  raised: "#2e463a",
+  soft: "#2a4035",
+  text: "#f6f3e7",
+  muted: "#c0d4c8",
+  line: "#587667",
+  brass: "#edc47e",
+  brassText: "#f7d498",
+  onBrass: "#292013",
+  attention: "#413522",
+  attentionTile: "#4c3e28",
+  attentionLine: "#ab8651",
+  unreadSurface: "#413522",
+  unreadLine: "#ab8651",
+  green: "#b4df9c",
+  onGreen: "#172817",
+  greenSoft: "#344a32",
+  orange: "#fcb1ad",
+  orangeSoft: "#513437",
+  blue: "#91c9f0",
+  onBlue: "#142b37",
+  blueSoft: "#2e4957",
+  purple: "#e1d8fb",
+  purpleSoft: "#3e3a56",
+  rose: "#f6b3c3",
+  roseSoft: "#50343f",
+  scrim: "rgba(8, 15, 11, 0.76)",
+  pillBg: "rgba(35, 56, 46, 0.94)",
+  tabBarBg: "#294438",
+  tabBarLine: "#7aa58d",
+  tabBarActiveBg: "#edc47e",
+  tabBarActiveText: "#292013",
   blurTint: "systemChromeMaterialDark",
 };
 
@@ -107,7 +113,10 @@ export const LIGHT_THEME: LoopTheme = {
   roseSoft: "#f8e9ed",
   scrim: "rgba(92, 132, 113, 0.72)",
   pillBg: "rgba(252, 251, 247, 0.92)",
-  tabBarBg: "rgba(247, 245, 238, 0.88)",
+  tabBarBg: "#fcfbf7",
+  tabBarLine: "#31473c",
+  tabBarActiveBg: "#f5e4be",
+  tabBarActiveText: "#553204",
   blurTint: "systemChromeMaterialLight",
 };
 
