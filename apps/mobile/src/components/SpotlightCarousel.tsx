@@ -133,7 +133,8 @@ export function SpotlightCarousel({
   const sidePadding = Math.max(12, Math.round((screenWidth - cardWidth) / 2));
 
   // Pin the order so a refresh never reshuffles the stack; a newly arriving
-  // card re-pins it and takes you to that card (#1).
+  // card re-pins it and takes you to that card (#1) once the reply keyboard
+  // is closed.
   const [pinnedIds, setPinnedIds] = useState<string[]>(() =>
     cards.map((c) => c.id),
   );
@@ -703,12 +704,14 @@ export function SpotlightCarousel({
     openSearch();
   }, [openSearch]);
 
+  // Hold the move while the reply keyboard is open, so a reply being typed
+  // keeps its card; it runs as soon as the keyboard closes.
   useEffect(() => {
-    if (!hasNewArrival) return;
+    if (!hasNewArrival || keyboardVisible) return;
     haptics.light();
     setPinnedIds(cards.map((c) => c.id));
     requestAnimationFrame(() => scrollToSlide(0, true));
-  }, [hasNewArrival, cards, scrollToSlide]);
+  }, [hasNewArrival, keyboardVisible, cards, scrollToSlide]);
 
   if (!slides.length) return null;
 
