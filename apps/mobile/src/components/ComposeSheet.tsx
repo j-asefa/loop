@@ -334,7 +334,7 @@ export function ComposeSheet({
             <View
               style={[
                 styles.composerBox,
-                { backgroundColor: theme.bg, borderColor: theme.line },
+                { backgroundColor: theme.soft, borderColor: theme.line },
               ]}
             >
               <Pressable
