@@ -46,6 +46,7 @@ export type AgentRunSummary = {
   agent_id: string;
   conversation_id: string | null;
   connection_id?: string | null;
+  payload?: { connectionId?: string | null };
   input: string;
   state: string;
   created_at: number;

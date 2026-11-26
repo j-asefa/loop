@@ -233,6 +233,7 @@ export class LoopClient {
       state: string;
       created_at: number;
       updated_at?: number;
+      payload?: { connectionId?: string | null };
     }>
   > {
     return this.request("GET", `/api/runs${active ? "?active=1" : ""}`);

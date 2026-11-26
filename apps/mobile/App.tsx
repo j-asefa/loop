@@ -886,11 +886,21 @@ function LoopShell() {
                 Boolean(item.queued_runs && item.queued_runs.length > 0),
             ),
         );
+        const hasOtherActiveInConv = Boolean(
+          priorRun?.conversation_id &&
+          activeRuns.some(
+            (r) =>
+              r.id !== runId &&
+              r.conversation_id === priorRun.conversation_id &&
+              r.state !== "queued",
+          ),
+        );
         if (
           clearRunFromLiveStreams(
             liveStreamsRef.current,
             runId,
             priorRun?.conversation_id,
+            hasOtherActiveInConv,
           )
         ) {
           setLiveStreams(new Map(liveStreamsRef.current));

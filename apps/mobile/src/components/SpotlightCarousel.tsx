@@ -323,6 +323,7 @@ export function SpotlightCarousel({
   const [replyError, setReplyError] = useState("");
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [deliveryMode, setDeliveryMode] = useState<"steer" | "queue">("steer");
+  const [retryModeLocked, setRetryModeLocked] = useState(false);
   // Preserve idempotencyKey, replyToMessageId, and queue delivery mode across retries after
   // uncertain errors so retrying never mutates the request semantics for the same idempotencyKey.
   const pendingReplyRef = useRef<{
@@ -338,10 +339,11 @@ export function SpotlightCarousel({
     activeRun?.state === "running" || activeRun?.state === "waiting_children";
 
   // Invalidate pending retry key ONLY when the reply payload or conversation changes;
-  // toggling Steer/Queue after an uncertain timeout keeps the pending key so retries never duplicate.
+  // toggling Steer/Queue after an uncertain timeout is locked so the chip matches the pending retry.
   const attachmentKeySig = replyAttachments.readyIds.join(",");
   useEffect(() => {
     pendingReplyRef.current = null;
+    setRetryModeLocked(false);
   }, [draft, conversationId, attachmentKeySig]);
 
   // If the user opened a synthetic working:* placeholder at slide 0 and the run
@@ -705,12 +707,16 @@ export function SpotlightCarousel({
         onSendReply(targetCard, finalPrompt, readyIds, idempotencyKey, queue),
       );
       pendingReplyRef.current = null;
+      setRetryModeLocked(false);
       setDraft("");
       clearAttachments();
       Keyboard.dismiss();
     } catch (err) {
       if (!isUncertainOutcomeError(err)) {
         pendingReplyRef.current = null;
+        setRetryModeLocked(false);
+      } else {
+        setRetryModeLocked(true);
       }
       haptics.warning();
       setReplyError(
@@ -1447,6 +1453,7 @@ export function SpotlightCarousel({
             {canSteerActiveRun && (
               <View style={styles.deliveryModeRow}>
                 <Pressable
+                  disabled={retryModeLocked}
                   onPress={() => {
                     haptics.selection();
                     setDeliveryMode("steer");
@@ -1462,6 +1469,7 @@ export function SpotlightCarousel({
                         deliveryMode === "steer"
                           ? theme.attentionLine
                           : theme.line,
+                      opacity: retryModeLocked ? 0.55 : 1,
                     },
                   ]}
                 >
@@ -1480,6 +1488,7 @@ export function SpotlightCarousel({
                   </Text>
                 </Pressable>
                 <Pressable
+                  disabled={retryModeLocked}
                   onPress={() => {
                     haptics.selection();
                     setDeliveryMode("queue");
@@ -1495,6 +1504,7 @@ export function SpotlightCarousel({
                         deliveryMode === "queue"
                           ? theme.attentionLine
                           : theme.line,
+                      opacity: retryModeLocked ? 0.55 : 1,
                     },
                   ]}
                 >

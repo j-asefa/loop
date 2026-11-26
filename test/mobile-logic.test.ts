@@ -1365,10 +1365,14 @@ describe("mobile live run streaming & run controls", () => {
     expect(
       canPauseRun({ state: "paused", agent_id: "a-api" }, agents, connections),
     ).toBe(false);
-    // Run-level connection_id overrides agent's current connection_id
+    // Run-level payload.connectionId (from GET /api/runs PublicRun) overrides agent connection_id
     expect(
       canPauseRun(
-        { state: "running", agent_id: "a-api", connection_id: "conn-native" },
+        {
+          state: "running",
+          agent_id: "a-api",
+          payload: { connectionId: "conn-native" },
+        },
         agents,
         connections,
       ),

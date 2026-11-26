@@ -167,7 +167,12 @@ export function isNativeHarnessConnection(
  */
 export function canPauseRun(
   run:
-    | { state: string; agent_id?: string | null; connection_id?: string | null }
+    | {
+        state: string;
+        agent_id?: string | null;
+        connection_id?: string | null;
+        payload?: { connectionId?: string | null };
+      }
     | null
     | undefined,
   agents: Array<Pick<ApiAgent, "id" | "connection_id">>,
@@ -182,7 +187,11 @@ export function canPauseRun(
     const agent = run.agent_id
       ? agents.find((a) => a.id === run.agent_id)
       : undefined;
-    const connId = run.connection_id ?? agent?.connection_id ?? null;
+    const connId =
+      run.connection_id ??
+      run.payload?.connectionId ??
+      agent?.connection_id ??
+      null;
     const conn = connId ? connections.find((c) => c.id === connId) : undefined;
     if (isNativeHarnessConnection(conn)) {
       return false;
@@ -836,9 +845,18 @@ export function applyLiveStreamBatch(
       }
       if (convKey) {
         const existingConv = map.get(convKey);
+        const otherActiveInConv =
+          Boolean(convId) &&
+          activeRuns.some(
+            (r) =>
+              r.conversation_id === convId &&
+              r.id !== runId &&
+              ACTIVE_STREAM_STATES.has(r.state),
+          );
         if (
           existingConv &&
-          (!runId || !existingConv.runId || existingConv.runId === runId)
+          ((runId && existingConv.runId === runId) ||
+            (!existingConv.runId && !otherActiveInConv))
         ) {
           map.delete(convKey);
           changed = true;
@@ -962,6 +980,7 @@ export function clearRunFromLiveStreams(
   map: Map<string, LiveStreamOverlay>,
   runId: string,
   conversationId?: string | null,
+  hasOtherActiveRunInConv = false,
 ): boolean {
   let changed = false;
   if (map.delete(`run:${runId}`)) changed = true;
@@ -974,7 +993,11 @@ export function clearRunFromLiveStreams(
   if (conversationId) {
     const convKey = `conv:${conversationId}`;
     const existing = map.get(convKey);
-    if (existing && (!existing.runId || existing.runId === runId)) {
+    if (
+      existing &&
+      (existing.runId === runId ||
+        (!existing.runId && !hasOtherActiveRunInConv))
+    ) {
       map.delete(convKey);
       changed = true;
     }

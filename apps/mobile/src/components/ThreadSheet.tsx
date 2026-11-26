@@ -102,6 +102,7 @@ export function ThreadSheet({
   const [savedIds, setSavedIds] = useState<Set<string>>(() => new Set());
   const [working, setWorking] = useState(false);
   const [deliveryMode, setDeliveryMode] = useState<"steer" | "queue">("steer");
+  const [retryModeLocked, setRetryModeLocked] = useState(false);
   const [resolvedTitle, setResolvedTitle] = useState(title);
   const [resolvedAgentId, setResolvedAgentId] = useState<string | null>(
     agentId ?? null,
@@ -132,6 +133,7 @@ export function ThreadSheet({
   const attSig = replyAttachments.readyIds.join(",");
   useEffect(() => {
     pendingSendRef.current = null;
+    setRetryModeLocked(false);
   }, [draft, conversationId, attSig]);
 
   const load = useCallback(async () => {
@@ -263,6 +265,7 @@ export function ThreadSheet({
         ...(queue !== undefined ? { queue } : {}),
       });
       pendingSendRef.current = null;
+      setRetryModeLocked(false);
       setDraft("");
       clearAttachments();
       if (client) {
@@ -271,6 +274,9 @@ export function ThreadSheet({
     } catch (err) {
       if (!isUncertainOutcomeError(err)) {
         pendingSendRef.current = null;
+        setRetryModeLocked(false);
+      } else {
+        setRetryModeLocked(true);
       }
       haptics.warning();
       setError(err instanceof Error ? err.message : "Could not send reply.");
@@ -681,6 +687,7 @@ export function ThreadSheet({
           {canSteerActiveRun && (
             <View style={styles.deliveryRow}>
               <Pressable
+                disabled={retryModeLocked}
                 onPress={() => {
                   haptics.selection();
                   setDeliveryMode("steer");
@@ -694,6 +701,7 @@ export function ThreadSheet({
                       deliveryMode === "steer"
                         ? theme.attentionLine
                         : theme.line,
+                    opacity: retryModeLocked ? 0.55 : 1,
                   },
                 ]}
               >
@@ -712,6 +720,7 @@ export function ThreadSheet({
                 </Text>
               </Pressable>
               <Pressable
+                disabled={retryModeLocked}
                 onPress={() => {
                   haptics.selection();
                   setDeliveryMode("queue");
@@ -725,6 +734,7 @@ export function ThreadSheet({
                       deliveryMode === "queue"
                         ? theme.attentionLine
                         : theme.line,
+                    opacity: retryModeLocked ? 0.55 : 1,
                   },
                 ]}
               >
