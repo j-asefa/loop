@@ -19,6 +19,7 @@ import {
   View,
 } from "react-native";
 import { BlurView } from "expo-blur";
+import * as Clipboard from "expo-clipboard";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   Extrapolation,
@@ -43,6 +44,7 @@ import {
   ChevronRight,
   ChevronUp,
   Clock,
+  Copy,
   CornerUpLeft,
   Paperclip,
   Pause,
@@ -76,6 +78,12 @@ import {
   relativeTime,
   type NativeResultCard,
 } from "../fixtures";
+import {
+  clearDraft,
+  draftScopeForCarousel,
+  loadDraft,
+  saveDraft,
+} from "../drafts";
 import { haptics } from "../haptics";
 import { runModelLabel } from "../models";
 import type { LoopTheme } from "../theme";
@@ -114,6 +122,7 @@ type SpotlightCarouselProps = {
   onToggleSaved: (card: NativeResultCard) => Promise<void> | void;
   onRemind: (card: NativeResultCard) => void;
   onDismissCard: (card: NativeResultCard) => void;
+  onNotify?: (message: string) => void;
   onSendReply: (
     card: NativeResultCard,
     prompt: string,
@@ -144,6 +153,7 @@ export function SpotlightCarousel({
   onToggleSaved,
   onRemind,
   onDismissCard,
+  onNotify,
   onSendReply,
 }: SpotlightCarouselProps) {
   const insets = useSafeAreaInsets();
@@ -177,6 +187,11 @@ export function SpotlightCarousel({
     () => new Map(),
   );
   const [historySlides, setHistorySlides] = useState<NativeResultCard[]>([]);
+  const [historyNextCursor, setHistoryNextCursor] = useState<string | null>(
+    null,
+  );
+  const [loadingMoreHistory, setLoadingMoreHistory] = useState(false);
+  const hasLoadedOlderHistoryRef = useRef(false);
   const [fullBodies, setFullBodies] = useState<Map<string, string>>(
     () => new Map(),
   );
@@ -185,6 +200,57 @@ export function SpotlightCarousel({
   >(() => new Map());
   const fetchedRunsRef = useRef(new Set<string>());
   const conversationId = cards[0]?.conversationId;
+
+  const parseConversationPageToSlides = useCallback(
+    (
+      page: import("../api/types").ApiConversationPage,
+      convId: string,
+    ): {
+      promptMap: Map<string, string>;
+      bodyMap: Map<string, string>;
+      runIdMap: Map<string, string>;
+      slides: NativeResultCard[];
+    } => {
+      const promptMap = new Map<string, string>();
+      const bodyMap = new Map<string, string>();
+      const runIdMap = new Map<string, string>();
+      const savedSet = new Set(page.saved);
+      const extra: NativeResultCard[] = [];
+      let lastPrompt = "";
+      const base = cards[0];
+      for (const msg of page.messages) {
+        if (msg.role === "user") {
+          lastPrompt = msg.content;
+          continue;
+        }
+        if (msg.role !== "assistant" || !msg.content.trim()) continue;
+        if (lastPrompt) promptMap.set(msg.id, lastPrompt);
+        if (msg.run_id) runIdMap.set(msg.id, msg.run_id);
+        bodyMap.set(msg.id, msg.content);
+        extra.push({
+          id: msg.id,
+          conversationId: convId,
+          tab: "done",
+          agentId: base?.agentId,
+          agentName: base?.agentName ?? "agent",
+          projectName: base?.projectName ?? "Workspace",
+          model: base?.model ?? "",
+          prompt: lastPrompt || page.conversation.title,
+          fallbackTitle: page.conversation.title || "Result",
+          body: msg.content,
+          createdAt: msg.created_at,
+          saved: savedSet.has(msg.id),
+          unread: false,
+          messageId: msg.id,
+          runId: msg.run_id ?? undefined,
+        });
+        lastPrompt = "";
+      }
+      extra.reverse();
+      return { promptMap, bodyMap, runIdMap, slides: extra };
+    },
+    [cards],
+  );
 
   useEffect(() => {
     if (!client || !conversationId) return;
@@ -196,44 +262,14 @@ export function SpotlightCarousel({
         .conversation(conversationId)
         .then((page) => {
           if (cancelled) return;
-          const promptMap = new Map<string, string>();
-          const bodyMap = new Map<string, string>();
-          const runIdMap = new Map<string, string>();
-          const savedSet = new Set(page.saved);
-          const extra: NativeResultCard[] = [];
-          let lastPrompt = "";
-          const base = cards[0];
-          for (const msg of page.messages) {
-            if (msg.role === "user") {
-              lastPrompt = msg.content;
-              continue;
-            }
-            if (msg.role !== "assistant" || !msg.content.trim()) continue;
-            if (lastPrompt) promptMap.set(msg.id, lastPrompt);
-            if (msg.run_id) runIdMap.set(msg.id, msg.run_id);
-            bodyMap.set(msg.id, msg.content);
-            extra.push({
-              id: msg.id,
-              conversationId,
-              tab: "done",
-              agentId: base?.agentId,
-              agentName: base?.agentName ?? "agent",
-              projectName: base?.projectName ?? "Workspace",
-              model: base?.model ?? "",
-              prompt: lastPrompt || page.conversation.title,
-              fallbackTitle: page.conversation.title || "Result",
-              body: msg.content,
-              createdAt: msg.created_at,
-              saved: savedSet.has(msg.id),
-              unread: false,
-              messageId: msg.id,
-              runId: msg.run_id ?? undefined,
-            });
-            lastPrompt = "";
-          }
-          extra.reverse();
-          setHistoryPrompts(promptMap);
-          setHistoryRunIds(runIdMap);
+          const {
+            promptMap,
+            bodyMap,
+            runIdMap,
+            slides: extra,
+          } = parseConversationPageToSlides(page, conversationId);
+          setHistoryPrompts((prev) => new Map([...prev, ...promptMap]));
+          setHistoryRunIds((prev) => new Map([...prev, ...runIdMap]));
           setFullBodies((prev) => {
             const next = new Map(prev);
             for (const [id, content] of bodyMap) {
@@ -244,7 +280,17 @@ export function SpotlightCarousel({
             }
             return next;
           });
-          setHistorySlides(extra);
+          setHistorySlides((prev) => {
+            if (!hasLoadedOlderHistoryRef.current || prev.length === 0) {
+              return extra;
+            }
+            const seen = new Set(extra.map((c) => c.messageId || c.id));
+            const older = prev.filter((c) => !seen.has(c.messageId || c.id));
+            return [...extra, ...older];
+          });
+          if (!hasLoadedOlderHistoryRef.current) {
+            setHistoryNextCursor(page.next ?? null);
+          }
           setSteerableRunId(page.steerable_run_id ?? null);
         })
         .catch(() => {});
@@ -253,7 +299,61 @@ export function SpotlightCarousel({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [client, conversationId, activeRun?.id, activeRun?.state]);
+  }, [
+    client,
+    conversationId,
+    activeRun?.id,
+    activeRun?.state,
+    parseConversationPageToSlides,
+  ]);
+
+  const loadMoreHistory = useCallback(async () => {
+    if (
+      !client ||
+      !conversationId ||
+      !historyNextCursor ||
+      loadingMoreHistory
+    ) {
+      return;
+    }
+    const cursor = historyNextCursor;
+    setLoadingMoreHistory(true);
+    try {
+      const page = await client.conversation(conversationId, cursor);
+      const {
+        promptMap,
+        bodyMap,
+        runIdMap,
+        slides: older,
+      } = parseConversationPageToSlides(page, conversationId);
+      hasLoadedOlderHistoryRef.current = true;
+      setHistoryPrompts((prev) => new Map([...promptMap, ...prev]));
+      setHistoryRunIds((prev) => new Map([...runIdMap, ...prev]));
+      setFullBodies((prev) => {
+        const next = new Map(prev);
+        for (const [id, content] of bodyMap) {
+          if (!next.has(id)) next.set(id, content);
+        }
+        return next;
+      });
+      setHistorySlides((prev) => {
+        const seen = new Set(prev.map((c) => c.messageId || c.id));
+        const uniqueOlder = older.filter((c) => !seen.has(c.messageId || c.id));
+        return uniqueOlder.length > 0 ? [...prev, ...uniqueOlder] : prev;
+      });
+      setHistoryNextCursor(page.next ?? null);
+    } catch {
+      // keep existing history
+    } finally {
+      setLoadingMoreHistory(false);
+    }
+  }, [
+    client,
+    conversationId,
+    historyNextCursor,
+    loadingMoreHistory,
+    parseConversationPageToSlides,
+  ]);
 
   const slides = useMemo(() => {
     const ordered: NativeResultCard[] = [];
@@ -327,7 +427,25 @@ export function SpotlightCarousel({
   const [actionSheetCard, setActionSheetCard] =
     useState<NativeResultCard | null>(null);
   const [draft, setDraft] = useState("");
+  const draftScope = conversationId
+    ? draftScopeForCarousel(conversationId)
+    : "";
+  const draftTouchedRef = useRef(false);
   const [sending, setSending] = useState(false);
+
+  useEffect(() => {
+    if (!draftScope) return;
+    let cancelled = false;
+    draftTouchedRef.current = false;
+    void loadDraft(client?.origin, draftScope).then((restored) => {
+      if (!cancelled && !draftTouchedRef.current && restored) {
+        setDraft(restored);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [client?.origin, draftScope]);
   const [replyError, setReplyError] = useState("");
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [steerableRunId, setSteerableRunId] = useState<string | null>(null);
@@ -655,13 +773,18 @@ export function SpotlightCarousel({
     setTimeout(() => replyInputRef.current?.focus(), 60);
   }, []);
 
-  const prefillReply = useCallback((prompt: string) => {
-    pendingReplyRef.current = null;
-    setReplyError("");
-    setDraft(prompt);
-    setQuickReplyOpen(false);
-    setTimeout(() => replyInputRef.current?.focus(), 60);
-  }, []);
+  const prefillReply = useCallback(
+    (prompt: string) => {
+      draftTouchedRef.current = true;
+      pendingReplyRef.current = null;
+      setReplyError("");
+      setDraft(prompt);
+      if (draftScope) saveDraft(client?.origin, draftScope, prompt);
+      setQuickReplyOpen(false);
+      setTimeout(() => replyInputRef.current?.focus(), 60);
+    },
+    [client?.origin, draftScope],
+  );
 
   const handleSlideToggleSaved = useCallback(
     (target: NativeResultCard) => {
@@ -723,6 +846,7 @@ export function SpotlightCarousel({
       );
       pendingReplyRef.current = null;
       setRetryModeLocked(false);
+      if (draftScope) clearDraft(client?.origin, draftScope);
       setDraft("");
       clearAttachments();
       Keyboard.dismiss();
@@ -919,8 +1043,39 @@ export function SpotlightCarousel({
                     </Text>
                     <Text style={[styles.identityPos, { color: theme.muted }]}>
                       {safeIndex + 1} / {slides.length}
+                      {historyNextCursor ? "+" : ""}
                     </Text>
                   </Pressable>
+                  {historyNextCursor && (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Load earlier cards in thread"
+                      disabled={loadingMoreHistory}
+                      onPress={() => {
+                        haptics.light();
+                        void loadMoreHistory();
+                      }}
+                      style={({ pressed }) => [
+                        styles.loadMorePill,
+                        {
+                          backgroundColor: pressed
+                            ? theme.attention
+                            : theme.pillBg,
+                          borderColor: theme.line,
+                          opacity: loadingMoreHistory ? 0.6 : 1,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.loadMorePillText,
+                          { color: theme.brassText },
+                        ]}
+                      >
+                        {loadingMoreHistory ? "…" : "+Older"}
+                      </Text>
+                    </Pressable>
+                  )}
 
                   <Pressable
                     accessibilityLabel="Search cards in thread"
@@ -1581,9 +1736,11 @@ export function SpotlightCarousel({
                 ref={replyInputRef}
                 value={draft}
                 onChangeText={(next) => {
+                  draftTouchedRef.current = true;
                   pendingReplyRef.current = null;
                   if (replyError) setReplyError("");
                   setDraft(next);
+                  if (draftScope) saveDraft(client?.origin, draftScope, next);
                 }}
                 placeholder={`Reply to @${agentName}…`}
                 placeholderTextColor={theme.muted}
@@ -1853,6 +2010,38 @@ export function SpotlightCarousel({
                   <X size={18} color={theme.muted} />
                 </Pressable>
               </View>
+
+              <Pressable
+                onPress={() => {
+                  const target = actionSheetCard;
+                  setActionSheetCard(null);
+                  haptics.success();
+                  void Clipboard.setStringAsync(target.body)
+                    .then(() => onNotify?.("Copied answer"))
+                    .catch(() => {});
+                }}
+                style={({ pressed }) => [
+                  styles.quickOption,
+                  {
+                    backgroundColor: pressed ? theme.attention : theme.soft,
+                    borderColor: theme.line,
+                  },
+                ]}
+              >
+                <Copy size={18} color={theme.brassText} />
+                <View style={styles.quickOptionText}>
+                  <Text
+                    style={[styles.quickOptionLabel, { color: theme.text }]}
+                  >
+                    Copy answer
+                  </Text>
+                  <Text
+                    style={[styles.quickOptionHint, { color: theme.muted }]}
+                  >
+                    Copy the full response text to your clipboard
+                  </Text>
+                </View>
+              </Pressable>
 
               <Pressable
                 onPress={() => {
@@ -3213,5 +3402,15 @@ const styles = StyleSheet.create({
   },
   quickOptionHint: {
     fontSize: 12.5,
+  },
+  loadMorePill: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  loadMorePillText: {
+    fontSize: 11.5,
+    fontWeight: "700",
   },
 });

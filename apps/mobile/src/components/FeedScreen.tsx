@@ -63,9 +63,12 @@ type FeedScreenProps = {
   environmentName?: string;
   socketStatus: SocketStatus;
   refreshing: boolean;
+  hasMore?: boolean;
+  loadingMore?: boolean;
   theme: LoopTheme;
   scrollRef?: React.RefObject<React.ComponentRef<typeof ScrollView> | null>;
   onRefresh: () => void;
+  onLoadMore?: () => void;
   onOpenPairing: () => void;
   onOpenAgent: (agent: ApiAgent, workingRun?: AgentRunSummary) => void;
   onOpenAgentByName: (
@@ -99,9 +102,12 @@ export function FeedScreen({
   environmentName,
   socketStatus,
   refreshing,
+  hasMore = false,
+  loadingMore = false,
   theme,
   scrollRef,
   onRefresh,
+  onLoadMore,
   onOpenPairing,
   onOpenAgent,
   onOpenAgentByName,
@@ -625,6 +631,30 @@ export function FeedScreen({
               onSwipeSave={() => onSwipeSave(entry.top)}
             />
           ))
+        )}
+
+        {hasMore && onLoadMore && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Load older cards"
+            disabled={loadingMore}
+            onPress={() => {
+              haptics.light();
+              onLoadMore();
+            }}
+            style={({ pressed }) => [
+              styles.loadMoreBtn,
+              {
+                backgroundColor: pressed ? theme.attention : theme.surface,
+                borderColor: theme.line,
+                opacity: loadingMore ? 0.65 : 1,
+              },
+            ]}
+          >
+            <Text style={[styles.loadMoreText, { color: theme.text }]}>
+              {loadingMore ? "Loading older cards…" : "Load older cards"}
+            </Text>
+          </Pressable>
         )}
       </ScrollView>
     </View>
@@ -1417,5 +1447,18 @@ const styles = StyleSheet.create({
     fontSize: 13.5,
     textAlign: "center",
     lineHeight: 20,
+  },
+  loadMoreBtn: {
+    marginTop: 6,
+    marginBottom: 8,
+    paddingVertical: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  loadMoreText: {
+    fontSize: 14,
+    fontWeight: "600",
   },
 });

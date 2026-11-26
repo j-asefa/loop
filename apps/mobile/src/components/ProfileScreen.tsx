@@ -90,6 +90,8 @@ export function ProfileScreen({
   const [reminders, setReminders] = useState<ApiLaterItem[]>([]);
   const [scheduled, setScheduled] = useState<ApiScheduledSend[]>([]);
   const [files, setFiles] = useState<PublishedFileItem[]>([]);
+  const [filesNextCursor, setFilesNextCursor] = useState<number | null>(null);
+  const [loadingMoreFiles, setLoadingMoreFiles] = useState(false);
   const [stories, setStories] = useState<ApiSocialStory[]>([]);
   const [profile, setProfile] = useState<ApiPersonalProfile | null>(null);
 
@@ -106,6 +108,8 @@ export function ProfileScreen({
     setReminders([]);
     setScheduled([]);
     setFiles([]);
+    setFilesNextCursor(null);
+    setLoadingMoreFiles(false);
     setStories([]);
     if (!client) return;
     let cancelled = false;
@@ -162,8 +166,11 @@ export function ProfileScreen({
         const data = await client.scheduledList();
         if (gen === loadGenRef.current) setScheduled(data);
       } else if (section === "files") {
-        const data = await client.personalFiles();
-        if (gen === loadGenRef.current) setFiles(data);
+        const page = await client.personalFilesPage();
+        if (gen === loadGenRef.current) {
+          setFiles(page.items);
+          setFilesNextCursor(page.next);
+        }
       } else if (section === "social") {
         const data = await client.socialStories();
         if (gen === loadGenRef.current) setStories(data);
@@ -174,6 +181,28 @@ export function ProfileScreen({
       if (gen === loadGenRef.current) setLoading(false);
     }
   }, [client, section]);
+
+  const loadMoreFiles = useCallback(async () => {
+    if (!client || filesNextCursor === null || loadingMoreFiles || loading) {
+      return;
+    }
+    const gen = loadGenRef.current;
+    setLoadingMoreFiles(true);
+    try {
+      const page = await client.personalFilesPage({ before: filesNextCursor });
+      if (gen !== loadGenRef.current) return;
+      setFiles((prev) => {
+        const seen = new Set(prev.map((f) => f.id));
+        const extra = page.items.filter((f) => !seen.has(f.id));
+        return extra.length > 0 ? [...prev, ...extra] : prev;
+      });
+      setFilesNextCursor(page.next);
+    } catch {
+      // keep existing files
+    } finally {
+      if (gen === loadGenRef.current) setLoadingMoreFiles(false);
+    }
+  }, [client, filesNextCursor, loading, loadingMoreFiles]);
 
   useEffect(() => {
     void loadSection();
@@ -573,82 +602,113 @@ export function ProfileScreen({
               No published agent files yet.
             </Text>
           ) : (
-            files.map((f) => {
-              const sizeLabel = formatFileBytes(f.size);
-              let thumbUri: string | null = null;
-              if (client && isPreviewableImageMime(f.mime, f.name)) {
-                try {
-                  thumbUri = client.sameOriginFileUrl(f.path, "preview=1");
-                } catch {
-                  thumbUri = null;
+            <>
+              {files.map((f) => {
+                const sizeLabel = formatFileBytes(f.size);
+                let thumbUri: string | null = null;
+                if (client && isPreviewableImageMime(f.mime, f.name)) {
+                  try {
+                    thumbUri = client.sameOriginFileUrl(f.path, "preview=1");
+                  } catch {
+                    thumbUri = null;
+                  }
                 }
-              }
-              return (
+                return (
+                  <Pressable
+                    key={f.id}
+                    accessibilityLabel={`Open file ${f.name}`}
+                    onPress={() => {
+                      haptics.light();
+                      onOpenFile?.(f);
+                    }}
+                    style={({ pressed }) => [
+                      styles.card,
+                      {
+                        backgroundColor: pressed ? theme.raised : theme.surface,
+                        borderColor: theme.line,
+                      },
+                    ]}
+                  >
+                    {thumbUri && client ? (
+                      <Image
+                        source={{
+                          uri: thumbUri,
+                          headers: client.fileRequestHeaders(),
+                        }}
+                        style={[
+                          styles.fileThumb,
+                          {
+                            backgroundColor: theme.soft,
+                            borderColor: theme.line,
+                          },
+                        ]}
+                        resizeMode="cover"
+                      />
+                    ) : null}
+                    <View style={styles.cardTop}>
+                      <View style={styles.rowLeft}>
+                        <FileText size={14} color={theme.brassText} />
+                        <Text
+                          style={[styles.metaText, { color: theme.brassText }]}
+                        >
+                          {f.agentName ? `@${f.agentName}` : "Published file"}
+                        </Text>
+                        <Text style={[styles.metaText, { color: theme.muted }]}>
+                          {[
+                            f.mime && f.mime !== "application/octet-stream"
+                              ? f.mime
+                              : null,
+                            sizeLabel || null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </Text>
+                      </View>
+                      <View style={styles.rowLeft}>
+                        {f.createdAt ? (
+                          <Text
+                            style={[styles.metaText, { color: theme.muted }]}
+                          >
+                            {relativeTime(f.createdAt)}
+                          </Text>
+                        ) : null}
+                        <ArrowUpRight size={14} color={theme.brassText} />
+                      </View>
+                    </View>
+                    <Text style={[styles.cardTitle, { color: theme.text }]}>
+                      {f.name || f.title || "Published file"}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+              {filesNextCursor !== null && (
                 <Pressable
-                  key={f.id}
-                  accessibilityLabel={`Open file ${f.name}`}
+                  accessibilityRole="button"
+                  accessibilityLabel="Load more files"
+                  disabled={loadingMoreFiles}
                   onPress={() => {
                     haptics.light();
-                    onOpenFile?.(f);
+                    void loadMoreFiles();
                   }}
                   style={({ pressed }) => [
-                    styles.card,
+                    styles.loadMoreBtn,
                     {
-                      backgroundColor: pressed ? theme.raised : theme.surface,
+                      backgroundColor: pressed
+                        ? theme.attention
+                        : theme.surface,
                       borderColor: theme.line,
+                      opacity: loadingMoreFiles ? 0.65 : 1,
                     },
                   ]}
                 >
-                  {thumbUri && client ? (
-                    <Image
-                      source={{
-                        uri: thumbUri,
-                        headers: client.fileRequestHeaders(),
-                      }}
-                      style={[
-                        styles.fileThumb,
-                        {
-                          backgroundColor: theme.soft,
-                          borderColor: theme.line,
-                        },
-                      ]}
-                      resizeMode="cover"
-                    />
-                  ) : null}
-                  <View style={styles.cardTop}>
-                    <View style={styles.rowLeft}>
-                      <FileText size={14} color={theme.brassText} />
-                      <Text
-                        style={[styles.metaText, { color: theme.brassText }]}
-                      >
-                        {f.agentName ? `@${f.agentName}` : "Published file"}
-                      </Text>
-                      <Text style={[styles.metaText, { color: theme.muted }]}>
-                        {[
-                          f.mime && f.mime !== "application/octet-stream"
-                            ? f.mime
-                            : null,
-                          sizeLabel || null,
-                        ]
-                          .filter(Boolean)
-                          .join(" · ")}
-                      </Text>
-                    </View>
-                    <View style={styles.rowLeft}>
-                      {f.createdAt ? (
-                        <Text style={[styles.metaText, { color: theme.muted }]}>
-                          {relativeTime(f.createdAt)}
-                        </Text>
-                      ) : null}
-                      <ArrowUpRight size={14} color={theme.brassText} />
-                    </View>
-                  </View>
-                  <Text style={[styles.cardTitle, { color: theme.text }]}>
-                    {f.name || f.title || "Published file"}
+                  <Text style={[styles.loadMoreText, { color: theme.text }]}>
+                    {loadingMoreFiles
+                      ? "Loading more files…"
+                      : "Load more files"}
                   </Text>
                 </Pressable>
-              );
-            })
+              )}
+            </>
           ))}
 
         {section === "social" &&
@@ -874,5 +934,17 @@ const styles = StyleSheet.create({
     textAlign: "center",
     paddingVertical: 32,
     lineHeight: 20,
+  },
+  loadMoreBtn: {
+    marginTop: 6,
+    paddingVertical: 11,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  loadMoreText: {
+    fontSize: 13.5,
+    fontWeight: "600",
   },
 });

@@ -11,11 +11,14 @@ import {
   TextInput,
   View,
 } from "react-native";
+import * as Clipboard from "expo-clipboard";
 import {
   ArrowLeft,
   ArrowUp,
   Bookmark,
   BookmarkCheck,
+  Check,
+  Copy,
   Paperclip,
   Pause,
   Play,
@@ -32,6 +35,12 @@ import {
 import type { LoopFileTarget, PublishedFileItem } from "../api/files";
 import type { LiveStreamOverlay } from "../api/socket";
 import type { ApiMessage } from "../api/types";
+import {
+  clearDraft,
+  draftScopeForThread,
+  loadDraft,
+  saveDraft,
+} from "../drafts";
 import { relativeTime, type NativeResultCard } from "../fixtures";
 import { ThreadRefreshGate } from "../workspace-runtime";
 import { haptics } from "../haptics";
@@ -109,7 +118,15 @@ export function ThreadSheet({
     agentId ?? null,
   );
   const [loading, setLoading] = useState(Boolean(client));
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const skipAutoScrollRef = useRef(false);
+  const hasLoadedHistoryRef = useRef(false);
   const [draft, setDraft] = useState("");
+  const draftScope = draftScopeForThread(conversationId);
+  const draftTouchedRef = useRef(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
@@ -118,6 +135,25 @@ export function ThreadSheet({
     queue?: boolean;
   } | null>(null);
   const refreshGateRef = useRef(new ThreadRefreshGate());
+
+  useEffect(() => {
+    let cancelled = false;
+    draftTouchedRef.current = false;
+    void loadDraft(client?.origin, draftScope).then((restored) => {
+      if (!cancelled && !draftTouchedRef.current && restored) {
+        setDraft(restored);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [client?.origin, draftScope]);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    };
+  }, []);
   // The parent rebuilds this array on every render. Read it through a ref so a
   // parent re-render does not reload the thread.
   const fallbackCardsRef = useRef(fallbackCards);
@@ -180,8 +216,29 @@ export function ThreadSheet({
       const page = await client.conversation(conversationId);
       if (!gate.accept(token, conversationId)) return;
       setError("");
-      setMessages(page.messages);
-      setSavedIds(new Set(page.saved));
+      setMessages((prev) => {
+        if (!hasLoadedHistoryRef.current || prev.length === 0) {
+          return page.messages;
+        }
+        const incomingIds = new Set(page.messages.map((m) => m.id));
+        const oldestIncoming =
+          page.messages[0]?.created_at ?? Number.POSITIVE_INFINITY;
+        const earlier = prev.filter(
+          (m) => !incomingIds.has(m.id) && m.created_at <= oldestIncoming,
+        );
+        return earlier.length > 0
+          ? [...earlier, ...page.messages]
+          : page.messages;
+      });
+      if (!hasLoadedHistoryRef.current) {
+        setNextCursor(page.next ?? null);
+      }
+      setSavedIds((prev) => {
+        if (!hasLoadedHistoryRef.current) return new Set(page.saved);
+        const merged = new Set(prev);
+        for (const id of page.saved) merged.add(id);
+        return merged;
+      });
       setWorking(page.working);
       setSteerableRunId(page.steerable_run_id ?? null);
       if (page.conversation.title) setResolvedTitle(page.conversation.title);
@@ -197,6 +254,34 @@ export function ThreadSheet({
       if (gate.isLatest(token)) setLoading(false);
     }
   }, [client, conversationId]);
+
+  const loadEarlier = useCallback(async () => {
+    if (!client || !nextCursor || loadingMore || loading) return;
+    const targetConv = conversationId;
+    const cursor = nextCursor;
+    setLoadingMore(true);
+    try {
+      const page = await client.conversation(targetConv, cursor);
+      if (targetConv !== conversationId) return;
+      hasLoadedHistoryRef.current = true;
+      skipAutoScrollRef.current = true;
+      setMessages((prev) => {
+        const existingIds = new Set(prev.map((m) => m.id));
+        const older = page.messages.filter((m) => !existingIds.has(m.id));
+        return older.length > 0 ? [...older, ...prev] : prev;
+      });
+      setSavedIds((prev) => {
+        const merged = new Set(prev);
+        for (const id of page.saved) merged.add(id);
+        return merged;
+      });
+      setNextCursor(page.next ?? null);
+    } catch {
+      // keep existing messages
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [client, conversationId, loading, loadingMore, nextCursor]);
 
   useEffect(() => {
     void load();
@@ -270,6 +355,7 @@ export function ThreadSheet({
       });
       pendingSendRef.current = null;
       setRetryModeLocked(false);
+      clearDraft(client?.origin, draftScope);
       setDraft("");
       clearAttachments();
       if (client) {
@@ -287,6 +373,20 @@ export function ThreadSheet({
     } finally {
       setSending(false);
     }
+  }
+
+  function handleCopyMessage(msg: ApiMessage) {
+    haptics.success();
+    void Clipboard.setStringAsync(msg.content)
+      .then(() => {
+        setCopiedMsgId(msg.id);
+        if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+        copyTimerRef.current = setTimeout(() => {
+          copyTimerRef.current = null;
+          setCopiedMsgId(null);
+        }, 1600);
+      })
+      .catch(() => {});
   }
 
   async function handleToggleSave(msgId: string) {
@@ -525,9 +625,13 @@ export function ThreadSheet({
           ref={scrollRef}
           style={styles.flex}
           contentContainerStyle={styles.messagesContent}
-          onContentSizeChange={() =>
-            scrollRef.current?.scrollToEnd({ animated: false })
-          }
+          onContentSizeChange={() => {
+            if (skipAutoScrollRef.current) {
+              skipAutoScrollRef.current = false;
+              return;
+            }
+            scrollRef.current?.scrollToEnd({ animated: false });
+          }}
         >
           {loading ? (
             <View style={styles.centered}>
@@ -539,9 +643,35 @@ export function ThreadSheet({
             </Text>
           ) : (
             <>
+              {nextCursor && (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Load earlier messages"
+                  disabled={loadingMore}
+                  onPress={() => {
+                    haptics.light();
+                    void loadEarlier();
+                  }}
+                  style={({ pressed }) => [
+                    styles.loadEarlierBtn,
+                    {
+                      backgroundColor: pressed ? theme.attention : theme.soft,
+                      borderColor: theme.line,
+                      opacity: loadingMore ? 0.65 : 1,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.loadEarlierText, { color: theme.text }]}>
+                    {loadingMore
+                      ? "Loading earlier messages…"
+                      : "Load earlier messages"}
+                  </Text>
+                </Pressable>
+              )}
               {messages.map((msg) => {
                 const isUser = msg.role === "user";
                 const isSaved = savedIds.has(msg.id);
+                const isCopied = copiedMsgId === msg.id;
                 return (
                   <View
                     key={msg.id}
@@ -570,18 +700,39 @@ export function ThreadSheet({
                         {isUser ? "You" : `@${agentName}`} ·{" "}
                         {relativeTime(msg.created_at)}
                       </Text>
-                      {!isUser && (
+                      <View style={styles.msgHeadActions}>
                         <Pressable
-                          onPress={() => void handleToggleSave(msg.id)}
+                          accessibilityLabel={
+                            isCopied ? "Message copied" : "Copy message"
+                          }
+                          onPress={() => handleCopyMessage(msg)}
                           hitSlop={8}
                         >
-                          {isSaved ? (
-                            <BookmarkCheck size={15} color={theme.brassText} />
+                          {isCopied ? (
+                            <Check size={14} color={theme.brassText} />
                           ) : (
-                            <Bookmark size={15} color={theme.muted} />
+                            <Copy size={14} color={theme.muted} />
                           )}
                         </Pressable>
-                      )}
+                        {!isUser && (
+                          <Pressable
+                            accessibilityLabel={
+                              isSaved ? "Remove from Saved" : "Save message"
+                            }
+                            onPress={() => void handleToggleSave(msg.id)}
+                            hitSlop={8}
+                          >
+                            {isSaved ? (
+                              <BookmarkCheck
+                                size={15}
+                                color={theme.brassText}
+                              />
+                            ) : (
+                              <Bookmark size={15} color={theme.muted} />
+                            )}
+                          </Pressable>
+                        )}
+                      </View>
                     </View>
                     {isUser ? (
                       <Text style={[styles.userText, { color: theme.text }]}>
@@ -595,8 +746,10 @@ export function ThreadSheet({
                           workspaceOrigin={client?.origin}
                           onOpenFile={onOpenFileTarget}
                           onReplyButton={(prompt) => {
+                            draftTouchedRef.current = true;
                             pendingSendRef.current = null;
                             setDraft(prompt);
+                            saveDraft(client?.origin, draftScope, prompt);
                           }}
                         />
                         {msg.run_id &&
@@ -797,8 +950,10 @@ export function ThreadSheet({
             <TextInput
               value={draft}
               onChangeText={(next) => {
+                draftTouchedRef.current = true;
                 pendingSendRef.current = null;
                 setDraft(next);
+                saveDraft(client?.origin, draftScope, next);
               }}
               placeholder={`Reply to @${agentName}…`}
               placeholderTextColor={theme.muted}
@@ -907,6 +1062,24 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: 8,
+  },
+  msgHeadActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  loadEarlierBtn: {
+    alignSelf: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    marginBottom: 4,
+  },
+  loadEarlierText: {
+    fontSize: 12.5,
+    fontWeight: "600",
   },
   msgAuthor: {
     fontSize: 11.5,

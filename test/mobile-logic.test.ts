@@ -46,6 +46,21 @@ import {
   WorkspaceLoadCoordinator,
 } from "../apps/mobile/src/workspace-runtime.js";
 import {
+  createEmptyDraftMap,
+  deleteDraftFromStore,
+  DRAFT_TTL_MS,
+  draftScopeForCarousel,
+  draftScopeForCompose,
+  draftScopeForThread,
+  draftWorkspaceBucket,
+  MAX_DRAFT_CHARS,
+  MAX_DRAFTS_PER_WORKSPACE,
+  parseDraftStore,
+  readDraftFromStore,
+  serializeDraftStore,
+  setDraftInStore,
+} from "../apps/mobile/src/drafts-codec.js";
+import {
   avatarColors,
   DARK_THEME,
   LIGHT_THEME,
@@ -1993,5 +2008,170 @@ describe("mobile open thread refresh", () => {
     expect(gate.accept(older.token, "conv-1")).toBe(false);
     expect(gate.isLatest(older.token)).toBe(false);
     expect(gate.accept(newer.token, "conv-1")).toBe(true);
+  });
+});
+
+describe("mobile persistent drafts and pagination cursors", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("isolates draft buckets per workspace origin, enforces TTL/size/count caps, and handles prototype keys safely", () => {
+    const a = draftWorkspaceBucket("https://alpha.loop.example/");
+    const b = draftWorkspaceBucket("https://beta.loop.example");
+    const aSame = draftWorkspaceBucket("HTTPS://ALPHA.LOOP.EXAMPLE");
+    expect(a).toBe(aSame);
+    expect(a).not.toBe(b);
+    expect(draftWorkspaceBucket(null)).toBe("demo");
+
+    expect(draftScopeForCarousel("c-1")).toBe("carousel:c-1");
+    expect(draftScopeForThread("c-1")).toBe("thread:c-1");
+    expect(draftScopeForCompose("a-1")).toBe("compose:agent:a-1");
+    expect(draftScopeForCompose(null, "f-9")).toBe("compose:new:f-9");
+    expect(draftScopeForCompose(null, null)).toBe("compose:new:root");
+
+    const now = 10_000_000;
+    let store = createEmptyDraftMap();
+    // Prototype-named scopes cannot collide with Object.prototype
+    expect(readDraftFromStore(store, "constructor", now)).toBe("");
+    store = setDraftInStore(store, "constructor", "safe text", now);
+    store = setDraftInStore(
+      store,
+      "carousel:c-1",
+      "x".repeat(MAX_DRAFT_CHARS + 500),
+      now,
+    );
+    store = setDraftInStore(
+      store,
+      "thread:old",
+      "expired",
+      now - DRAFT_TTL_MS - 1,
+    );
+
+    const raw = serializeDraftStore(store, now);
+    const parsed = parseDraftStore(raw, now);
+    expect(readDraftFromStore(parsed, "constructor", now)).toBe("safe text");
+    expect(readDraftFromStore(parsed, "carousel:c-1", now).length).toBe(
+      MAX_DRAFT_CHARS,
+    );
+    expect(readDraftFromStore(parsed, "thread:old", now)).toBe("");
+
+    // Whitespace-only text deletes the draft cleanly
+    const cleared = setDraftInStore(parsed, "constructor", "   ", now);
+    expect(readDraftFromStore(cleared, "constructor", now)).toBe("");
+    expect(
+      readDraftFromStore(
+        deleteDraftFromStore(cleared, "carousel:c-1"),
+        "carousel:c-1",
+        now,
+      ),
+    ).toBe("");
+
+    // Count cap retains the newest MAX_DRAFTS_PER_WORKSPACE entries
+    let big = createEmptyDraftMap();
+    for (let i = 0; i < MAX_DRAFTS_PER_WORKSPACE + 15; i += 1) {
+      big = setDraftInStore(big, `carousel:c-${i}`, `draft ${i}`, now + i);
+    }
+    expect(Object.keys(big)).toHaveLength(MAX_DRAFTS_PER_WORKSPACE);
+    expect(readDraftFromStore(big, "carousel:c-0", now + 200)).toBe("");
+    expect(
+      readDraftFromStore(
+        big,
+        `carousel:c-${MAX_DRAFTS_PER_WORKSPACE + 14}`,
+        now + 200,
+      ),
+    ).toBe(`draft ${MAX_DRAFTS_PER_WORKSPACE + 14}`);
+  });
+
+  it("passes pagination cursors to doneCardsPage, personalFilesPage, search, and conversation", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        redirected: false,
+        url: "https://loop.example.com/api/v1/cards?view=done&limit=60&before=cur-1",
+        text: async () =>
+          JSON.stringify({
+            revision: "r1",
+            items: [],
+            next: "cur-2",
+          }),
+      } as unknown as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        redirected: false,
+        url: "https://loop.example.com/api/me/files?before=1700000000",
+        text: async () =>
+          JSON.stringify({
+            items: [],
+            next: 1699999000,
+          }),
+      } as unknown as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        redirected: false,
+        url: "https://loop.example.com/api/search?q=deploy&category=done&before=1700000000",
+        text: async () =>
+          JSON.stringify({
+            mode: "lexical",
+            items: [],
+            next: 1699998000,
+          }),
+      } as unknown as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        redirected: false,
+        url: "https://loop.example.com/api/conversations/conv-1?before=msg-cur-1",
+        text: async () =>
+          JSON.stringify({
+            conversation: {
+              id: "conv-1",
+              agent_id: "a1",
+              title: "Thread",
+              project_id: null,
+            },
+            working: false,
+            messages: [],
+            next: "msg-cur-2",
+            saved: [],
+            steerable_run_id: null,
+          }),
+      } as unknown as Response);
+
+    const client = new LoopClient({
+      origin: "https://loop.example.com",
+      cookie: "__Host-loop=tok",
+      csrf: "csrf-1",
+      deviceName: "Test iPhone",
+      pairedAt: 1,
+    });
+
+    const donePage = await client.doneCardsPage({ before: "cur-1" });
+    expect(donePage.next).toBe("cur-2");
+    expect(fetchSpy.mock.calls[0][0]).toBe(
+      "https://loop.example.com/api/v1/cards?view=done&limit=60&before=cur-1",
+    );
+
+    const filesPage = await client.personalFilesPage({ before: 1700000000 });
+    expect(filesPage.next).toBe(1699999000);
+    expect(fetchSpy.mock.calls[1][0]).toBe(
+      "https://loop.example.com/api/me/files?before=1700000000",
+    );
+
+    const searchPage = await client.search("deploy", "done", 1700000000);
+    expect(searchPage.next).toBe(1699998000);
+    expect(fetchSpy.mock.calls[2][0]).toBe(
+      "https://loop.example.com/api/search?q=deploy&category=done&before=1700000000",
+    );
+
+    const convPage = await client.conversation("conv-1", "msg-cur-1");
+    expect(convPage.next).toBe("msg-cur-2");
+    expect(fetchSpy.mock.calls[3][0]).toBe(
+      "https://loop.example.com/api/conversations/conv-1?before=msg-cur-1",
+    );
   });
 });

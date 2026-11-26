@@ -16,6 +16,12 @@ import { ArrowUp, Paperclip, X } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { randomUuid, type LoopClient } from "../api/client";
 import type { ApiAgent, ApiConnection } from "../api/types";
+import {
+  clearDraft,
+  draftScopeForCompose,
+  loadDraft,
+  saveDraft,
+} from "../drafts";
 import { haptics } from "../haptics";
 import {
   agentModelLabel,
@@ -87,6 +93,24 @@ export function ComposeSheet({
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const draftScope = useMemo(
+    () => draftScopeForCompose(agent?.id, folderId),
+    [agent?.id, folderId],
+  );
+  const draftTouchedRef = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    draftTouchedRef.current = false;
+    void loadDraft(client?.origin, draftScope).then((restored) => {
+      if (!cancelled && !draftTouchedRef.current && restored) {
+        setText(restored);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [client?.origin, draftScope]);
 
   useEffect(() => {
     if (agent || !client) return;
@@ -156,6 +180,7 @@ export function ComposeSheet({
           folderId,
         });
       sendKeyRef.current = null;
+      clearDraft(client?.origin, draftScope);
       clearAttachments();
       onClose();
     } catch (err) {
@@ -328,8 +353,10 @@ export function ComposeSheet({
               <TextInput
                 value={text}
                 onChangeText={(next) => {
+                  draftTouchedRef.current = true;
                   sendKeyRef.current = null;
                   setText(next);
+                  saveDraft(client?.origin, draftScope, next);
                 }}
                 placeholder={
                   agent ? `Message @${agent.name}…` : "What should it do?"

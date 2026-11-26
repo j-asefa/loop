@@ -80,6 +80,7 @@ import { RemindSheet, type RemindChoice } from "./src/components/RemindSheet";
 import { SearchScreen } from "./src/components/SearchScreen";
 import { SpotlightCarousel } from "./src/components/SpotlightCarousel";
 import { ThreadSheet } from "./src/components/ThreadSheet";
+import { clearWorkspaceDrafts } from "./src/drafts";
 import {
   buildSimulatedReply,
   createInitialCards,
@@ -158,6 +159,13 @@ function LoopShell() {
     createInitialCards(),
   );
   const [liveCards, setLiveCards] = useState<NativeResultCard[]>([]);
+  const [olderFeedCards, setOlderFeedCards] = useState<NativeResultCard[]>([]);
+  const [feedNextCursor, setFeedNextCursor] = useState<string | null>(null);
+  const [feedCursorSource, setFeedCursorSource] = useState<"cards" | "feed">(
+    "cards",
+  );
+  const [loadingMoreFeed, setLoadingMoreFeed] = useState(false);
+  const hasLoadedOlderFeedRef = useRef(false);
   const [summary, setSummary] = useState<ApiFeedSummary | null>(null);
   const [agents, setAgents] = useState<ApiAgent[]>(DEMO_AGENTS);
   const [folders, setFolders] = useState<ApiFolder[]>([]);
@@ -242,6 +250,7 @@ function LoopShell() {
     (expiredSession: PairedSession) => {
       // Ignore stale 401s from a previous workspace after switching workspaces
       if (activeSessionRef.current !== expiredSession) return;
+      clearWorkspaceDrafts(expiredSession.origin);
       void clearPairedSession();
       setSession(null);
       setSocketStatus("offline");
@@ -280,7 +289,7 @@ function LoopShell() {
           const [
             boot,
             feedPage,
-            doneCardItems,
+            doneCardPage,
             replyPage,
             queuedPage,
             workingPage,
@@ -291,7 +300,7 @@ function LoopShell() {
           ] = await Promise.all([
             client.bootstrap(),
             client.feed("done"),
-            client.doneCards().catch(() => null),
+            client.doneCardsPage().catch(() => null),
             client.feed("replies").catch(() => null),
             client.feed("queued").catch(() => null),
             client.feed("working").catch(() => null),
@@ -308,13 +317,27 @@ function LoopShell() {
           setEnvironmentName(boot.environmentName || "");
           setSummary(feedPage.summary);
 
-          const doneSource =
-            doneCardItems && doneCardItems.length > 0
-              ? doneCardItems
-              : feedPage.items;
+          const useCardsSource = Boolean(
+            doneCardPage && doneCardPage.items.length > 0,
+          );
+          const doneSource = useCardsSource
+            ? doneCardPage!.items
+            : feedPage.items;
           setLiveCards(
             mergeUnifiedFeedCards(doneSource, replyPage?.items ?? []),
           );
+          if (options?.silent === false) {
+            hasLoadedOlderFeedRef.current = false;
+            setOlderFeedCards([]);
+          }
+          if (!hasLoadedOlderFeedRef.current || options?.silent === false) {
+            setFeedCursorSource(useCardsSource ? "cards" : "feed");
+            setFeedNextCursor(
+              useCardsSource
+                ? (doneCardPage?.next ?? null)
+                : (feedPage.next ?? null),
+            );
+          }
           if (queuedPage || workingPage) {
             setQueuedFeedItems([
               ...(queuedPage?.items ?? []),
@@ -375,6 +398,10 @@ function LoopShell() {
     setToast((prev) => (prev?.undo ? null : prev));
     setRefreshing(false);
     setLiveCards([]);
+    setOlderFeedCards([]);
+    setFeedNextCursor(null);
+    setLoadingMoreFeed(false);
+    hasLoadedOlderFeedRef.current = false;
     setFolders([]);
     setApprovals([]);
     setDecisions([]);
@@ -439,7 +466,46 @@ function LoopShell() {
     };
   }, [session, client, handleStreamEvents]);
 
-  const activeCards = client ? liveCards : demoCards;
+  const handleLoadMoreFeed = useCallback(async () => {
+    if (!client || !feedNextCursor || loadingMoreFeed) return;
+    const gen = loadCoordRef.current.currentGeneration;
+    const cursor = feedNextCursor;
+    const source = feedCursorSource;
+    setLoadingMoreFeed(true);
+    try {
+      const page =
+        source === "cards"
+          ? await client.doneCardsPage({ before: cursor })
+          : await client.feed("done", { before: cursor });
+      if (gen !== loadCoordRef.current.currentGeneration) return;
+      const mapped = mergeUnifiedFeedCards(page.items, []);
+      hasLoadedOlderFeedRef.current = true;
+      setOlderFeedCards((prev) => {
+        const seen = new Set(prev.map((c) => c.id));
+        const extra = mapped.filter((c) => !seen.has(c.id));
+        return extra.length > 0 ? [...prev, ...extra] : prev;
+      });
+      setFeedNextCursor(page.next ?? null);
+    } catch (err) {
+      if (gen === loadCoordRef.current.currentGeneration) {
+        showToast(
+          err instanceof Error ? err.message : "Could not load older cards.",
+        );
+      }
+    } finally {
+      if (gen === loadCoordRef.current.currentGeneration) {
+        setLoadingMoreFeed(false);
+      }
+    }
+  }, [client, feedCursorSource, feedNextCursor, loadingMoreFeed, showToast]);
+
+  const activeCards = useMemo(() => {
+    if (!client) return demoCards;
+    if (olderFeedCards.length === 0) return liveCards;
+    const seen = new Set(liveCards.map((c) => c.id));
+    const extra = olderFeedCards.filter((c) => !seen.has(c.id));
+    return extra.length > 0 ? [...liveCards, ...extra] : liveCards;
+  }, [client, demoCards, liveCards, olderFeedCards]);
 
   const effectiveActiveRuns = useMemo<AgentRunSummary[]>(() => {
     if (client) return activeRuns;
@@ -496,6 +562,7 @@ function LoopShell() {
           (card.replyUnread ?? !card.doneCardKey),
         );
         setLiveCards(clearRead);
+        setOlderFeedCards(clearRead);
         setCarouselOverrideCards((prev) => (prev ? clearRead(prev) : prev));
         setSummary((prev) =>
           prev
@@ -550,6 +617,7 @@ function LoopShell() {
           getGeneration: () => workspaceGenRef.current,
           applyLocal: (saved) => {
             setLiveCards(applySaved(saved));
+            setOlderFeedCards(applySaved(saved));
             setCarouselOverrideCards((prev) =>
               prev ? applySaved(saved)(prev) : prev,
             );
@@ -587,6 +655,7 @@ function LoopShell() {
         if (!doneKey && !replyMessageId) return;
         const gen = workspaceGenRef.current;
         setLiveCards(removeCard);
+        setOlderFeedCards(removeCard);
         setCarouselOverrideCards((prev) => (prev ? removeCard(prev) : prev));
         if (doneKey) {
           void client
@@ -1039,6 +1108,7 @@ function LoopShell() {
     if (client) await client.signOut();
     // Never wipe a newly paired workspace if the user switched while sign-out was in flight
     if (activeSessionRef.current !== signingOutSession) return;
+    clearWorkspaceDrafts(signingOutSession?.origin);
     await clearPairedSession();
     if (activeSessionRef.current !== signingOutSession) return;
     setSession(null);
@@ -1329,6 +1399,8 @@ function LoopShell() {
           environmentName={environmentName}
           socketStatus={socketStatus}
           refreshing={refreshing}
+          hasMore={Boolean(client && feedNextCursor)}
+          loadingMore={loadingMoreFeed}
           theme={theme}
           scrollRef={feedScrollRef}
           onRefresh={() => {
@@ -1338,6 +1410,7 @@ function LoopShell() {
               showToast("Demo deck refreshed");
             }
           }}
+          onLoadMore={() => void handleLoadMoreFeed()}
           onOpenPairing={() => setPairingOpen(true)}
           onOpenAgent={handleOpenAgent}
           onOpenAgentByName={openAgentByName}
@@ -1531,6 +1604,7 @@ function LoopShell() {
           onToggleSaved={handleToggleSaved}
           onRemind={(card) => setRemindCard(card)}
           onDismissCard={handleDismissCard}
+          onNotify={showToast}
           onSendReply={handleCarouselReply}
         />
       )}
