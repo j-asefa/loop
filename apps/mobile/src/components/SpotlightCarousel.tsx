@@ -1019,6 +1019,10 @@ export function SpotlightCarousel({
             <Animated.ScrollView
               ref={scrollRef}
               horizontal
+              // With the reply keyboard up, the default ("never") makes this
+              // carousel claim every touch to dismiss the keyboard, so the
+              // card underneath cannot scroll. Let the card take the touch.
+              keyboardShouldPersistTaps="handled"
               showsHorizontalScrollIndicator={false}
               decelerationRate="fast"
               snapToInterval={snapInterval}
@@ -2002,6 +2006,7 @@ const FloatingCarouselCard = React.memo(function FloatingCarouselCard({
       <ScrollView
         style={styles.cardScroll}
         contentContainerStyle={styles.cardScrollContent}
+        keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         bounces
         alwaysBounceVertical
