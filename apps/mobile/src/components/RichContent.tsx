@@ -23,6 +23,7 @@ import {
   Square,
 } from "lucide-react-native";
 import { getAgentArt } from "../agentArt";
+import { resolveLoopFileTarget, type LoopFileTarget } from "../api/files";
 import { haptics } from "../haptics";
 import type { LoopTheme } from "../theme";
 
@@ -231,8 +232,8 @@ function parseLinkAt(
   }
   if (parenDepth !== 0) return null;
   const url = text.slice(i + 1, j - 1);
-  // Only accept http(s) links (tappable) or file:// references (rendered as non-tappable code chips).
-  if (!/^(https?:\/\/|file:\/\/)/i.test(url)) {
+  // Accept http(s) links, file:// references (rendered as code chips), and relative Loop file paths.
+  if (!/^(https?:\/\/|file:\/\/)/i.test(url) && !resolveLoopFileTarget(url)) {
     return null;
   }
   return { label, url, end: j };
@@ -290,18 +291,21 @@ function tokenizeInline(
       continue;
     }
 
-    // Markdown link [label](url)
-    if (allowLinks && ch === "[") {
-      const link = parseLinkAt(text, i);
+    // Markdown image ![alt](url) or link [label](url)
+    if (allowLinks && (ch === "[" || (ch === "!" && text[i + 1] === "["))) {
+      const isImage = ch === "!";
+      const link = parseLinkAt(text, isImage ? i + 1 : i);
       if (link) {
         flushPlain();
         const isLocalFile = link.url.toLowerCase().startsWith("file://");
+        const displayLabel = link.label || (isImage ? "View image" : link.url);
         tokens.push({
           kind: "link",
-          label: link.label,
-          children: isLocalFile
-            ? undefined
-            : tokenizeInline(link.label, depth + 1, false),
+          label: displayLabel,
+          children:
+            isLocalFile || isImage
+              ? undefined
+              : tokenizeInline(displayLabel, depth + 1, false),
           url: link.url,
           isLocalFile,
         });
@@ -433,34 +437,38 @@ function renderInlineTokens(
   tokens: InlineToken[],
   theme: LoopTheme,
   keyPrefix = "",
+  opts?: {
+    workspaceOrigin?: string | null;
+    onOpenFile?: (target: LoopFileTarget, label?: string) => void;
+  },
 ): React.ReactNode[] {
   return tokens.map((tok, idx) => {
     const key = `${keyPrefix}${idx}`;
     if (tok.kind === "bold") {
       return (
         <Text key={key} style={styles.bold}>
-          {renderInlineTokens(tok.children, theme, `${key}-`)}
+          {renderInlineTokens(tok.children, theme, `${key}-`, opts)}
         </Text>
       );
     }
     if (tok.kind === "italic") {
       return (
         <Text key={key} style={styles.italic}>
-          {renderInlineTokens(tok.children, theme, `${key}-`)}
+          {renderInlineTokens(tok.children, theme, `${key}-`, opts)}
         </Text>
       );
     }
     if (tok.kind === "boldItalic") {
       return (
         <Text key={key} style={[styles.bold, styles.italic]}>
-          {renderInlineTokens(tok.children, theme, `${key}-`)}
+          {renderInlineTokens(tok.children, theme, `${key}-`, opts)}
         </Text>
       );
     }
     if (tok.kind === "strike") {
       return (
         <Text key={key} style={[styles.strike, { color: theme.muted }]}>
-          {renderInlineTokens(tok.children, theme, `${key}-`)}
+          {renderInlineTokens(tok.children, theme, `${key}-`, opts)}
         </Text>
       );
     }
@@ -481,6 +489,28 @@ function renderInlineTokens(
       );
     }
     if (tok.kind === "link") {
+      const loopFile = resolveLoopFileTarget(tok.url, opts?.workspaceOrigin);
+      if (loopFile) {
+        return (
+          <Text
+            key={key}
+            style={[
+              styles.inlineCode,
+              {
+                backgroundColor: theme.attention,
+                color: theme.brassText,
+                textDecorationLine: "underline",
+              },
+            ]}
+            onPress={() => {
+              haptics.light();
+              opts?.onOpenFile?.(loopFile, tok.label);
+            }}
+          >
+            {` 📎 ${tok.label} `}
+          </Text>
+        );
+      }
       if (tok.isLocalFile || !/^https?:\/\//i.test(tok.url)) {
         return (
           <Text
@@ -507,7 +537,7 @@ function renderInlineTokens(
           }}
         >
           {tok.children
-            ? renderInlineTokens(tok.children, theme, `${key}-l-`)
+            ? renderInlineTokens(tok.children, theme, `${key}-l-`, opts)
             : tok.label}
         </Text>
       );
@@ -522,12 +552,16 @@ export function InlineFormattedText({
   baseStyle,
   numberOfLines,
   onTextLayout,
+  workspaceOrigin,
+  onOpenFile,
 }: {
   text: string;
   theme: LoopTheme;
   baseStyle?: object;
   numberOfLines?: number;
   onTextLayout?: (e: { nativeEvent: { lines: unknown[] } }) => void;
+  workspaceOrigin?: string | null;
+  onOpenFile?: (target: LoopFileTarget, label?: string) => void;
 }) {
   const tokens = useMemo(() => tokenizeInline(text), [text]);
   return (
@@ -536,7 +570,7 @@ export function InlineFormattedText({
       numberOfLines={numberOfLines}
       onTextLayout={onTextLayout}
     >
-      {renderInlineTokens(tokens, theme)}
+      {renderInlineTokens(tokens, theme, "", { workspaceOrigin, onOpenFile })}
     </Text>
   );
 }
@@ -955,11 +989,15 @@ function NativeTable({
   rows,
   theme,
   highlightLastColumn = false,
+  workspaceOrigin,
+  onOpenFile,
 }: {
   columns: string[];
   rows: string[][];
   theme: LoopTheme;
   highlightLastColumn?: boolean;
+  workspaceOrigin?: string | null;
+  onOpenFile?: (target: LoopFileTarget, label?: string) => void;
 }) {
   const colWidths = useMemo(
     () =>
@@ -1002,6 +1040,8 @@ function NativeTable({
                 text={col}
                 theme={theme}
                 baseStyle={[styles.tableHeaderCell, { color: theme.brassText }]}
+                workspaceOrigin={workspaceOrigin}
+                onOpenFile={onOpenFile}
               />
             </View>
           ))}
@@ -1026,6 +1066,8 @@ function NativeTable({
                 <InlineFormattedText
                   text={cell}
                   theme={theme}
+                  workspaceOrigin={workspaceOrigin}
+                  onOpenFile={onOpenFile}
                   baseStyle={[
                     styles.tableCell,
                     cellIdx === 0 && styles.bold,
@@ -1050,11 +1092,15 @@ function SpecNode({
   spec,
   theme,
   onReplyButton,
+  workspaceOrigin,
+  onOpenFile,
 }: {
   nodeKey: string;
   spec: ParsedSpec;
   theme: LoopTheme;
   onReplyButton?: (prompt: string) => void;
+  workspaceOrigin?: string | null;
+  onOpenFile?: (target: LoopFileTarget, label?: string) => void;
 }) {
   const el = spec.elements[nodeKey];
   if (!el) return null;
@@ -1082,6 +1128,8 @@ function SpecNode({
               spec={spec}
               theme={theme}
               onReplyButton={onReplyButton}
+              workspaceOrigin={workspaceOrigin}
+              onOpenFile={onOpenFile}
             />
           ))}
         </View>
@@ -1096,6 +1144,8 @@ function SpecNode({
         text={text}
         theme={theme}
         baseStyle={styles.paragraph}
+        workspaceOrigin={workspaceOrigin}
+        onOpenFile={onOpenFile}
       />
     );
   }
@@ -1122,6 +1172,8 @@ function SpecNode({
             spec={spec}
             theme={theme}
             onReplyButton={onReplyButton}
+            workspaceOrigin={workspaceOrigin}
+            onOpenFile={onOpenFile}
           />
         ))}
       </View>
@@ -1164,6 +1216,8 @@ function SpecNode({
         rows={rows}
         theme={theme}
         highlightLastColumn
+        workspaceOrigin={workspaceOrigin}
+        onOpenFile={onOpenFile}
       />
     );
   }
@@ -1178,6 +1232,8 @@ function SpecNode({
             spec={spec}
             theme={theme}
             onReplyButton={onReplyButton}
+            workspaceOrigin={workspaceOrigin}
+            onOpenFile={onOpenFile}
           />
         ))}
       </View>
@@ -1187,24 +1243,37 @@ function SpecNode({
   if (el.type === "LinkButton") {
     const label = typeof props.label === "string" ? props.label : "Open link";
     const url = typeof props.url === "string" ? props.url : "";
-    if (!/^https?:\/\//i.test(url)) return null;
+    const loopFile = resolveLoopFileTarget(url, workspaceOrigin);
+    if (!loopFile && !/^https?:\/\//i.test(url)) return null;
     return (
       <Pressable
         onPress={() => {
           haptics.light();
-          void Linking.openURL(url).catch(() => {});
+          if (loopFile) {
+            onOpenFile?.(loopFile, label);
+          } else {
+            void Linking.openURL(url).catch(() => {});
+          }
         }}
         style={({ pressed }) => [
           styles.replySpecBtn,
           {
-            backgroundColor: theme.raised,
-            borderColor: theme.line,
+            backgroundColor: loopFile ? theme.attention : theme.raised,
+            borderColor: loopFile ? theme.attentionLine : theme.line,
             opacity: pressed ? 0.78 : 1,
           },
         ]}
       >
-        <ExternalLink size={14} color={theme.blue} />
-        <Text style={[styles.replySpecBtnText, { color: theme.blue }]}>
+        <ExternalLink
+          size={14}
+          color={loopFile ? theme.brassText : theme.blue}
+        />
+        <Text
+          style={[
+            styles.replySpecBtnText,
+            { color: loopFile ? theme.brassText : theme.blue },
+          ]}
+        >
           {label}
         </Text>
       </Pressable>
@@ -1245,11 +1314,15 @@ export const RichContent = React.memo(function RichContent({
   content,
   theme,
   onReplyButton,
+  workspaceOrigin,
+  onOpenFile,
   skipLeadingHeading,
 }: {
   content: string;
   theme: LoopTheme;
   onReplyButton?: (prompt: string) => void;
+  workspaceOrigin?: string | null;
+  onOpenFile?: (target: LoopFileTarget, label?: string) => void;
   /** Avoid repeating a Markdown heading that was already promoted as the card title. */
   skipLeadingHeading?: string;
 }) {
@@ -1283,6 +1356,8 @@ export const RichContent = React.memo(function RichContent({
               key={idx}
               text={block.text}
               theme={theme}
+              workspaceOrigin={workspaceOrigin}
+              onOpenFile={onOpenFile}
               baseStyle={[
                 styles.heading,
                 levelStyle,
@@ -1297,6 +1372,8 @@ export const RichContent = React.memo(function RichContent({
               key={idx}
               text={block.text}
               theme={theme}
+              workspaceOrigin={workspaceOrigin}
+              onOpenFile={onOpenFile}
               baseStyle={styles.paragraph}
             />
           );
@@ -1326,6 +1403,8 @@ export const RichContent = React.memo(function RichContent({
                   key={lIdx}
                   text={line}
                   theme={theme}
+                  workspaceOrigin={workspaceOrigin}
+                  onOpenFile={onOpenFile}
                   baseStyle={[styles.quoteText, { color: theme.muted }]}
                 />
               ))}
@@ -1349,6 +1428,8 @@ export const RichContent = React.memo(function RichContent({
                 <InlineFormattedText
                   text={block.text}
                   theme={theme}
+                  workspaceOrigin={workspaceOrigin}
+                  onOpenFile={onOpenFile}
                   baseStyle={[
                     styles.listText,
                     block.checked && {
@@ -1374,6 +1455,8 @@ export const RichContent = React.memo(function RichContent({
                 <InlineFormattedText
                   text={block.text}
                   theme={theme}
+                  workspaceOrigin={workspaceOrigin}
+                  onOpenFile={onOpenFile}
                   baseStyle={styles.listText}
                 />
               </View>
@@ -1393,6 +1476,8 @@ export const RichContent = React.memo(function RichContent({
                 <InlineFormattedText
                   text={block.text}
                   theme={theme}
+                  workspaceOrigin={workspaceOrigin}
+                  onOpenFile={onOpenFile}
                   baseStyle={styles.listText}
                 />
               </View>
@@ -1406,6 +1491,8 @@ export const RichContent = React.memo(function RichContent({
               columns={block.headers}
               rows={block.rows}
               theme={theme}
+              workspaceOrigin={workspaceOrigin}
+              onOpenFile={onOpenFile}
             />
           );
         }
@@ -1441,6 +1528,8 @@ export const RichContent = React.memo(function RichContent({
             spec={block.spec}
             theme={theme}
             onReplyButton={onReplyButton}
+            workspaceOrigin={workspaceOrigin}
+            onOpenFile={onOpenFile}
           />
         );
       })}

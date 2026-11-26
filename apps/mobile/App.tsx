@@ -29,6 +29,11 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 import { isUncertainOutcomeError, LoopClient } from "./src/api/client";
+import {
+  guessMimeFromName,
+  type LoopFileTarget,
+  type PublishedFileItem,
+} from "./src/api/files";
 import { clearPairedSession, loadPairedSession } from "./src/api/pairing";
 import { LoopEventSocket, type SocketStatus } from "./src/api/socket";
 import {
@@ -51,6 +56,7 @@ import {
 } from "./src/components/AgentProfileSheet";
 import { ComposeSheet } from "./src/components/ComposeSheet";
 import { FeedScreen } from "./src/components/FeedScreen";
+import { FilePreviewModal } from "./src/components/FilePreviewModal";
 import { PairingModal } from "./src/components/PairingModal";
 import { ProfileScreen } from "./src/components/ProfileScreen";
 import { ProjectsScreen } from "./src/components/ProjectsScreen";
@@ -166,6 +172,9 @@ function LoopShell() {
   );
   const [composeFolderId, setComposeFolderId] = useState<string | null>(null);
   const [remindCard, setRemindCard] = useState<NativeResultCard | null>(null);
+  const [previewFile, setPreviewFile] = useState<PublishedFileItem | null>(
+    null,
+  );
 
   // Toast with optional Undo
   const [toast, setToast] = useState<ToastState | null>(null);
@@ -315,6 +324,7 @@ function LoopShell() {
     setThreadOverlay(null);
     setComposeOpen(false);
     setRemindCard(null);
+    setPreviewFile(null);
     if (!client) {
       setAgents(DEMO_AGENTS);
       setSocketStatus("offline");
@@ -907,6 +917,37 @@ function LoopShell() {
     setAppTab(tab);
   };
 
+  const handleOpenFile = useCallback(
+    (file: PublishedFileItem) => {
+      if (!client) {
+        showToast("Pair with a Loop workspace to open files");
+        return;
+      }
+      setPreviewFile(file);
+    },
+    [client, showToast],
+  );
+
+  const handleOpenFileTarget = useCallback(
+    (target: LoopFileTarget, label?: string) => {
+      if (!client) {
+        showToast("Pair with a Loop workspace to open files");
+        return;
+      }
+      const name = label?.trim() || "Published file";
+      setPreviewFile({
+        id: target.id,
+        artifactId: target.kind === "artifact" ? target.id : undefined,
+        title: name,
+        name,
+        mime: guessMimeFromName(name),
+        size: 0,
+        path: target.path,
+      });
+    },
+    [client, showToast],
+  );
+
   const openCarouselQueuedRuns = useMemo(() => {
     if (!openConversationId || openCarouselCards.length === 0) return [];
     return effectiveActiveRuns
@@ -1009,6 +1050,7 @@ function LoopShell() {
           onOpenPairing={() => setPairingOpen(true)}
           onSignOut={() => void handleSignOut()}
           onOpenConversation={(conv) => setThreadOverlay(conv)}
+          onOpenFile={handleOpenFile}
         />
       )}
 
@@ -1157,6 +1199,8 @@ function LoopShell() {
               agentId: card.agentId,
             });
           }}
+          onOpenFile={handleOpenFile}
+          onOpenFileTarget={handleOpenFileTarget}
           onMarkRead={handleMarkRead}
           onToggleSaved={handleToggleSaved}
           onRemind={(card) => setRemindCard(card)}
@@ -1178,6 +1222,8 @@ function LoopShell() {
           )}
           theme={theme}
           onClose={() => setThreadOverlay(null)}
+          onOpenFile={handleOpenFile}
+          onOpenFileTarget={handleOpenFileTarget}
           onSendLiveReply={async (input) => {
             if (client) {
               const agentId =
@@ -1274,6 +1320,21 @@ function LoopShell() {
           title={remindCard.fallbackTitle}
           onClose={() => setRemindCard(null)}
           onPick={(choice) => void handlePickReminder(choice)}
+        />
+      )}
+
+      {/* Native Agent-Published File Preview & Save/Share Modal */}
+      {previewFile && client && (
+        <FilePreviewModal
+          file={previewFile}
+          client={client}
+          theme={theme}
+          onClose={() => setPreviewFile(null)}
+          onOpenConversation={(conv) => {
+            setOpenConversationId(null);
+            setCarouselOverrideCards(null);
+            setThreadOverlay(conv);
+          }}
         />
       )}
 

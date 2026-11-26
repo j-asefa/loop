@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Image,
   Linking,
   Pressable,
   RefreshControl,
@@ -11,6 +12,7 @@ import {
 } from "react-native";
 import {
   AlarmClock,
+  ArrowUpRight,
   BookmarkCheck,
   CalendarClock,
   Check,
@@ -24,10 +26,14 @@ import {
 } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { LoopClient } from "../api/client";
+import {
+  formatFileBytes,
+  isPreviewableImageMime,
+  type PublishedFileItem,
+} from "../api/files";
 import type { SocketStatus } from "../api/socket";
 import type {
   ApiLaterItem,
-  ApiPersonalFile,
   ApiPersonalProfile,
   ApiSavedEntry,
   ApiScheduledSend,
@@ -59,6 +65,7 @@ export function ProfileScreen({
   onOpenPairing,
   onSignOut,
   onOpenConversation,
+  onOpenFile,
 }: {
   client: LoopClient | null;
   session: PairedSession | null;
@@ -73,6 +80,7 @@ export function ProfileScreen({
     title: string;
     agentName: string;
   }) => void;
+  onOpenFile?: (file: PublishedFileItem) => void;
 }) {
   const insets = useSafeAreaInsets();
   const [section, setSection] = useState<ProfileSection>("saved");
@@ -81,7 +89,7 @@ export function ProfileScreen({
   const [saved, setSaved] = useState<ApiSavedEntry[]>([]);
   const [reminders, setReminders] = useState<ApiLaterItem[]>([]);
   const [scheduled, setScheduled] = useState<ApiScheduledSend[]>([]);
-  const [files, setFiles] = useState<ApiPersonalFile[]>([]);
+  const [files, setFiles] = useState<PublishedFileItem[]>([]);
   const [stories, setStories] = useState<ApiSocialStory[]>([]);
   const [profile, setProfile] = useState<ApiPersonalProfile | null>(null);
 
@@ -565,30 +573,82 @@ export function ProfileScreen({
               No published agent files yet.
             </Text>
           ) : (
-            files.map((f) => (
-              <View
-                key={f.id}
-                style={[
-                  styles.card,
-                  { backgroundColor: theme.surface, borderColor: theme.line },
-                ]}
-              >
-                <View style={styles.cardTop}>
-                  <View style={styles.rowLeft}>
-                    <FileText size={14} color={theme.brassText} />
-                    <Text style={[styles.metaText, { color: theme.muted }]}>
-                      {f.mime || "file"}
-                    </Text>
+            files.map((f) => {
+              const sizeLabel = formatFileBytes(f.size);
+              let thumbUri: string | null = null;
+              if (client && isPreviewableImageMime(f.mime, f.name)) {
+                try {
+                  thumbUri = client.sameOriginFileUrl(f.path, "preview=1");
+                } catch {
+                  thumbUri = null;
+                }
+              }
+              return (
+                <Pressable
+                  key={f.id}
+                  accessibilityLabel={`Open file ${f.name}`}
+                  onPress={() => {
+                    haptics.light();
+                    onOpenFile?.(f);
+                  }}
+                  style={({ pressed }) => [
+                    styles.card,
+                    {
+                      backgroundColor: pressed ? theme.raised : theme.surface,
+                      borderColor: theme.line,
+                    },
+                  ]}
+                >
+                  {thumbUri && client ? (
+                    <Image
+                      source={{
+                        uri: thumbUri,
+                        headers: client.fileRequestHeaders(),
+                      }}
+                      style={[
+                        styles.fileThumb,
+                        {
+                          backgroundColor: theme.soft,
+                          borderColor: theme.line,
+                        },
+                      ]}
+                      resizeMode="cover"
+                    />
+                  ) : null}
+                  <View style={styles.cardTop}>
+                    <View style={styles.rowLeft}>
+                      <FileText size={14} color={theme.brassText} />
+                      <Text
+                        style={[styles.metaText, { color: theme.brassText }]}
+                      >
+                        {f.agentName ? `@${f.agentName}` : "Published file"}
+                      </Text>
+                      <Text style={[styles.metaText, { color: theme.muted }]}>
+                        {[
+                          f.mime && f.mime !== "application/octet-stream"
+                            ? f.mime
+                            : null,
+                          sizeLabel || null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </Text>
+                    </View>
+                    <View style={styles.rowLeft}>
+                      {f.createdAt ? (
+                        <Text style={[styles.metaText, { color: theme.muted }]}>
+                          {relativeTime(f.createdAt)}
+                        </Text>
+                      ) : null}
+                      <ArrowUpRight size={14} color={theme.brassText} />
+                    </View>
                   </View>
-                  <Text style={[styles.metaText, { color: theme.muted }]}>
-                    {relativeTime(f.created_at)}
+                  <Text style={[styles.cardTitle, { color: theme.text }]}>
+                    {f.name || f.title || "Published file"}
                   </Text>
-                </View>
-                <Text style={[styles.cardTitle, { color: theme.text }]}>
-                  {f.title || f.filename || "Published file"}
-                </Text>
-              </View>
-            ))
+                </Pressable>
+              );
+            })
           ))}
 
         {section === "social" &&
@@ -801,6 +861,13 @@ const styles = StyleSheet.create({
   cardSub: {
     fontSize: 13,
     lineHeight: 19,
+  },
+  fileThumb: {
+    width: "100%",
+    height: 150,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    marginBottom: 4,
   },
   emptyHint: {
     fontSize: 14,
