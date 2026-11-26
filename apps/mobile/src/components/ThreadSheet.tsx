@@ -21,6 +21,7 @@ import {
 } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { randomUuid, type LoopClient } from "../api/client";
+import type { LoopFileTarget, PublishedFileItem } from "../api/files";
 import type { ApiMessage } from "../api/types";
 import { relativeTime, type NativeResultCard } from "../fixtures";
 import { haptics } from "../haptics";
@@ -30,6 +31,7 @@ import {
   AttachmentSourceSheet,
   useAttachments,
 } from "./AttachmentTray";
+import { PublishedFilesStrip } from "./FilePreviewModal";
 import { AgentAvatar, RichContent } from "./RichContent";
 
 export function ThreadSheet({
@@ -41,6 +43,8 @@ export function ThreadSheet({
   fallbackCards,
   theme,
   onClose,
+  onOpenFile,
+  onOpenFileTarget,
   onSendLiveReply,
   onToggleSaved,
 }: {
@@ -52,6 +56,8 @@ export function ThreadSheet({
   fallbackCards?: NativeResultCard[];
   theme: LoopTheme;
   onClose: () => void;
+  onOpenFile?: (file: PublishedFileItem) => void;
+  onOpenFileTarget?: (target: LoopFileTarget, label?: string) => void;
   onSendLiveReply: (input: {
     conversationId: string;
     agentId: string;
@@ -64,6 +70,9 @@ export function ThreadSheet({
 }) {
   const insets = useSafeAreaInsets();
   const [messages, setMessages] = useState<ApiMessage[]>([]);
+  const [runFilesByRunId, setRunFilesByRunId] = useState<
+    Map<string, PublishedFileItem[]>
+  >(() => new Map());
   const [savedIds, setSavedIds] = useState<Set<string>>(() => new Set());
   const [working, setWorking] = useState(false);
   const [resolvedTitle, setResolvedTitle] = useState(title);
@@ -139,6 +148,42 @@ export function ThreadSheet({
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Fetch published files for runs present in this thread
+  useEffect(() => {
+    if (!client) return;
+    const runIds = Array.from(
+      new Set(
+        messages
+          .filter((m) => m.role === "assistant" && m.run_id)
+          .map((m) => m.run_id!),
+      ),
+    );
+    if (!runIds.length) return;
+    let cancelled = false;
+    void Promise.all(
+      runIds.map(async (runId) => {
+        try {
+          const files = await client.runFiles(runId);
+          return [runId, files] as const;
+        } catch {
+          return null;
+        }
+      }),
+    ).then((entries) => {
+      if (cancelled) return;
+      setRunFilesByRunId((prev) => {
+        const next = new Map(prev);
+        for (const entry of entries) {
+          if (entry) next.set(entry[0], entry[1]);
+        }
+        return next;
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [client, messages]);
 
   async function handleSend() {
     const trimmed = draft.trim();
@@ -331,14 +376,27 @@ export function ThreadSheet({
                       {msg.content}
                     </Text>
                   ) : (
-                    <RichContent
-                      content={msg.content}
-                      theme={theme}
-                      onReplyButton={(prompt) => {
-                        sendKeyRef.current = null;
-                        setDraft(prompt);
-                      }}
-                    />
+                    <>
+                      <RichContent
+                        content={msg.content}
+                        theme={theme}
+                        workspaceOrigin={client?.origin}
+                        onOpenFile={onOpenFileTarget}
+                        onReplyButton={(prompt) => {
+                          sendKeyRef.current = null;
+                          setDraft(prompt);
+                        }}
+                      />
+                      {msg.run_id &&
+                      (runFilesByRunId.get(msg.run_id)?.length ?? 0) > 0 ? (
+                        <PublishedFilesStrip
+                          files={runFilesByRunId.get(msg.run_id)!}
+                          client={client}
+                          theme={theme}
+                          onOpenFile={onOpenFile}
+                        />
+                      ) : null}
+                    </>
                   )}
                 </View>
               );

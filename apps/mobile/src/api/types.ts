@@ -308,12 +308,33 @@ export type ApiPersonalPrompt = {
 export type ApiPersonalFile = {
   id: string;
   title: string;
+  metadata?: string;
   filename?: string | null;
   mime?: string | null;
   size?: number | null;
   agent_name?: string | null;
+  project_name?: string | null;
   conversation_id?: string | null;
   created_at: number;
+};
+
+export type ApiArtifactDetail = {
+  id: string;
+  title: string;
+  kind?: string;
+  role?: string;
+  content?: string;
+  metadata?: string;
+  conversation_id?: string | null;
+  agent_id?: string | null;
+  agent_name?: string | null;
+  created_at?: number;
+};
+
+export type ApiRunFile = {
+  id: string;
+  title: string;
+  metadata: string;
 };
 
 export type ApiSocialStory = {

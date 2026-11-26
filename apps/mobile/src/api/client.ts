@@ -1,6 +1,12 @@
+import {
+  parseArtifactFileMetadata,
+  parseContentDispositionFilename,
+  type PublishedFileItem,
+} from "./files";
 import { assertSameOriginResponse } from "./pairing-url";
 import type {
   ApiApproval,
+  ApiArtifactDetail,
   ApiBootstrap,
   ApiConversationPage,
   ApiDoneCardPage,
@@ -14,6 +20,7 @@ import type {
   ApiPersonalPrompt,
   ApiProjectSummary,
   ApiPullItem,
+  ApiRunFile,
   ApiSavedEntry,
   ApiScheduledSend,
   ApiSearchResponse,
@@ -116,6 +123,32 @@ export class LoopClient {
 
   get currentSession(): PairedSession {
     return this.session;
+  }
+
+  /** Auth headers for same-origin file downloads and image previews. */
+  fileRequestHeaders(): Record<string, string> {
+    const h: Record<string, string> = {
+      Origin: this.session.origin,
+    };
+    if (this.session.cookie) {
+      h.Cookie = this.session.cookie;
+    }
+    return h;
+  }
+
+  /** Builds a strictly same-origin URL for a Loop `/api/...` file path. */
+  sameOriginFileUrl(path: string, query?: string): string {
+    if (!path.startsWith("/api/") || path.startsWith("//")) {
+      throw new LoopApiError(400, "Unsupported file path.");
+    }
+    const url = new URL(
+      `${path}${query ? `?${query}` : ""}`,
+      this.session.origin,
+    );
+    if (url.origin !== this.session.origin) {
+      throw new LoopApiError(400, "Refused cross-origin file request.");
+    }
+    return url.toString();
   }
 
   private headers(isMutation: boolean): Record<string, string> {
@@ -608,12 +641,100 @@ export class LoopClient {
     return data.items ?? [];
   }
 
-  async personalFiles(): Promise<ApiPersonalFile[]> {
+  async personalFiles(): Promise<PublishedFileItem[]> {
     const data = await this.request<{ items?: ApiPersonalFile[] }>(
       "GET",
       "/api/me/files",
     );
-    return data.items ?? [];
+    return (data.items ?? []).map((item) => {
+      const meta = parseArtifactFileMetadata(
+        item.metadata,
+        item.filename || item.title || "Published file",
+      );
+      return {
+        id: item.id,
+        artifactId: item.id,
+        title: item.title || meta.name,
+        name: item.filename || meta.name,
+        mime: item.mime || meta.mime,
+        size: item.size ?? meta.size,
+        isText: meta.isText,
+        path: `/api/artifacts/${encodeURIComponent(item.id)}/file`,
+        conversationId: item.conversation_id ?? null,
+        agentName: item.agent_name ?? null,
+        projectName: item.project_name ?? null,
+        createdAt: item.created_at,
+      };
+    });
+  }
+
+  async runFiles(runId: string): Promise<PublishedFileItem[]> {
+    const items = await this.request<ApiRunFile[]>(
+      "GET",
+      `/api/runs/${encodeURIComponent(runId)}/files`,
+    );
+    return (Array.isArray(items) ? items : []).map((item) => {
+      const meta = parseArtifactFileMetadata(item.metadata, item.title);
+      return {
+        id: item.id,
+        artifactId: item.id,
+        title: item.title || meta.name,
+        name: meta.name,
+        mime: meta.mime,
+        size: meta.size,
+        isText: meta.isText,
+        path: `/api/artifacts/${encodeURIComponent(item.id)}/file`,
+      };
+    });
+  }
+
+  artifactDetail(id: string): Promise<ApiArtifactDetail> {
+    return this.request<ApiArtifactDetail>(
+      "GET",
+      `/api/artifacts/${encodeURIComponent(id)}`,
+    );
+  }
+
+  async fetchFileTextPreview(
+    path: string,
+    maxChars = 100_000,
+  ): Promise<{
+    text: string;
+    name?: string;
+    mime?: string;
+    truncated: boolean;
+  }> {
+    const url = this.sameOriginFileUrl(path);
+    const res = await fetchWithTimeout(
+      url,
+      {
+        method: "GET",
+        headers: this.fileRequestHeaders(),
+        credentials: "include",
+        redirect: "error",
+      },
+      DEFAULT_REQUEST_TIMEOUT_MS,
+    );
+    assertSameOriginResponse(res, this.session.origin);
+    if (res.status === 401) {
+      this.onUnauthorized?.();
+      throw new LoopApiError(401, "Session expired — pair this phone again.");
+    }
+    if (!res.ok) {
+      throw new LoopApiError(
+        res.status,
+        `Could not load file (${res.status}).`,
+      );
+    }
+    const raw = await res.text();
+    return {
+      text: raw.length > maxChars ? raw.slice(0, maxChars) : raw,
+      truncated: raw.length > maxChars,
+      name: parseContentDispositionFilename(
+        res.headers.get("content-disposition"),
+      ),
+      mime: res.headers.get("content-type") || undefined,
+    };
   }
 
   personalProfile(): Promise<ApiPersonalProfile> {

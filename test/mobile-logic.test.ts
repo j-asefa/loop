@@ -4,6 +4,14 @@ import {
   LoopApiError,
   LoopClient,
 } from "../apps/mobile/src/api/client.js";
+import {
+  formatFileBytes,
+  isPreviewableImageMime,
+  isPreviewableTextMime,
+  parseArtifactFileMetadata,
+  resolveLoopFileTarget,
+  sanitizeDownloadFilename,
+} from "../apps/mobile/src/api/files.js";
 import { shouldRefreshForFrame } from "../apps/mobile/src/api/socket.js";
 import {
   assertSameOriginResponse,
@@ -809,5 +817,194 @@ describe("mobile sage & risograph palette themes", () => {
       bg: "#32884a",
       fg: "#fcfbf7",
     });
+  });
+});
+
+describe("mobile agent-published file resolution, metadata, and client APIs", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("resolves relative and same-origin Loop artifact/object links while rejecting cross-origin URLs", () => {
+    const origin = "https://loop.example.com";
+
+    expect(resolveLoopFileTarget("/?artifact=art-123", origin)).toEqual({
+      kind: "artifact",
+      id: "art-123",
+      sourceId: undefined,
+      path: "/api/artifacts/art-123/file",
+    });
+    expect(
+      resolveLoopFileTarget(
+        "https://loop.example.com/?artifact=art-123",
+        origin,
+      ),
+    ).toEqual({
+      kind: "artifact",
+      id: "art-123",
+      sourceId: undefined,
+      path: "/api/artifacts/art-123/file",
+    });
+    expect(
+      resolveLoopFileTarget("/api/artifacts/art-456/download", origin),
+    ).toEqual({
+      kind: "artifact",
+      id: "art-456",
+      sourceId: undefined,
+      path: "/api/artifacts/art-456/file",
+    });
+    expect(
+      resolveLoopFileTarget(
+        "/api/agent-sources/peer-1/artifacts/art-789/file?preview=1",
+        origin,
+      ),
+    ).toEqual({
+      kind: "artifact",
+      id: "art-789",
+      sourceId: "peer-1",
+      path: "/api/agent-sources/peer-1/artifacts/art-789/file",
+    });
+    expect(resolveLoopFileTarget("/api/objects/obj-99", origin)).toEqual({
+      kind: "object",
+      id: "obj-99",
+      sourceId: undefined,
+      path: "/api/objects/obj-99",
+    });
+
+    // Reject cross-origin and protocol-relative URLs so cookies are never leaked
+    expect(
+      resolveLoopFileTarget(
+        "https://evil.example.com/api/artifacts/a1/file",
+        origin,
+      ),
+    ).toBeNull();
+    expect(
+      resolveLoopFileTarget("//evil.example.com/api/artifacts/a1/file", origin),
+    ).toBeNull();
+    expect(
+      resolveLoopFileTarget("https://github.com/j-asefa/loop", origin),
+    ).toBeNull();
+  });
+
+  it("parses JSON metadata from /api/runs/:id/files and /api/me/files and sanitizes download filenames", () => {
+    const meta = parseArtifactFileMetadata(
+      JSON.stringify({
+        name: "mackerel-report.pdf",
+        mime: "application/pdf",
+        size: 245_760,
+        text: false,
+      }),
+      "Fallback Title",
+    );
+    expect(meta).toEqual({
+      name: "mackerel-report.pdf",
+      mime: "application/pdf",
+      size: 245_760,
+      isText: false,
+    });
+    expect(formatFileBytes(meta.size)).toBe("240 KB");
+    expect(isPreviewableImageMime("image/png", "chart.png")).toBe(true);
+    expect(isPreviewableTextMime("text/markdown", "notes.md")).toBe(true);
+    expect(isPreviewableTextMime("text/html", "report.html")).toBe(false);
+    expect(sanitizeDownloadFilename("../../etc/passwd", "id1")).toBe("passwd");
+    expect(sanitizeDownloadFilename("   ", "id1")).toBe("loop-id1");
+  });
+
+  it("parses runFiles and personalFiles and rejects non-/api paths in sameOriginFileUrl", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        redirected: false,
+        url: "https://loop.example.com/api/runs/run-1/files",
+        text: async () =>
+          JSON.stringify([
+            {
+              id: "art-1",
+              title: "Analysis chart",
+              metadata: JSON.stringify({
+                name: "chart.png",
+                mime: "image/png",
+                size: 4096,
+              }),
+            },
+          ]),
+      } as unknown as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        redirected: false,
+        url: "https://loop.example.com/api/me/files",
+        text: async () =>
+          JSON.stringify({
+            items: [
+              {
+                id: "art-2",
+                title: "Export CSV",
+                metadata: JSON.stringify({
+                  name: "export.csv",
+                  mime: "text/csv",
+                  size: 1200,
+                  text: true,
+                }),
+                created_at: 5000,
+                conversation_id: "conv-9",
+                agent_name: "mackerel",
+                project_name: "Loop",
+              },
+            ],
+          }),
+      } as unknown as Response);
+
+    const client = new LoopClient({
+      origin: "https://loop.example.com",
+      cookie: "__Host-loop=tok",
+      csrf: "csrf-1",
+      deviceName: "Test iPhone",
+      pairedAt: 1,
+    });
+
+    const runFiles = await client.runFiles("run-1");
+    expect(runFiles).toEqual([
+      {
+        id: "art-1",
+        artifactId: "art-1",
+        title: "Analysis chart",
+        name: "chart.png",
+        mime: "image/png",
+        size: 4096,
+        isText: false,
+        path: "/api/artifacts/art-1/file",
+      },
+    ]);
+
+    const meFiles = await client.personalFiles();
+    expect(meFiles).toEqual([
+      {
+        id: "art-2",
+        artifactId: "art-2",
+        title: "Export CSV",
+        name: "export.csv",
+        mime: "text/csv",
+        size: 1200,
+        isText: true,
+        path: "/api/artifacts/art-2/file",
+        conversationId: "conv-9",
+        agentName: "mackerel",
+        projectName: "Loop",
+        createdAt: 5000,
+      },
+    ]);
+
+    expect(
+      client.sameOriginFileUrl("/api/artifacts/art-1/file", "preview=1"),
+    ).toBe("https://loop.example.com/api/artifacts/art-1/file?preview=1");
+    expect(() =>
+      client.sameOriginFileUrl(
+        "https://evil.example.com/api/artifacts/a1/file",
+      ),
+    ).toThrow(/unsupported/i);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 });

@@ -60,8 +60,10 @@ import {
   randomUuid,
   type LoopClient,
 } from "../api/client";
+import type { LoopFileTarget, PublishedFileItem } from "../api/files";
 import type { ApiSnippet } from "../api/types";
 import type { AgentRunSummary } from "./AgentProfileSheet";
+import { PublishedFilesStrip } from "./FilePreviewModal";
 import {
   QUICK_REPLIES,
   relativeTime,
@@ -78,6 +80,7 @@ import { AgentAvatar, InlineFormattedText, RichContent } from "./RichContent";
 
 const CARD_GAP = 10;
 const DISMISS_THRESHOLD = 100;
+const EMPTY_PUBLISHED_FILES: PublishedFileItem[] = [];
 
 type SpotlightCarouselProps = {
   cards: NativeResultCard[];
@@ -89,6 +92,8 @@ type SpotlightCarouselProps = {
   onCancelQueuedRun?: (runId: string) => void;
   onOpenAgent?: (agentId: string | null | undefined, agentName: string) => void;
   onOpenThread?: (card: NativeResultCard) => void;
+  onOpenFile?: (file: PublishedFileItem) => void;
+  onOpenFileTarget?: (target: LoopFileTarget, label?: string) => void;
   onMarkRead: (card: NativeResultCard) => void;
   onToggleSaved: (card: NativeResultCard) => Promise<void> | void;
   onRemind: (card: NativeResultCard) => void;
@@ -111,6 +116,8 @@ export function SpotlightCarousel({
   onCancelQueuedRun,
   onOpenAgent,
   onOpenThread,
+  onOpenFile,
+  onOpenFileTarget,
   onMarkRead,
   onToggleSaved,
   onRemind,
@@ -139,14 +146,21 @@ export function SpotlightCarousel({
     [cards, pinnedSet],
   );
 
-  // In live mode, lazily hydrate full conversation history + truncated bodies
+  // In live mode, lazily hydrate full conversation history + truncated bodies + run IDs
   const [historyPrompts, setHistoryPrompts] = useState<Map<string, string>>(
+    () => new Map(),
+  );
+  const [historyRunIds, setHistoryRunIds] = useState<Map<string, string>>(
     () => new Map(),
   );
   const [historySlides, setHistorySlides] = useState<NativeResultCard[]>([]);
   const [fullBodies, setFullBodies] = useState<Map<string, string>>(
     () => new Map(),
   );
+  const [runFilesByRunId, setRunFilesByRunId] = useState<
+    Map<string, PublishedFileItem[]>
+  >(() => new Map());
+  const fetchedRunsRef = useRef(new Set<string>());
   const conversationId = cards[0]?.conversationId;
 
   useEffect(() => {
@@ -161,6 +175,7 @@ export function SpotlightCarousel({
           if (cancelled) return;
           const promptMap = new Map<string, string>();
           const bodyMap = new Map<string, string>();
+          const runIdMap = new Map<string, string>();
           const savedSet = new Set(page.saved);
           const extra: NativeResultCard[] = [];
           let lastPrompt = "";
@@ -172,6 +187,7 @@ export function SpotlightCarousel({
             }
             if (msg.role !== "assistant" || !msg.content.trim()) continue;
             if (lastPrompt) promptMap.set(msg.id, lastPrompt);
+            if (msg.run_id) runIdMap.set(msg.id, msg.run_id);
             bodyMap.set(msg.id, msg.content);
             extra.push({
               id: msg.id,
@@ -188,11 +204,13 @@ export function SpotlightCarousel({
               saved: savedSet.has(msg.id),
               unread: false,
               messageId: msg.id,
+              runId: msg.run_id ?? undefined,
             });
             lastPrompt = "";
           }
           extra.reverse();
           setHistoryPrompts(promptMap);
+          setHistoryRunIds(runIdMap);
           setFullBodies((prev) => {
             const next = new Map(prev);
             for (const [id, content] of bodyMap) {
@@ -221,10 +239,13 @@ export function SpotlightCarousel({
       if (msgId) seenMsgs.add(msgId);
       const exactPrompt = msgId ? historyPrompts.get(msgId) : undefined;
       const fullBody = msgId ? fullBodies.get(msgId) : undefined;
+      const resolvedRunId =
+        card.runId || (msgId ? historyRunIds.get(msgId) : undefined);
       return {
         ...card,
         ...(exactPrompt ? { prompt: exactPrompt } : {}),
         ...(fullBody ? { body: fullBody, bodyTruncated: false } : {}),
+        ...(resolvedRunId ? { runId: resolvedRunId } : {}),
       };
     };
     for (const id of pinnedIds) {
@@ -240,7 +261,15 @@ export function SpotlightCarousel({
       }
     }
     return ordered;
-  }, [pinnedIds, cardsById, cards, historyPrompts, historySlides, fullBodies]);
+  }, [
+    pinnedIds,
+    cardsById,
+    cards,
+    historyPrompts,
+    historyRunIds,
+    historySlides,
+    fullBodies,
+  ]);
 
   const [activeIndex, setActiveIndex] = useState(0);
   const safeIndex = Math.max(
@@ -325,7 +354,7 @@ export function SpotlightCarousel({
     };
   }, []);
 
-  // Mark active card read + lazily hydrate full body when truncated
+  // Mark active card read + lazily hydrate full body + load published files for the active run
   useEffect(() => {
     if (!activeCard) return;
     if (activeCard.unread && !markedReadRef.current.has(activeCard.id)) {
@@ -352,6 +381,31 @@ export function SpotlightCarousel({
         .catch(() => {});
     }
   }, [activeCard, client, fullBodies, onMarkRead]);
+
+  useEffect(() => {
+    const runId = activeCard?.runId;
+    if (!client || !runId) return;
+    const isWorking = activeCard.tab === "working";
+    if (!isWorking && fetchedRunsRef.current.has(runId)) return;
+    let cancelled = false;
+    fetchedRunsRef.current.add(runId);
+    void client
+      .runFiles(runId)
+      .then((files) => {
+        if (cancelled) return;
+        setRunFilesByRunId((prev) => {
+          const next = new Map(prev);
+          next.set(runId, files);
+          return next;
+        });
+      })
+      .catch(() => {
+        fetchedRunsRef.current.delete(runId);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeCard?.runId, activeCard?.tab, client]);
 
   // Close cleanly when all cards in the stack are dismissed
   useEffect(() => {
@@ -999,11 +1053,16 @@ export function SpotlightCarousel({
                 const isMatch =
                   Boolean((searchOpen ? searchQuery : committedQuery).trim()) &&
                   activeHits.some((h) => h.index === index);
+                const slideFiles =
+                  (slide.runId && runFilesByRunId.get(slide.runId)) ||
+                  EMPTY_PUBLISHED_FILES;
                 return (
                   <FloatingCarouselCard
                     key={slide.id}
                     slide={slide}
                     header={header}
+                    files={slideFiles}
+                    client={client}
                     index={index}
                     isActive={index === safeIndex}
                     isMatch={isMatch}
@@ -1015,6 +1074,8 @@ export function SpotlightCarousel({
                     onPullToSearch={handlePullToSearch}
                     onLongPress={handleLongPressCard}
                     onReplyButton={prefillReply}
+                    onOpenFile={onOpenFile}
+                    onOpenFileTarget={onOpenFileTarget}
                   />
                 );
               })}
@@ -1723,6 +1784,8 @@ export function SpotlightCarousel({
 const FloatingCarouselCard = React.memo(function FloatingCarouselCard({
   slide,
   header,
+  files,
+  client,
   index,
   isActive,
   isMatch,
@@ -1734,9 +1797,13 @@ const FloatingCarouselCard = React.memo(function FloatingCarouselCard({
   onPullToSearch,
   onLongPress,
   onReplyButton,
+  onOpenFile,
+  onOpenFileTarget,
 }: {
   slide: NativeResultCard;
   header: ReturnType<typeof resolveCarouselCardHeader>;
+  files: PublishedFileItem[];
+  client?: LoopClient | null;
   index: number;
   isActive: boolean;
   isMatch: boolean;
@@ -1748,6 +1815,8 @@ const FloatingCarouselCard = React.memo(function FloatingCarouselCard({
   onPullToSearch: () => void;
   onLongPress: (card: NativeResultCard) => void;
   onReplyButton: (prompt: string) => void;
+  onOpenFile?: (file: PublishedFileItem) => void;
+  onOpenFileTarget?: (target: LoopFileTarget, label?: string) => void;
 }) {
   const [pullHint, setPullHint] = useState<"idle" | "pulling" | "ready">(
     "idle",
@@ -1989,11 +2058,22 @@ const FloatingCarouselCard = React.memo(function FloatingCarouselCard({
           <RichContent
             content={renderedBody}
             theme={theme}
+            workspaceOrigin={client?.origin}
             onReplyButton={onReplyButton}
+            onOpenFile={onOpenFileTarget}
             skipLeadingHeading={
               header.titleSource === "heading" ? header.title : undefined
             }
           />
+
+          {isActive && files.length > 0 && (
+            <PublishedFilesStrip
+              files={files}
+              client={client}
+              theme={theme}
+              onOpenFile={onOpenFile}
+            />
+          )}
         </Pressable>
       </ScrollView>
     </Animated.View>
