@@ -861,6 +861,13 @@ function LoopShell() {
       const priorRun = activeRuns.find((r) => r.id === runId);
       if (action === "cancel") {
         setActiveRuns((prev) => prev.filter((r) => r.id !== runId));
+        setCarouselOverrideCards((prev) =>
+          prev
+            ? prev.filter(
+                (c) => c.runId !== runId && c.id !== `working:${runId}`,
+              )
+            : prev,
+        );
         setQueuedFeedItems((prev) =>
           prev
             .map((item) => {
@@ -926,9 +933,9 @@ function LoopShell() {
           setLiveStreams(new Map(liveStreamsRef.current));
         }
       } else if (action === "retry") {
-        // Hide the failed/interrupted Retry control immediately so a quick second tap
-        // before refresh cannot submit a duplicate retry.
-        setActiveRuns((prev) => prev.filter((r) => r.id !== runId));
+        // Keep the failed/interrupted run visible until the server confirms retry so that
+        // if retry times out or fails offline, the user can tap Retry again using the retained
+        // durable idempotencyKey (double-taps while in flight are already blocked by `flightKey`).
       }
       void client
         .runAction(runId, action, idempotencyKey)

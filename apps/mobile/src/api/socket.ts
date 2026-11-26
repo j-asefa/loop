@@ -34,6 +34,14 @@ export type LiveStreamEvent =
       kind: "reset";
     };
 
+export type LiveStreamMessageState = {
+  text: string;
+  byteEnd?: number;
+  revision?: number;
+  anchored?: boolean;
+  gapped?: boolean;
+};
+
 export type LiveStreamOverlay = {
   runId?: string;
   text: string;
@@ -47,6 +55,8 @@ export type LiveStreamOverlay = {
   anchored?: boolean;
   /** True if text was received mid-stream without an anchor or after a byte-offset gap. */
   gapped?: boolean;
+  /** Per-message stream buffers so interleaved assistant messages in one run never false-gap each other. */
+  messagesById?: Record<string, LiveStreamMessageState>;
   updatedAt: number;
 };
 
@@ -165,13 +175,30 @@ export function isNativeHarnessConnection(
  * Matches server `controlRun` (`src/server/run-attention.ts`): active native-harness
  * turns cannot be paused mid-turn (the server returns 409 and advises interrupting instead).
  */
+function extractRunPayloadConnectionId(
+  payload: string | { connectionId?: string | null } | null | undefined,
+): string | null {
+  if (!payload) return null;
+  if (typeof payload === "string") {
+    try {
+      const parsed = JSON.parse(payload) as { connectionId?: unknown };
+      return typeof parsed?.connectionId === "string"
+        ? parsed.connectionId
+        : null;
+    } catch {
+      return null;
+    }
+  }
+  return typeof payload.connectionId === "string" ? payload.connectionId : null;
+}
+
 export function canPauseRun(
   run:
     | {
         state: string;
         agent_id?: string | null;
         connection_id?: string | null;
-        payload?: { connectionId?: string | null };
+        payload?: string | { connectionId?: string | null } | null;
       }
     | null
     | undefined,
@@ -189,7 +216,7 @@ export function canPauseRun(
       : undefined;
     const connId =
       run.connection_id ??
-      run.payload?.connectionId ??
+      extractRunPayloadConnectionId(run.payload) ??
       agent?.connection_id ??
       null;
     const conn = connId ? connections.find((c) => c.id === connId) : undefined;
@@ -475,12 +502,25 @@ export function extractLiveStreamEvents(raw: unknown): LiveStreamEvent[] {
           });
         }
       } else if (innerType === "status") {
+        const rawStatus =
+          typeof inner.status === "string" ? inner.status.toLowerCase() : "";
+        if (
+          TERMINAL_RUN_STATES.has(rawStatus) ||
+          rawStatus === "idle" ||
+          rawStatus === "done"
+        ) {
+          out.push({
+            kind: "state",
+            runId: scopeRunId,
+            conversationId: scopeConvId,
+            state: TERMINAL_RUN_STATES.has(rawStatus) ? rawStatus : "completed",
+          });
+          continue;
+        }
         const detail =
           typeof inner.detail === "string" && inner.detail.trim()
             ? inner.detail.trim()
-            : typeof inner.status === "string"
-              ? inner.status
-              : "";
+            : rawStatus;
         if (detail) {
           out.push({
             kind: "activity",
@@ -577,6 +617,7 @@ export function applyLiveStreamEvent(
       byteEnd: prev?.byteEnd,
       anchored: prev?.anchored || observedStart,
       gapped: prev?.gapped,
+      messagesById: prev?.messagesById,
       updatedAt: now,
     };
   }
@@ -592,50 +633,89 @@ export function applyLiveStreamEvent(
       byteEnd: prev?.byteEnd,
       anchored: prev?.anchored,
       gapped: prev?.gapped,
+      messagesById: prev?.messagesById,
       updatedAt: now,
     };
   }
 
-  // Delta or full assistant upsert
-  const sameMessage =
+  // Delta or full assistant upsert: look up prior state by messageId so interleaved
+  // assistant messages within the same run never reset each other's byteEnd or false-gap.
+  const targetMsgId = event.messageId ?? prev?.messageId;
+  const storedMsg =
+    targetMsgId && prev?.messagesById
+      ? prev.messagesById[targetMsgId]
+      : undefined;
+  const sameAsActive =
     !prev?.messageId || !event.messageId || prev.messageId === event.messageId;
+  const msgPrev: LiveStreamMessageState | undefined =
+    storedMsg ??
+    (sameAsActive && prev
+      ? {
+          text: prev.text,
+          byteEnd: prev.byteEnd,
+          revision: prev.revision,
+          anchored: prev.anchored,
+          gapped: prev.gapped,
+        }
+      : undefined);
+
   const runId = event.runId ?? prev?.runId;
   const eventBytes = utf8ByteLength(event.text);
+
+  const commitMessage = (
+    nextMsg: LiveStreamMessageState,
+  ): LiveStreamOverlay => {
+    let nextMap = prev?.messagesById ? { ...prev.messagesById } : undefined;
+    if (targetMsgId) {
+      if (!nextMap) nextMap = {};
+      nextMap[targetMsgId] = nextMsg;
+      const keys = Object.keys(nextMap);
+      if (keys.length > 8) {
+        delete nextMap[keys[0]];
+      }
+    }
+    return {
+      runId,
+      text: nextMsg.text,
+      messageId: targetMsgId,
+      activity: prev?.activity ?? "Streaming response…",
+      state: prev?.state ?? "running",
+      revision: nextMsg.revision,
+      byteEnd: nextMsg.byteEnd,
+      anchored: nextMsg.anchored,
+      gapped: nextMsg.gapped,
+      messagesById: nextMap,
+      updatedAt: now,
+    };
+  };
 
   if (event.replace) {
     const bounded =
       event.text.length > MAX_STREAM_TEXT_CHARS
         ? event.text.slice(event.text.length - MAX_STREAM_TEXT_CHARS)
         : event.text;
-    return {
-      runId,
+    return commitMessage({
       text: bounded,
-      messageId: event.messageId ?? prev?.messageId,
-      activity: prev?.activity ?? "Streaming response…",
-      state: prev?.state ?? "running",
       revision: event.revision,
       byteEnd: eventBytes,
       anchored: true,
       gapped: false,
-      updatedAt: now,
-    };
+    });
   }
 
   if (
-    sameMessage &&
     event.revision !== undefined &&
-    prev?.revision !== undefined &&
-    event.revision < prev.revision
+    msgPrev?.revision !== undefined &&
+    event.revision < msgPrev.revision
   ) {
-    return prev;
+    return prev ?? null;
   }
 
-  const baseText = sameMessage ? (prev?.text ?? "") : "";
-  const prevGapped = sameMessage ? Boolean(prev?.gapped) : false;
-  const prevAnchored = sameMessage ? Boolean(prev?.anchored) : false;
-  const prevByteEnd = sameMessage
-    ? (prev?.byteEnd ?? (baseText ? utf8ByteLength(baseText) : undefined))
-    : undefined;
+  const baseText = msgPrev?.text ?? "";
+  const prevGapped = Boolean(msgPrev?.gapped);
+  const prevAnchored = Boolean(msgPrev?.anchored ?? prev?.anchored);
+  const prevByteEnd =
+    msgPrev?.byteEnd ?? (baseText ? utf8ByteLength(baseText) : undefined);
 
   // Server `message.delta` offsets are UTF-8 byte offsets (see `src/shared/transcript-projection.ts`).
   if (event.offset !== undefined) {
@@ -645,35 +725,25 @@ export function applyLiveStreamEvent(
         event.text.length > MAX_STREAM_TEXT_CHARS
           ? event.text.slice(event.text.length - MAX_STREAM_TEXT_CHARS)
           : event.text;
-      return {
-        runId,
+      return commitMessage({
         text: bounded,
-        messageId: event.messageId ?? prev?.messageId,
-        activity: prev?.activity ?? "Streaming response…",
-        state: prev?.state ?? "running",
-        revision: event.revision ?? prev?.revision,
+        revision: event.revision ?? msgPrev?.revision,
         byteEnd: eventBytes,
         anchored: true,
         gapped: false,
-        updatedAt: now,
-      };
+      });
     }
 
     // Offset > 0 with no prior text (e.g. after reconnect reset or mid-reply join):
     // mark gapped instead of presenting a mid-stream fragment as the full card body.
     if (prevByteEnd === undefined || prevGapped) {
-      return {
-        runId,
+      return commitMessage({
         text: baseText,
-        messageId: event.messageId ?? prev?.messageId,
-        activity: prev?.activity ?? "Streaming response…",
-        state: prev?.state ?? "running",
-        revision: event.revision ?? prev?.revision,
+        revision: event.revision ?? msgPrev?.revision,
         byteEnd: prevByteEnd,
         anchored: false,
         gapped: true,
-        updatedAt: now,
-      };
+      });
     }
 
     // Exact UTF-8 byte continuation (still accurate past MAX_STREAM_TEXT_CHARS truncation).
@@ -683,18 +753,13 @@ export function applyLiveStreamEvent(
         combined.length > MAX_STREAM_TEXT_CHARS
           ? combined.slice(combined.length - MAX_STREAM_TEXT_CHARS)
           : combined;
-      return {
-        runId,
+      return commitMessage({
         text: bounded,
-        messageId: event.messageId ?? prev?.messageId,
-        activity: prev?.activity ?? "Streaming response…",
-        state: prev?.state ?? "running",
-        revision: event.revision ?? prev?.revision,
+        revision: event.revision ?? msgPrev?.revision,
         byteEnd: prevByteEnd + eventBytes,
         anchored: true,
         gapped: false,
-        updatedAt: now,
-      };
+      });
     }
 
     // Overlapping or duplicate replay: skip already-received prefix by UTF-8 byte count.
@@ -705,69 +770,49 @@ export function applyLiveStreamEvent(
       }
       const suffix = sliceAfterUtf8Bytes(event.text, overlapBytes);
       if (suffix === null) {
-        return {
-          runId,
+        return commitMessage({
           text: baseText,
-          messageId: event.messageId ?? prev?.messageId,
-          activity: prev?.activity ?? "Streaming response…",
-          state: prev?.state ?? "running",
-          revision: event.revision ?? prev?.revision,
+          revision: event.revision ?? msgPrev?.revision,
           byteEnd: prevByteEnd,
           anchored: false,
           gapped: true,
-          updatedAt: now,
-        };
+        });
       }
       const combined = baseText + suffix;
       const bounded =
         combined.length > MAX_STREAM_TEXT_CHARS
           ? combined.slice(combined.length - MAX_STREAM_TEXT_CHARS)
           : combined;
-      return {
-        runId,
+      return commitMessage({
         text: bounded,
-        messageId: event.messageId ?? prev?.messageId,
-        activity: prev?.activity ?? "Streaming response…",
-        state: prev?.state ?? "running",
-        revision: event.revision ?? prev?.revision,
+        revision: event.revision ?? msgPrev?.revision,
         byteEnd: event.offset + eventBytes,
         anchored: true,
         gapped: false,
-        updatedAt: now,
-      };
+      });
     }
 
     // event.offset > prevByteEnd: genuine missed chunk -> mark gapped until next full upsert.
-    return {
-      runId,
+    return commitMessage({
       text: baseText,
-      messageId: event.messageId ?? prev?.messageId,
-      activity: prev?.activity ?? "Streaming response…",
-      state: prev?.state ?? "running",
-      revision: event.revision ?? prev?.revision,
+      revision: event.revision ?? msgPrev?.revision,
       byteEnd: prevByteEnd,
       anchored: false,
       gapped: true,
-      updatedAt: now,
-    };
+    });
   }
 
   // Offset-less deltas (e.g. native harness streaming): only treat as complete body text
   // when anchored from the run's start or a full item/upsert; if joined mid-turn or after
   // a reconnect reset, mark gapped so a mid-stream fragment never replaces the card body.
   if (prevGapped || !prevAnchored) {
-    return {
-      runId,
+    return commitMessage({
       text: baseText,
-      messageId: event.messageId ?? prev?.messageId,
-      activity: prev?.activity ?? "Streaming response…",
-      state: prev?.state ?? "running",
-      revision: event.revision ?? prev?.revision,
+      revision: event.revision ?? msgPrev?.revision,
       byteEnd: prevByteEnd,
       anchored: false,
       gapped: true,
-      updatedAt: now,
-    };
+    });
   }
 
   const combined = baseText + event.text;
@@ -775,18 +820,13 @@ export function applyLiveStreamEvent(
     combined.length > MAX_STREAM_TEXT_CHARS
       ? combined.slice(combined.length - MAX_STREAM_TEXT_CHARS)
       : combined;
-  return {
-    runId,
+  return commitMessage({
     text: bounded,
-    messageId: event.messageId ?? prev?.messageId,
-    activity: prev?.activity ?? "Streaming response…",
-    state: prev?.state ?? "running",
-    revision: event.revision ?? prev?.revision,
+    revision: event.revision ?? msgPrev?.revision,
     byteEnd: (prevByteEnd ?? 0) + eventBytes,
     anchored: true,
     gapped: false,
-    updatedAt: now,
-  };
+  });
 }
 
 /**
@@ -865,10 +905,12 @@ export function applyLiveStreamBatch(
       continue;
     }
 
-    // Ignore late delta/activity events (e.g. a stale message.upsert) belonging to an older
-    // non-active run when we know another run is currently active in the same conversation.
+    // Ignore late full `message.upsert` (`replace: true`) from an older non-active run when
+    // another run is actively streaming in the same conversation; never drop a brand-new
+    // run's initial `offset: 0` deltas or activity while `activeRuns` lags behind.
     if (
-      (ev.kind === "delta" || ev.kind === "activity") &&
+      ev.kind === "delta" &&
+      ev.replace === true &&
       ev.runId &&
       convId &&
       activeRuns.some(

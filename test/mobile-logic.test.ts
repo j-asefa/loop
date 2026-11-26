@@ -1085,7 +1085,7 @@ describe("mobile live run streaming & run controls", () => {
     for (const ev of events) {
       overlay = applyLiveStreamEvent(overlay, ev, 1000) ?? undefined;
     }
-    expect(overlay).toEqual({
+    expect(overlay).toMatchObject({
       runId: "run-1",
       text: "Hello world!",
       messageId: "m-1",
@@ -1097,6 +1097,34 @@ describe("mobile live run streaming & run controls", () => {
       gapped: false,
       updatedAt: 1000,
     });
+
+    // Terminal native.event status ("failed"/"completed"/"idle") emits a terminal state
+    // rather than recreating a live "running" activity overlay.
+    const terminalNative = extractLiveStreamEvents(
+      JSON.stringify({
+        v: 3,
+        type: "events",
+        events: [
+          {
+            id: 5,
+            event: {
+              type: "native.event",
+              scope: { kind: "run", id: "run-1" },
+              payload: { event: { type: "status", status: "failed" } },
+            },
+          },
+        ],
+      }),
+    );
+    expect(terminalNative).toEqual([
+      {
+        kind: "state",
+        runId: "run-1",
+        conversationId: undefined,
+        state: "failed",
+      },
+    ]);
+    expect(applyLiveStreamEvent(overlay, terminalNative[0], 1100)).toBeNull();
 
     // Unanchored native delta (e.g. opened mid-turn or right after a reconnect reset)
     // is marked gapped so a mid-stream fragment never replaces the card body.
@@ -1365,18 +1393,29 @@ describe("mobile live run streaming & run controls", () => {
     expect(
       canPauseRun({ state: "paused", agent_id: "a-api" }, agents, connections),
     ).toBe(false);
-    // Run-level payload.connectionId (from GET /api/runs PublicRun) overrides agent connection_id
+    // Run-level JSON string payload (exact wire format from GET /api/runs PublicRun) overrides agent connection_id
     expect(
       canPauseRun(
         {
           state: "running",
           agent_id: "a-api",
-          payload: { connectionId: "conn-native" },
+          payload: JSON.stringify({ connectionId: "conn-native" }),
         },
         agents,
         connections,
       ),
     ).toBe(false);
+    expect(
+      canPauseRun(
+        {
+          state: "running",
+          agent_id: "a-native",
+          payload: JSON.stringify({ connectionId: "conn-api" }),
+        },
+        agents,
+        connections,
+      ),
+    ).toBe(true);
   });
 
   it("tracks UTF-8 byte offsets accurately across multi-byte text, mid-reply joins, and >80k streams", () => {
@@ -1585,6 +1624,87 @@ describe("mobile live run streaming & run controls", () => {
     );
     expect(lagMap.get("run:r-lag")?.gapped).toBe(false);
     expect(lagMap.get("run:r-lag")?.text).toBe("Part 1 Part 2 Part 3");
+
+    // Interleaved assistant messages in the same run (e.g. progress + aggregate answer)
+    // keep independent per-message byteEnd cursors and never false-gap each other.
+    let multiOv: LiveStreamOverlay | undefined;
+    multiOv =
+      applyLiveStreamEvent(
+        multiOv,
+        {
+          kind: "delta",
+          runId: "r-multi",
+          messageId: "m-prog",
+          text: "Step 1 ",
+          offset: 0,
+          revision: 1,
+        },
+        1,
+      ) ?? undefined;
+    multiOv =
+      applyLiveStreamEvent(
+        multiOv,
+        {
+          kind: "delta",
+          runId: "r-multi",
+          messageId: "m-ans",
+          text: "Answer ",
+          offset: 0,
+          revision: 1,
+        },
+        2,
+      ) ?? undefined;
+    multiOv =
+      applyLiveStreamEvent(
+        multiOv,
+        {
+          kind: "delta",
+          runId: "r-multi",
+          messageId: "m-prog",
+          text: "done",
+          offset: 7,
+          revision: 2,
+        },
+        3,
+      ) ?? undefined;
+    expect(multiOv?.gapped).toBe(false);
+    expect(multiOv?.text).toBe("Step 1 done");
+    multiOv =
+      applyLiveStreamEvent(
+        multiOv,
+        {
+          kind: "delta",
+          runId: "r-multi",
+          messageId: "m-ans",
+          text: "complete!",
+          offset: 7,
+          revision: 2,
+        },
+        4,
+      ) ?? undefined;
+    expect(multiOv?.gapped).toBe(false);
+    expect(multiOv?.text).toBe("Answer complete!");
+
+    // Brand-new run's offset:0 delta is NOT dropped when activeRuns still lists an older run
+    const followUpMap = new Map<string, LiveStreamOverlay>();
+    applyLiveStreamBatch(
+      followUpMap,
+      [
+        {
+          kind: "delta",
+          runId: "r-new-follow",
+          conversationId: "conv-x",
+          messageId: "m-new",
+          text: "Fresh start ",
+          offset: 0,
+          revision: 1,
+        },
+      ],
+      [{ id: "r-old-active", conversation_id: "conv-x", state: "running" }],
+      10,
+    );
+    expect(followUpMap.get("run:r-new-follow")?.text).toBe("Fresh start ");
+    expect(followUpMap.get("run:r-new-follow")?.gapped).toBe(false);
 
     // Streams past 80,000 chars keep advancing byteEnd without falsely setting gapped
     const big = "a".repeat(80_010);
