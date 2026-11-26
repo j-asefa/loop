@@ -276,6 +276,7 @@ function LoopShell() {
         setRefreshing,
         refreshSession: () => client.refreshSession(),
         fetchAll: async () => {
+          const fetchStartedAt = Date.now();
           const [
             boot,
             feedPage,
@@ -297,7 +298,7 @@ function LoopShell() {
             client.approvals().catch(() => [] as ApiApproval[]),
             client.nativeDecisions().catch(() => [] as ApiNativeDecision[]),
             client.snippets().catch(() => [] as ApiSnippet[]),
-            client.runs(true).catch(() => [] as AgentRunSummary[]),
+            client.runs(true).catch(() => null),
           ]);
           // Drop stale results if workspace switched or signed out mid-flight
           if (gen !== loadCoordRef.current.currentGeneration) return;
@@ -314,17 +315,22 @@ function LoopShell() {
           setLiveCards(
             mergeUnifiedFeedCards(doneSource, replyPage?.items ?? []),
           );
-          setQueuedFeedItems([
-            ...(queuedPage?.items ?? []),
-            ...(workingPage?.items ?? []),
-          ]);
+          if (queuedPage || workingPage) {
+            setQueuedFeedItems([
+              ...(queuedPage?.items ?? []),
+              ...(workingPage?.items ?? []),
+            ]);
+          }
           setApprovals(appList);
           setDecisions(decList);
           setSnippets(snipList);
-          setActiveRuns(runList);
-          actionKeysRef.current.deletePrefix("run-reorder:");
-          if (pruneLiveStreams(liveStreamsRef.current, runList)) {
-            setLiveStreams(new Map(liveStreamsRef.current));
+          if (runList !== null) {
+            setActiveRuns(runList);
+            if (
+              pruneLiveStreams(liveStreamsRef.current, runList, fetchStartedAt)
+            ) {
+              setLiveStreams(new Map(liveStreamsRef.current));
+            }
           }
           setWorkspaceVersion((v) => v + 1);
         },
@@ -862,7 +868,6 @@ function LoopShell() {
         ? actionKeysRef.current.getOrCreate(retryScopeKey)
         : randomUuid();
       const priorRun = activeRuns.find((r) => r.id === runId);
-      const priorQueuedItems = action === "cancel" ? queuedFeedItems : null;
       if (action === "cancel") {
         setActiveRuns((prev) => prev.filter((r) => r.id !== runId));
         setQueuedFeedItems((prev) =>
@@ -951,22 +956,12 @@ function LoopShell() {
             return;
           }
           if (retryScopeKey) actionKeysRef.current.delete(retryScopeKey);
-          if (priorRun) {
-            setActiveRuns((prev) => {
-              const exists = prev.some((r) => r.id === runId);
-              if (exists) {
-                return prev.map((r) => (r.id === runId ? priorRun : r));
-              }
-              return [...prev, priorRun];
-            });
-          }
-          if (priorQueuedItems) {
-            setQueuedFeedItems(priorQueuedItems);
-          }
+          // Re-sync from server instead of writing back a potentially stale tap-time snapshot.
           showToast((err as Error).message);
+          scheduleSilentRefresh(50, gen);
         });
     },
-    [activeRuns, client, queuedFeedItems, scheduleSilentRefresh, showToast],
+    [activeRuns, client, scheduleSilentRefresh, showToast],
   );
 
   const handleReorderQueuedRun = useCallback(
@@ -976,17 +971,11 @@ function LoopShell() {
       const flightKey = `reorder:${runId}`;
       if (inFlightRunActionsRef.current.has(flightKey)) return;
       inFlightRunActionsRef.current.add(flightKey);
-      const scopeKey = actionKeysRef.current.scopeForRunReorder(
-        runId,
-        direction,
-      );
-      const idempotencyKey = actionKeysRef.current.getOrCreate(scopeKey);
       void client
-        .reorderRun(runId, direction, idempotencyKey)
+        .reorderRun(runId, direction)
         .then(() => {
           inFlightRunActionsRef.current.delete(flightKey);
           if (gen === workspaceGenRef.current) {
-            actionKeysRef.current.delete(scopeKey);
             scheduleSilentRefresh(200, gen);
           }
         })
@@ -998,8 +987,8 @@ function LoopShell() {
             scheduleSilentRefresh(500, gen);
             return;
           }
-          actionKeysRef.current.delete(scopeKey);
           showToast((err as Error).message);
+          scheduleSilentRefresh(100, gen);
         });
     },
     [client, scheduleSilentRefresh, showToast],
@@ -1522,6 +1511,7 @@ function LoopShell() {
       {/* Full Chronological Thread Sheet */}
       {threadOverlay && (
         <ThreadSheet
+          key={threadOverlay.conversationId}
           conversationId={threadOverlay.conversationId}
           title={threadOverlay.title}
           agentName={threadOverlay.agentName}

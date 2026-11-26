@@ -1037,6 +1037,14 @@ describe("mobile live run streaming & run controls", () => {
       type: "events",
       events: [
         {
+          id: 0,
+          event: {
+            type: "running",
+            scope: { kind: "run", id: "run-1" },
+            payload: { conversationId: "conv-1" },
+          },
+        },
+        {
           id: 1,
           event: {
             type: "activity.updated",
@@ -1072,7 +1080,7 @@ describe("mobile live run streaming & run controls", () => {
     });
 
     const events = extractLiveStreamEvents(deltaFrame);
-    expect(events).toHaveLength(3);
+    expect(events).toHaveLength(4);
     let overlay = undefined;
     for (const ev of events) {
       overlay = applyLiveStreamEvent(overlay, ev, 1000) ?? undefined;
@@ -1085,9 +1093,25 @@ describe("mobile live run streaming & run controls", () => {
       state: "running",
       revision: undefined,
       byteEnd: 12,
+      anchored: true,
       gapped: false,
       updatedAt: 1000,
     });
+
+    // Unanchored native delta (e.g. opened mid-turn or right after a reconnect reset)
+    // is marked gapped so a mid-stream fragment never replaces the card body.
+    const midNative = applyLiveStreamEvent(
+      undefined,
+      {
+        kind: "delta",
+        runId: "run-native",
+        messageId: "item-1",
+        text: "partial tail fragment",
+      },
+      1500,
+    );
+    expect(midNative?.gapped).toBe(true);
+    expect(midNative?.text).toBe("");
 
     // Terminal state clears the live overlay so stale text never lingers
     const doneEvents = extractLiveStreamEvents(
@@ -1226,6 +1250,12 @@ describe("mobile live run streaming & run controls", () => {
       map,
       [
         {
+          kind: "state",
+          runId: "run-1",
+          conversationId: "conv-1",
+          state: "running",
+        },
+        {
           kind: "delta",
           runId: "run-1",
           conversationId: "conv-1",
@@ -1293,7 +1323,11 @@ describe("mobile live run streaming & run controls", () => {
     expect(map.has("run:run-4")).toBe(false);
     expect(map.has("conv:conv-4")).toBe(false);
     expect(map.has("run:run-5")).toBe(true);
-    expect(pruneLiveStreams(map, [])).toBe(true);
+    // Stale snapshot taken before run-5's delta arrived (250 < 300) must NOT prune run-5
+    expect(pruneLiveStreams(map, [], 250)).toBe(false);
+    expect(map.has("run:run-5")).toBe(true);
+    // Newer snapshot (350 > 300) prunes finished run-5 cleanly
+    expect(pruneLiveStreams(map, [], 350)).toBe(true);
     expect(map.size).toBe(0);
   });
 
@@ -1471,6 +1505,12 @@ describe("mobile live run streaming & run controls", () => {
       prodMap,
       [
         {
+          kind: "state",
+          runId: "r-next",
+          conversationId: "conv-prod",
+          state: "running",
+        },
+        {
           kind: "delta",
           runId: "r-next",
           conversationId: "conv-prod",
@@ -1607,6 +1647,12 @@ describe("mobile live run streaming & run controls", () => {
       map,
       [
         {
+          kind: "state",
+          runId: "r-running",
+          conversationId: "conv-open",
+          state: "running",
+        },
+        {
           kind: "delta",
           runId: "r-running",
           conversationId: "conv-open",
@@ -1689,7 +1735,6 @@ describe("mobile live run streaming & run controls", () => {
 
     const store = new ActionKeyStore(() => "durable-1");
     expect(store.scopeForRunAction("r1", "retry")).toBe("run-retry:r1");
-    expect(store.scopeForRunReorder("r2", "up")).toBe("run-reorder:r2:up");
     expect(store.getOrCreate(store.scopeForRunAction("r1", "retry"))).toBe(
       "durable-1",
     );

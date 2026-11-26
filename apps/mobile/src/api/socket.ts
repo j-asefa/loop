@@ -43,6 +43,9 @@ export type LiveStreamOverlay = {
   revision?: number;
   /** Cumulative UTF-8 byte offset at the end of the received message stream. */
   byteEnd?: number;
+  /** True once we have observed the start of the message (offset 0, full upsert, or run start). */
+  anchored?: boolean;
+  /** True if text was received mid-stream without an anchor or after a byte-offset gap. */
   gapped?: boolean;
   updatedAt: number;
 };
@@ -543,6 +546,8 @@ export function applyLiveStreamEvent(
     if (TERMINAL_RUN_STATES.has(event.state)) {
       return null;
     }
+    const observedStart =
+      event.state === "running" && (!prev || prev.text.length === 0);
     return {
       runId: event.runId ?? prev?.runId,
       text: prev?.text ?? "",
@@ -558,6 +563,7 @@ export function applyLiveStreamEvent(
       state: event.state,
       revision: prev?.revision,
       byteEnd: prev?.byteEnd,
+      anchored: prev?.anchored || observedStart,
       gapped: prev?.gapped,
       updatedAt: now,
     };
@@ -572,6 +578,7 @@ export function applyLiveStreamEvent(
       state: prev?.state ?? "running",
       revision: prev?.revision,
       byteEnd: prev?.byteEnd,
+      anchored: prev?.anchored,
       gapped: prev?.gapped,
       updatedAt: now,
     };
@@ -596,6 +603,7 @@ export function applyLiveStreamEvent(
       state: prev?.state ?? "running",
       revision: event.revision,
       byteEnd: eventBytes,
+      anchored: true,
       gapped: false,
       updatedAt: now,
     };
@@ -612,6 +620,7 @@ export function applyLiveStreamEvent(
 
   const baseText = sameMessage ? (prev?.text ?? "") : "";
   const prevGapped = sameMessage ? Boolean(prev?.gapped) : false;
+  const prevAnchored = sameMessage ? Boolean(prev?.anchored) : false;
   const prevByteEnd = sameMessage
     ? (prev?.byteEnd ?? (baseText ? utf8ByteLength(baseText) : undefined))
     : undefined;
@@ -632,6 +641,7 @@ export function applyLiveStreamEvent(
         state: prev?.state ?? "running",
         revision: event.revision ?? prev?.revision,
         byteEnd: eventBytes,
+        anchored: true,
         gapped: false,
         updatedAt: now,
       };
@@ -648,6 +658,7 @@ export function applyLiveStreamEvent(
         state: prev?.state ?? "running",
         revision: event.revision ?? prev?.revision,
         byteEnd: prevByteEnd,
+        anchored: false,
         gapped: true,
         updatedAt: now,
       };
@@ -668,6 +679,7 @@ export function applyLiveStreamEvent(
         state: prev?.state ?? "running",
         revision: event.revision ?? prev?.revision,
         byteEnd: prevByteEnd + eventBytes,
+        anchored: true,
         gapped: false,
         updatedAt: now,
       };
@@ -689,6 +701,7 @@ export function applyLiveStreamEvent(
           state: prev?.state ?? "running",
           revision: event.revision ?? prev?.revision,
           byteEnd: prevByteEnd,
+          anchored: false,
           gapped: true,
           updatedAt: now,
         };
@@ -706,6 +719,7 @@ export function applyLiveStreamEvent(
         state: prev?.state ?? "running",
         revision: event.revision ?? prev?.revision,
         byteEnd: event.offset + eventBytes,
+        anchored: true,
         gapped: false,
         updatedAt: now,
       };
@@ -720,12 +734,16 @@ export function applyLiveStreamEvent(
       state: prev?.state ?? "running",
       revision: event.revision ?? prev?.revision,
       byteEnd: prevByteEnd,
+      anchored: false,
       gapped: true,
       updatedAt: now,
     };
   }
 
-  if (prevGapped) {
+  // Offset-less deltas (e.g. native harness streaming): only treat as complete body text
+  // when anchored from the run's start or a full item/upsert; if joined mid-turn or after
+  // a reconnect reset, mark gapped so a mid-stream fragment never replaces the card body.
+  if (prevGapped || !prevAnchored) {
     return {
       runId,
       text: baseText,
@@ -734,6 +752,7 @@ export function applyLiveStreamEvent(
       state: prev?.state ?? "running",
       revision: event.revision ?? prev?.revision,
       byteEnd: prevByteEnd,
+      anchored: false,
       gapped: true,
       updatedAt: now,
     };
@@ -752,6 +771,7 @@ export function applyLiveStreamEvent(
     state: prev?.state ?? "running",
     revision: event.revision ?? prev?.revision,
     byteEnd: (prevByteEnd ?? 0) + eventBytes,
+    anchored: true,
     gapped: false,
     updatedAt: now,
   };
@@ -879,7 +899,11 @@ export function applyLiveStreamBatch(
   return changed;
 }
 
-/** Remove overlays for runs/conversations that are no longer active after a workspace refresh. */
+/**
+ * Remove overlays for runs/conversations that are no longer active after a workspace refresh.
+ * Never prunes overlays updated at or after `snapshotStartedAt`, so a slow refresh that read
+ * an older snapshot cannot delete a newly started run's live deltas.
+ */
 export function pruneLiveStreams(
   map: Map<string, LiveStreamOverlay>,
   activeRuns: Array<{
@@ -887,6 +911,7 @@ export function pruneLiveStreams(
     conversation_id: string | null;
     state: string;
   }>,
+  snapshotStartedAt = Infinity,
 ): boolean {
   const activeRunIds = new Set(
     activeRuns
@@ -900,6 +925,7 @@ export function pruneLiveStreams(
   );
   let changed = false;
   for (const [key, entry] of Array.from(map.entries())) {
+    if (entry.updatedAt >= snapshotStartedAt) continue;
     if (key.startsWith("run:")) {
       const id = key.slice(4);
       if (!activeRunIds.has(id)) {

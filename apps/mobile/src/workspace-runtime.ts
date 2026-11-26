@@ -48,10 +48,6 @@ export class ActionKeyStore {
     return `run-${action}:${runId}`;
   }
 
-  scopeForRunReorder(runId: string, direction: "up" | "down"): string {
-    return `run-reorder:${runId}:${direction}`;
-  }
-
   getOrCreate(scopeKey: string): string {
     let key = this.keys.get(scopeKey);
     if (!key) {
@@ -63,12 +59,6 @@ export class ActionKeyStore {
 
   delete(scopeKey: string): void {
     this.keys.delete(scopeKey);
-  }
-
-  deletePrefix(prefix: string): void {
-    for (const key of Array.from(this.keys.keys())) {
-      if (key.startsWith(prefix)) this.keys.delete(key);
-    }
   }
 
   clear(): void {
