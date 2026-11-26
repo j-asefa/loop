@@ -254,7 +254,10 @@ export function ProjectsScreen({
             RECENT RESULTS
           </Text>
           {loading ? (
-            <ActivityIndicator color={theme.brass} style={{ marginTop: 24 }} />
+            <ActivityIndicator
+              color={theme.brassText}
+              style={{ marginTop: 24 }}
+            />
           ) : projectThreads.length === 0 ? (
             <Text style={[styles.emptyHint, { color: theme.muted }]}>
               No results in this project yet.
@@ -327,7 +330,7 @@ export function ProjectsScreen({
           <RefreshControl
             refreshing={loading}
             onRefresh={() => void loadSummaries()}
-            tintColor={theme.brass}
+            tintColor={theme.brassText}
           />
         }
         contentContainerStyle={[

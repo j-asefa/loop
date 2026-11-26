@@ -528,7 +528,7 @@ export function AgentProfileSheet({
                   }}
                   style={[
                     styles.tabBtn,
-                    active && { borderBottomColor: theme.brass },
+                    active && { borderBottomColor: theme.brassText },
                   ]}
                 >
                   <Text
@@ -546,7 +546,10 @@ export function AgentProfileSheet({
           </View>
 
           {loading ? (
-            <ActivityIndicator color={theme.brass} style={{ marginTop: 24 }} />
+            <ActivityIndicator
+              color={theme.brassText}
+              style={{ marginTop: 24 }}
+            />
           ) : tab === "results" ? (
             displayedResults.length === 0 ? (
               <Text style={[styles.emptyHint, { color: theme.muted }]}>

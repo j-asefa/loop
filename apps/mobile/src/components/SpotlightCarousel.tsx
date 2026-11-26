@@ -1845,13 +1845,13 @@ const FloatingCarouselCard = React.memo(function FloatingCarouselCard({
               style={[
                 styles.badgeSaved,
                 {
-                  backgroundColor: theme.attention,
-                  borderColor: theme.attentionLine,
+                  backgroundColor: theme.roseSoft,
+                  borderColor: theme.rose,
                 },
               ]}
             >
-              <BookmarkCheck size={12} color={theme.brassText} />
-              <Text style={[styles.badgeSavedText, { color: theme.brassText }]}>
+              <BookmarkCheck size={12} color={theme.rose} />
+              <Text style={[styles.badgeSavedText, { color: theme.rose }]}>
                 Saved
               </Text>
             </View>

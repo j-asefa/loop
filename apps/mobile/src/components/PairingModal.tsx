@@ -194,7 +194,7 @@ export function PairingModal({
             <View
               style={[
                 styles.segmentRow,
-                { backgroundColor: theme.bg, borderColor: theme.line },
+                { backgroundColor: theme.soft, borderColor: theme.line },
               ]}
             >
               <Pressable
@@ -284,7 +284,7 @@ export function PairingModal({
                 <View
                   style={[
                     styles.urlInputRow,
-                    { backgroundColor: theme.bg, borderColor: theme.line },
+                    { backgroundColor: theme.soft, borderColor: theme.line },
                   ]}
                 >
                   <TextInput
@@ -306,7 +306,7 @@ export function PairingModal({
                     style={[
                       styles.pastePill,
                       {
-                        backgroundColor: theme.soft,
+                        backgroundColor: theme.surface,
                         borderColor: theme.line,
                       },
                     ]}
@@ -354,7 +354,7 @@ export function PairingModal({
                       style={[
                         styles.tokenInput,
                         {
-                          backgroundColor: theme.bg,
+                          backgroundColor: theme.surface,
                           borderColor: theme.line,
                           color: theme.text,
                         },

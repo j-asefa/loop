@@ -275,7 +275,10 @@ export function SearchScreen({
         )}
 
         {loading ? (
-          <ActivityIndicator color={theme.brass} style={{ marginTop: 28 }} />
+          <ActivityIndicator
+            color={theme.brassText}
+            style={{ marginTop: 28 }}
+          />
         ) : category === "prompts" ? (
           prompts.length === 0 ? (
             <Text style={[styles.emptyHint, { color: theme.muted }]}>

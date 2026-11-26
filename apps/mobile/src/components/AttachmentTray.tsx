@@ -348,7 +348,7 @@ export function AttachmentChipStrip({
           </View>
 
           {att.status === "uploading" ? (
-            <ActivityIndicator size="small" color={theme.brass} />
+            <ActivityIndicator size="small" color={theme.brassText} />
           ) : (
             <Pressable
               accessibilityLabel={`Remove ${att.name}`}
