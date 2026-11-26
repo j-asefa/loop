@@ -12,7 +12,19 @@ import {
   resolveLoopFileTarget,
   sanitizeDownloadFilename,
 } from "../apps/mobile/src/api/files.js";
-import { shouldRefreshForFrame } from "../apps/mobile/src/api/socket.js";
+import {
+  applyLiveStreamBatch,
+  applyLiveStreamEvent,
+  buildAgentQueuedRuns,
+  canPauseRun,
+  clearRunFromLiveStreams,
+  extractLiveStreamEvents,
+  isNativeHarnessConnection,
+  pruneLiveStreams,
+  shouldRefreshForFrame,
+  utf8ByteLength,
+  type LiveStreamOverlay,
+} from "../apps/mobile/src/api/socket.js";
 import {
   assertSameOriginResponse,
   extractSessionCookie,
@@ -1013,6 +1025,938 @@ describe("mobile agent-published file resolution, metadata, and client APIs", ()
       ),
     ).toThrow(/unsupported/i);
     expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("mobile live run streaming & run controls", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("extracts and reduces message.delta, activity.updated, native.event, and terminal run state frames", () => {
+    const deltaFrame = JSON.stringify({
+      v: 3,
+      type: "events",
+      events: [
+        {
+          id: 0,
+          event: {
+            type: "running",
+            scope: { kind: "run", id: "run-1" },
+            payload: { conversationId: "conv-1" },
+          },
+        },
+        {
+          id: 1,
+          event: {
+            type: "activity.updated",
+            scope: { kind: "run", id: "run-1" },
+            payload: { key: "k1", kind: "tool", sequence: 1 },
+          },
+        },
+        {
+          id: 2,
+          event: {
+            type: "message.delta",
+            scope: { kind: "run", id: "run-1" },
+            payload: {
+              messageId: "m-1",
+              conversationId: "conv-1",
+              text: "Hello ",
+            },
+          },
+        },
+        {
+          id: 3,
+          event: {
+            type: "message.delta",
+            scope: { kind: "run", id: "run-1" },
+            payload: {
+              messageId: "m-1",
+              conversationId: "conv-1",
+              text: "world!",
+            },
+          },
+        },
+      ],
+    });
+
+    const events = extractLiveStreamEvents(deltaFrame);
+    expect(events).toHaveLength(4);
+    let overlay = undefined;
+    for (const ev of events) {
+      overlay = applyLiveStreamEvent(overlay, ev, 1000) ?? undefined;
+    }
+    expect(overlay).toMatchObject({
+      runId: "run-1",
+      text: "Hello world!",
+      messageId: "m-1",
+      activity: "Running tool…",
+      state: "running",
+      revision: undefined,
+      byteEnd: 12,
+      anchored: true,
+      gapped: false,
+      updatedAt: 1000,
+    });
+
+    // Terminal native.event status ("failed"/"completed"/"idle") emits a terminal state
+    // rather than recreating a live "running" activity overlay.
+    const terminalNative = extractLiveStreamEvents(
+      JSON.stringify({
+        v: 3,
+        type: "events",
+        events: [
+          {
+            id: 5,
+            event: {
+              type: "native.event",
+              scope: { kind: "run", id: "run-1" },
+              payload: { event: { type: "status", status: "failed" } },
+            },
+          },
+        ],
+      }),
+    );
+    expect(terminalNative).toEqual([
+      {
+        kind: "state",
+        runId: "run-1",
+        conversationId: undefined,
+        state: "failed",
+      },
+    ]);
+    expect(applyLiveStreamEvent(overlay, terminalNative[0], 1100)).toBeNull();
+
+    // Unanchored native delta (e.g. opened mid-turn or right after a reconnect reset)
+    // is marked gapped so a mid-stream fragment never replaces the card body.
+    const midNative = applyLiveStreamEvent(
+      undefined,
+      {
+        kind: "delta",
+        runId: "run-native",
+        messageId: "item-1",
+        text: "partial tail fragment",
+      },
+      1500,
+    );
+    expect(midNative?.gapped).toBe(true);
+    expect(midNative?.text).toBe("");
+
+    // Terminal state clears the live overlay so stale text never lingers
+    const doneEvents = extractLiveStreamEvents(
+      JSON.stringify({
+        v: 3,
+        type: "events",
+        events: [
+          {
+            id: 4,
+            event: {
+              type: "completed",
+              scope: { kind: "run", id: "run-1" },
+              payload: { runId: "run-1" },
+            },
+          },
+        ],
+      }),
+    );
+    expect(applyLiveStreamEvent(overlay, doneEvents[0], 2000)).toBeNull();
+  });
+
+  it("handles live overlay batching, terminal cleanup without conversationId, reset frames, offsets, and prototype safety", () => {
+    // Prototype-keyed activity kinds (e.g. "constructor") are ignored safely
+    const protoEvents = extractLiveStreamEvents(
+      JSON.stringify({
+        v: 3,
+        type: "events",
+        events: [
+          {
+            id: 1,
+            event: {
+              type: "activity.updated",
+              scope: { kind: "run", id: "run-1" },
+              payload: { kind: "constructor" },
+            },
+          },
+          {
+            id: 2,
+            event: {
+              type: "queued",
+              scope: { kind: "run", id: "run-2" },
+              payload: { conversationId: "conv-1" },
+            },
+          },
+        ],
+      }),
+    );
+    expect(protoEvents).toHaveLength(0);
+
+    // Offset & revision handling prevents garbled text on overlapping replay or missed chunks
+    let revOverlay: LiveStreamOverlay | undefined;
+    revOverlay =
+      applyLiveStreamEvent(
+        revOverlay,
+        {
+          kind: "delta",
+          runId: "run-1",
+          messageId: "m-1",
+          text: "Hello ",
+          offset: 0,
+          revision: 2,
+        },
+        10,
+      ) ?? undefined;
+    // Stale revision is ignored
+    revOverlay =
+      applyLiveStreamEvent(
+        revOverlay,
+        {
+          kind: "delta",
+          runId: "run-1",
+          messageId: "m-1",
+          text: "OLD",
+          offset: 0,
+          revision: 1,
+        },
+        11,
+      ) ?? undefined;
+    expect(revOverlay?.text).toBe("Hello ");
+    // Overlapping replay deduplicates cleanly
+    revOverlay =
+      applyLiveStreamEvent(
+        revOverlay,
+        {
+          kind: "delta",
+          runId: "run-1",
+          messageId: "m-1",
+          text: "lo world",
+          offset: 3,
+          revision: 3,
+        },
+        12,
+      ) ?? undefined;
+    expect(revOverlay?.text).toBe("Hello world");
+    expect(revOverlay?.gapped).toBe(false);
+    // Gap beyond current length marks gapped instead of concatenating corrupted text
+    revOverlay =
+      applyLiveStreamEvent(
+        revOverlay,
+        {
+          kind: "delta",
+          runId: "run-1",
+          messageId: "m-1",
+          text: "after-gap",
+          offset: 50,
+          revision: 4,
+        },
+        13,
+      ) ?? undefined;
+    expect(revOverlay?.gapped).toBe(true);
+    expect(revOverlay?.text).toBe("Hello world");
+    // Full upsert clears the gap
+    revOverlay =
+      applyLiveStreamEvent(
+        revOverlay,
+        {
+          kind: "delta",
+          runId: "run-1",
+          messageId: "m-1",
+          text: "Full clean text",
+          replace: true,
+        },
+        14,
+      ) ?? undefined;
+    expect(revOverlay?.gapped).toBe(false);
+    expect(revOverlay?.text).toBe("Full clean text");
+
+    // Batch reducer: cancelling queued run-2 does not clobber active run-1's conv overlay,
+    // while completing run-1 (even without conversationId) clears BOTH run:run-1 and conv:conv-1.
+    const map = new Map<string, LiveStreamOverlay>();
+    const activeRuns = [
+      { id: "run-1", conversation_id: "conv-1", state: "running" },
+      { id: "run-2", conversation_id: "conv-1", state: "queued" },
+    ];
+    applyLiveStreamBatch(
+      map,
+      [
+        {
+          kind: "state",
+          runId: "run-1",
+          conversationId: "conv-1",
+          state: "running",
+        },
+        {
+          kind: "delta",
+          runId: "run-1",
+          conversationId: "conv-1",
+          text: "Streaming…",
+        },
+      ],
+      activeRuns,
+      100,
+    );
+    expect(map.get("conv:conv-1")?.runId).toBe("run-1");
+
+    // Cancelling run-2 in same conversation leaves run-1's conv overlay intact
+    applyLiveStreamBatch(
+      map,
+      [
+        {
+          kind: "state",
+          runId: "run-2",
+          conversationId: "conv-1",
+          state: "cancelled",
+        },
+      ],
+      activeRuns,
+      110,
+    );
+    expect(map.get("conv:conv-1")?.text).toBe("Streaming…");
+
+    // Completing run-1 WITHOUT conversationId still deletes conv:conv-1
+    applyLiveStreamBatch(
+      map,
+      [{ kind: "state", runId: "run-1", state: "completed" }],
+      activeRuns,
+      120,
+    );
+    expect(map.has("run:run-1")).toBe(false);
+    expect(map.has("conv:conv-1")).toBe(false);
+
+    // Reset frame clears all overlays; pruneLiveStreams & clearRunFromLiveStreams clean stale entries
+    applyLiveStreamBatch(
+      map,
+      [{ kind: "delta", runId: "run-3", conversationId: "conv-3", text: "hi" }],
+      [{ id: "run-3", conversation_id: "conv-3", state: "running" }],
+      200,
+    );
+    expect(map.size).toBe(2);
+    expect(extractLiveStreamEvents(JSON.stringify({ type: "reset" }))).toEqual([
+      { kind: "reset" },
+    ]);
+    applyLiveStreamBatch(map, [{ kind: "reset" }], [], 210);
+    expect(map.size).toBe(0);
+
+    applyLiveStreamBatch(
+      map,
+      [
+        { kind: "delta", runId: "run-4", conversationId: "conv-4", text: "a" },
+        { kind: "delta", runId: "run-5", conversationId: "conv-5", text: "b" },
+      ],
+      [
+        { id: "run-4", conversation_id: "conv-4", state: "running" },
+        { id: "run-5", conversation_id: "conv-5", state: "running" },
+      ],
+      300,
+    );
+    expect(clearRunFromLiveStreams(map, "run-4", "conv-4")).toBe(true);
+    expect(map.has("run:run-4")).toBe(false);
+    expect(map.has("conv:conv-4")).toBe(false);
+    expect(map.has("run:run-5")).toBe(true);
+    // Stale snapshot taken before run-5's delta arrived (250 < 300) must NOT prune run-5
+    expect(pruneLiveStreams(map, [], 250)).toBe(false);
+    expect(map.has("run:run-5")).toBe(true);
+    // Newer snapshot (350 > 300) prunes finished run-5 cleanly
+    expect(pruneLiveStreams(map, [], 350)).toBe(true);
+    expect(map.size).toBe(0);
+  });
+
+  it("refuses Pause for native-harness connections while allowing Pause for API-backed runs", () => {
+    const connections = [
+      {
+        id: "conn-native",
+        metadata: JSON.stringify({ loopHarness: "claude-code" }),
+      },
+      { id: "conn-api", metadata: JSON.stringify({ kind: "anthropic" }) },
+    ];
+    const agents = [
+      { id: "a-native", connection_id: "conn-native" },
+      { id: "a-api", connection_id: "conn-api" },
+    ];
+    expect(isNativeHarnessConnection(connections[0])).toBe(true);
+    expect(isNativeHarnessConnection(connections[1])).toBe(false);
+    expect(
+      canPauseRun(
+        { state: "running", agent_id: "a-native" },
+        agents,
+        connections,
+      ),
+    ).toBe(false);
+    expect(
+      canPauseRun({ state: "running", agent_id: "a-api" }, agents, connections),
+    ).toBe(true);
+    expect(
+      canPauseRun(
+        { state: "waiting_children", agent_id: "a-native" },
+        agents,
+        connections,
+      ),
+    ).toBe(false);
+    expect(
+      canPauseRun(
+        { state: "waiting_children", agent_id: "a-api" },
+        agents,
+        connections,
+      ),
+    ).toBe(true);
+    expect(
+      canPauseRun({ state: "paused", agent_id: "a-api" }, agents, connections),
+    ).toBe(false);
+    // Run-level JSON string payload (exact wire format from GET /api/runs PublicRun) overrides agent connection_id
+    expect(
+      canPauseRun(
+        {
+          state: "running",
+          agent_id: "a-api",
+          payload: JSON.stringify({ connectionId: "conn-native" }),
+        },
+        agents,
+        connections,
+      ),
+    ).toBe(false);
+    expect(
+      canPauseRun(
+        {
+          state: "running",
+          agent_id: "a-native",
+          payload: JSON.stringify({ connectionId: "conn-api" }),
+        },
+        agents,
+        connections,
+      ),
+    ).toBe(true);
+  });
+
+  it("tracks UTF-8 byte offsets accurately across multi-byte text, mid-reply joins, and >80k streams", () => {
+    // Em-dash (3 bytes), accented é (2 bytes), rocket emoji 🚀 (4 bytes)
+    expect(utf8ByteLength("café — 🚀")).toBe(
+      Buffer.byteLength("café — 🚀", "utf8"),
+    );
+
+    // Multi-byte continuation uses UTF-8 bytes, never UTF-16 code units
+    const chunk1 = "café — 🚀 ";
+    const chunk1Bytes = Buffer.byteLength(chunk1, "utf8"); // 13 bytes vs 10 UTF-16 chars
+    let ov: LiveStreamOverlay | undefined;
+    ov =
+      applyLiveStreamEvent(
+        ov,
+        {
+          kind: "delta",
+          runId: "r-utf8",
+          messageId: "m-utf8",
+          text: chunk1,
+          offset: 0,
+          revision: 1,
+        },
+        1,
+      ) ?? undefined;
+    expect(ov?.byteEnd).toBe(chunk1Bytes);
+    ov =
+      applyLiveStreamEvent(
+        ov,
+        {
+          kind: "delta",
+          runId: "r-utf8",
+          messageId: "m-utf8",
+          text: "done!",
+          offset: chunk1Bytes,
+          revision: 2,
+        },
+        2,
+      ) ?? undefined;
+    expect(ov?.gapped).toBe(false);
+    expect(ov?.text).toBe("café — 🚀 done!");
+
+    // Joining mid-reply or receiving offset > 0 after a reconnect reset marks gapped
+    // rather than presenting a mid-stream fragment as the full reply body.
+    let mid: LiveStreamOverlay | undefined;
+    mid =
+      applyLiveStreamEvent(
+        mid,
+        {
+          kind: "delta",
+          runId: "r-mid",
+          messageId: "m-mid",
+          text: "tail part 1 ",
+          offset: 400,
+          revision: 10,
+        },
+        10,
+      ) ?? undefined;
+    expect(mid?.gapped).toBe(true);
+    expect(mid?.text).toBe("");
+    // A subsequent full message.upsert clears the gap cleanly
+    mid =
+      applyLiveStreamEvent(
+        mid,
+        {
+          kind: "delta",
+          runId: "r-mid",
+          messageId: "m-mid",
+          text: "Complete synced body",
+          replace: true,
+        },
+        11,
+      ) ?? undefined;
+    expect(mid?.gapped).toBe(false);
+    expect(mid?.text).toBe("Complete synced body");
+
+    // Conversation-scoped production delta (no runId in frame) resolves via activeRuns,
+    // and negative/fractional offsets are ignored cleanly.
+    const convScopedEvents = extractLiveStreamEvents(
+      JSON.stringify({
+        v: 3,
+        type: "events",
+        events: [
+          {
+            id: 10,
+            event: {
+              type: "message.delta",
+              scope: { kind: "conversation", id: "conv-prod" },
+              payload: {
+                messageId: "m-prod",
+                conversationId: "conv-prod",
+                text: "Hello ",
+                offset: 0,
+                revision: 1,
+              },
+            },
+          },
+          {
+            id: 11,
+            event: {
+              type: "message.delta",
+              scope: { kind: "conversation", id: "conv-prod" },
+              payload: {
+                messageId: "m-prod",
+                conversationId: "conv-prod",
+                text: "from prod",
+                offset: -5,
+                revision: 1.5,
+              },
+            },
+          },
+        ],
+      }),
+    );
+    expect(convScopedEvents[0]).toMatchObject({
+      conversationId: "conv-prod",
+      runId: undefined,
+      offset: 0,
+      revision: 1,
+    });
+    expect(convScopedEvents[1]).toMatchObject({
+      offset: undefined,
+      revision: undefined,
+    });
+    const prodMap = new Map<string, LiveStreamOverlay>();
+    applyLiveStreamBatch(
+      prodMap,
+      convScopedEvents,
+      [{ id: "r-prod", conversation_id: "conv-prod", state: "running" }],
+      100,
+    );
+    expect(prodMap.get("run:r-prod")?.text).toBe("Hello from prod");
+    expect(prodMap.get("conv:conv-prod")?.text).toBe("Hello from prod");
+
+    // Starting a new run in the same conversation never inherits the previous run's text
+    applyLiveStreamBatch(
+      prodMap,
+      [
+        {
+          kind: "state",
+          runId: "r-next",
+          conversationId: "conv-prod",
+          state: "running",
+        },
+        {
+          kind: "delta",
+          runId: "r-next",
+          conversationId: "conv-prod",
+          text: "Fresh turn",
+        },
+      ],
+      [{ id: "r-next", conversation_id: "conv-prod", state: "running" }],
+      200,
+    );
+    expect(prodMap.get("run:r-next")?.text).toBe("Fresh turn");
+    expect(prodMap.get("conv:conv-prod")?.text).toBe("Fresh turn");
+
+    // When `activeRuns` lags a new run, `conv:` advances on conversation-scoped deltas;
+    // once `activeRuns` catches up, the reducer chooses the further-advanced `conv:` overlay
+    // instead of regressing to the older `run:` entry and falsely marking gapped.
+    const lagMap = new Map<string, LiveStreamOverlay>();
+    applyLiveStreamBatch(
+      lagMap,
+      [
+        {
+          kind: "delta",
+          runId: "r-lag",
+          conversationId: "conv-lag",
+          messageId: "m-lag",
+          text: "Part 1 ",
+          replace: true,
+        },
+      ],
+      [],
+      100,
+    );
+    applyLiveStreamBatch(
+      lagMap,
+      [
+        {
+          kind: "delta",
+          conversationId: "conv-lag",
+          messageId: "m-lag",
+          text: "Part 2 ",
+          offset: 7,
+          revision: 2,
+        },
+      ],
+      [],
+      110,
+    );
+    applyLiveStreamBatch(
+      lagMap,
+      [
+        {
+          kind: "delta",
+          conversationId: "conv-lag",
+          messageId: "m-lag",
+          text: "Part 3",
+          offset: 14,
+          revision: 3,
+        },
+      ],
+      [{ id: "r-lag", conversation_id: "conv-lag", state: "running" }],
+      120,
+    );
+    expect(lagMap.get("run:r-lag")?.gapped).toBe(false);
+    expect(lagMap.get("run:r-lag")?.text).toBe("Part 1 Part 2 Part 3");
+
+    // Interleaved assistant messages in the same run (e.g. progress + aggregate answer)
+    // keep independent per-message byteEnd cursors and never false-gap each other.
+    let multiOv: LiveStreamOverlay | undefined;
+    multiOv =
+      applyLiveStreamEvent(
+        multiOv,
+        {
+          kind: "delta",
+          runId: "r-multi",
+          messageId: "m-prog",
+          text: "Step 1 ",
+          offset: 0,
+          revision: 1,
+        },
+        1,
+      ) ?? undefined;
+    multiOv =
+      applyLiveStreamEvent(
+        multiOv,
+        {
+          kind: "delta",
+          runId: "r-multi",
+          messageId: "m-ans",
+          text: "Answer ",
+          offset: 0,
+          revision: 1,
+        },
+        2,
+      ) ?? undefined;
+    multiOv =
+      applyLiveStreamEvent(
+        multiOv,
+        {
+          kind: "delta",
+          runId: "r-multi",
+          messageId: "m-prog",
+          text: "done",
+          offset: 7,
+          revision: 2,
+        },
+        3,
+      ) ?? undefined;
+    expect(multiOv?.gapped).toBe(false);
+    expect(multiOv?.text).toBe("Step 1 done");
+    multiOv =
+      applyLiveStreamEvent(
+        multiOv,
+        {
+          kind: "delta",
+          runId: "r-multi",
+          messageId: "m-ans",
+          text: "complete!",
+          offset: 7,
+          revision: 2,
+        },
+        4,
+      ) ?? undefined;
+    expect(multiOv?.gapped).toBe(false);
+    expect(multiOv?.text).toBe("Answer complete!");
+
+    // Brand-new run's offset:0 delta is NOT dropped when activeRuns still lists an older run
+    const followUpMap = new Map<string, LiveStreamOverlay>();
+    applyLiveStreamBatch(
+      followUpMap,
+      [
+        {
+          kind: "delta",
+          runId: "r-new-follow",
+          conversationId: "conv-x",
+          messageId: "m-new",
+          text: "Fresh start ",
+          offset: 0,
+          revision: 1,
+        },
+      ],
+      [{ id: "r-old-active", conversation_id: "conv-x", state: "running" }],
+      10,
+    );
+    expect(followUpMap.get("run:r-new-follow")?.text).toBe("Fresh start ");
+    expect(followUpMap.get("run:r-new-follow")?.gapped).toBe(false);
+
+    // Streams past 80,000 chars keep advancing byteEnd, flag `truncated: true`,
+    // and retain the opening text instead of replacing a card with only its tail.
+    const big = "START" + "a".repeat(80_005);
+    let longOv: LiveStreamOverlay | undefined;
+    longOv =
+      applyLiveStreamEvent(
+        longOv,
+        {
+          kind: "delta",
+          runId: "r-big",
+          messageId: "m-big",
+          text: big,
+          offset: 0,
+          revision: 1,
+        },
+        1,
+      ) ?? undefined;
+    expect(longOv?.text.length).toBe(80_000);
+    expect(longOv?.text.startsWith("START")).toBe(true);
+    expect(longOv?.truncated).toBe(true);
+    expect(longOv?.byteEnd).toBe(80_010);
+    longOv =
+      applyLiveStreamEvent(
+        longOv,
+        {
+          kind: "delta",
+          runId: "r-big",
+          messageId: "m-big",
+          text: "XYZ",
+          offset: 80_010,
+          revision: 2,
+        },
+        2,
+      ) ?? undefined;
+    expect(longOv?.gapped).toBe(false);
+    expect(longOv?.truncated).toBe(true);
+    expect(longOv?.text.startsWith("START")).toBe(true);
+    expect(longOv?.byteEnd).toBe(80_013);
+  });
+
+  it("merges item.queued_runs, item.run, and activeRuns in server queue_position order and ignores stale run upserts", () => {
+    const feedItems: ApiFeedItem[] = [
+      makeFeedItem({
+        conversation_id: "conv-open",
+        title: "Open thread",
+        agent_id: "a1",
+        run: { id: "r-running", state: "running", input: "Working" },
+        queued_runs: [
+          {
+            id: "q-1",
+            input: "Follow-up 1 on open thread",
+            created_at: 200,
+            queue_position: 1,
+            can_move_up: false,
+            can_move_down: true,
+          },
+          {
+            // Already transitioned to running in activeRuns: must be excluded from queued list
+            id: "r-running",
+            input: "Stale queued feed row for already-running turn",
+            created_at: 50,
+            queue_position: 0,
+            can_move_up: false,
+            can_move_down: false,
+          },
+        ],
+      }),
+      makeFeedItem({
+        conversation_id: "conv-other",
+        title: "Other thread",
+        agent_id: "a1",
+        run: {
+          id: "q-2",
+          state: "queued",
+          input: "Task on other thread",
+          created_at: 100,
+          queue_position: 2,
+          can_move_up: true,
+          can_move_down: false,
+        },
+      }),
+    ];
+    const activeRuns = [
+      {
+        id: "r-running",
+        agent_id: "a1",
+        conversation_id: "conv-open",
+        input: "Working",
+        state: "running",
+        created_at: 50,
+      },
+      {
+        id: "q-1",
+        agent_id: "a1",
+        conversation_id: "conv-open",
+        input: "Follow-up 1 on open thread",
+        state: "queued",
+        created_at: 200,
+      },
+      {
+        id: "q-3",
+        agent_id: "a1",
+        conversation_id: "conv-open",
+        input: "Brand new queued follow-up",
+        state: "queued",
+        created_at: 300,
+      },
+    ];
+
+    const queued = buildAgentQueuedRuns(
+      "a1",
+      "conv-open",
+      feedItems,
+      activeRuns,
+    );
+    expect(queued.map((q) => q.id)).toEqual(["q-1", "q-2", "q-3"]);
+    expect(queued[0]).toMatchObject({
+      can_move_up: false,
+      can_move_down: true,
+      threadTitle: undefined,
+    });
+    expect(queued[1]).toMatchObject({
+      can_move_up: true,
+      can_move_down: false,
+      threadTitle: "Other thread",
+    });
+    expect(queued[2]).toMatchObject({
+      can_move_up: false,
+      can_move_down: false,
+    });
+
+    // Late message.upsert from an older non-active run does not overwrite the active run's stream
+    const map = new Map<string, LiveStreamOverlay>();
+    applyLiveStreamBatch(
+      map,
+      [
+        {
+          kind: "state",
+          runId: "r-running",
+          conversationId: "conv-open",
+          state: "running",
+        },
+        {
+          kind: "delta",
+          runId: "r-running",
+          conversationId: "conv-open",
+          text: "Live answer",
+        },
+        {
+          kind: "delta",
+          runId: "r-old-finished",
+          conversationId: "conv-open",
+          text: "Stale upsert",
+          replace: true,
+        },
+      ],
+      activeRuns,
+      500,
+    );
+    expect(map.get("conv:conv-open")?.text).toBe("Live answer");
+  });
+
+  it("submits steer vs queue flags, pause/resume/retry actions, and queue reorders with durable keys", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      redirected: false,
+      url: "https://loop.example.com/api/runs",
+      text: async () => JSON.stringify({ id: "r-new", ok: true }),
+    } as unknown as Response);
+
+    const client = new LoopClient({
+      origin: "https://loop.example.com",
+      cookie: "__Host-loop=tok",
+      csrf: "csrf-1",
+      deviceName: "Test iPhone",
+      pairedAt: 1,
+    });
+
+    await client.submitRun({
+      agentId: "a1",
+      conversationId: "c1",
+      input: "Steer now",
+      queue: false,
+      idempotencyKey: "steer-key-1234",
+    });
+    await client.submitRun({
+      agentId: "a1",
+      conversationId: "c1",
+      input: "Queue later",
+      queue: true,
+      idempotencyKey: "queue-key-1234",
+    });
+    await client.runAction("r1", "pause", "pause-key-1234");
+    await client.runAction("r1", "resume", "resume-key-1234");
+    await client.runAction("r1", "retry", "retry-key-1234");
+    await client.reorderRun("r2", "up", "reorder-key-1234");
+
+    expect(JSON.parse(String(fetchSpy.mock.calls[0][1]?.body))).toMatchObject({
+      queue: false,
+      idempotencyKey: "steer-key-1234",
+    });
+    expect(JSON.parse(String(fetchSpy.mock.calls[1][1]?.body))).toMatchObject({
+      queue: true,
+      idempotencyKey: "queue-key-1234",
+    });
+    expect(fetchSpy.mock.calls[2][0]).toBe(
+      "https://loop.example.com/api/runs/r1/pause",
+    );
+    expect(fetchSpy.mock.calls[3][0]).toBe(
+      "https://loop.example.com/api/runs/r1/resume",
+    );
+    expect(fetchSpy.mock.calls[4][0]).toBe(
+      "https://loop.example.com/api/runs/r1/retry",
+    );
+    expect(fetchSpy.mock.calls[5][0]).toBe(
+      "https://loop.example.com/api/runs/r2/reorder",
+    );
+    expect(JSON.parse(String(fetchSpy.mock.calls[5][1]?.body))).toEqual({
+      direction: "up",
+      idempotencyKey: "reorder-key-1234",
+    });
+
+    let seq = 0;
+    const store = new ActionKeyStore(() => `durable-${++seq}`);
+    const pauseScope = store.scopeForRunAction("r1", "pause");
+    const cancelScope = store.scopeForRunCancel("r2");
+    expect(store.scopeForRunAction("r1", "retry")).toBe("run-retry:r1");
+    expect(cancelScope).toBe("run-cancel:r2");
+    expect(store.getOrCreate(pauseScope)).toBe("durable-1");
+    expect(store.getOrCreate(cancelScope)).toBe("durable-2");
+    // While r1 is still running and r2 is still queued, uncertain retries reuse their keys
+    store.reconcileRunActions([
+      { id: "r1", state: "running" },
+      { id: "r2", state: "queued" },
+    ]);
+    expect(store.getOrCreate(pauseScope)).toBe("durable-1");
+    expect(store.getOrCreate(cancelScope)).toBe("durable-2");
+    // Once r1 pauses and r2 leaves activeRuns, reconcileRunActions releases both keys
+    store.reconcileRunActions([{ id: "r1", state: "paused" }]);
+    expect(store.getOrCreate(pauseScope)).toBe("durable-3");
+    expect(store.getOrCreate(cancelScope)).toBe("durable-4");
   });
 });
 

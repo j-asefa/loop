@@ -17,16 +17,26 @@ import {
   Bookmark,
   BookmarkCheck,
   Paperclip,
+  Pause,
+  Play,
+  RotateCcw,
   Sparkles,
+  Square,
 } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { randomUuid, type LoopClient } from "../api/client";
+import {
+  isUncertainOutcomeError,
+  randomUuid,
+  type LoopClient,
+} from "../api/client";
 import type { LoopFileTarget, PublishedFileItem } from "../api/files";
+import type { LiveStreamOverlay } from "../api/socket";
 import type { ApiMessage } from "../api/types";
 import { relativeTime, type NativeResultCard } from "../fixtures";
 import { ThreadRefreshGate } from "../workspace-runtime";
 import { haptics } from "../haptics";
 import type { LoopTheme } from "../theme";
+import type { AgentRunSummary } from "./AgentProfileSheet";
 import {
   AttachmentChipStrip,
   AttachmentSourceSheet,
@@ -41,10 +51,14 @@ export function ThreadSheet({
   agentName,
   agentId,
   client,
+  activeRun = null,
+  canPause = true,
+  liveStream = null,
   fallbackCards,
   refreshKey,
   theme,
   onClose,
+  onControlRun,
   onOpenFile,
   onOpenFileTarget,
   onSendLiveReply,
@@ -55,11 +69,18 @@ export function ThreadSheet({
   agentName: string;
   agentId?: string | null;
   client: LoopClient | null;
+  activeRun?: AgentRunSummary | null;
+  canPause?: boolean;
+  liveStream?: LiveStreamOverlay | null;
   fallbackCards?: NativeResultCard[];
   /** Changes when the workspace has new data; the open thread then refreshes in place. */
   refreshKey?: number;
   theme: LoopTheme;
   onClose: () => void;
+  onControlRun?: (
+    runId: string,
+    action: "pause" | "resume" | "cancel" | "retry",
+  ) => void;
   onOpenFile?: (file: PublishedFileItem) => void;
   onOpenFileTarget?: (target: LoopFileTarget, label?: string) => void;
   onSendLiveReply: (input: {
@@ -69,6 +90,7 @@ export function ThreadSheet({
     text: string;
     attachmentIds?: string[];
     idempotencyKey?: string;
+    queue?: boolean;
   }) => Promise<void>;
   onToggleSaved: (messageId: string, currentlySaved: boolean) => Promise<void>;
 }) {
@@ -79,6 +101,9 @@ export function ThreadSheet({
   >(() => new Map());
   const [savedIds, setSavedIds] = useState<Set<string>>(() => new Set());
   const [working, setWorking] = useState(false);
+  const [steerableRunId, setSteerableRunId] = useState<string | null>(null);
+  const [deliveryMode, setDeliveryMode] = useState<"steer" | "queue">("steer");
+  const [retryModeLocked, setRetryModeLocked] = useState(false);
   const [resolvedTitle, setResolvedTitle] = useState(title);
   const [resolvedAgentId, setResolvedAgentId] = useState<string | null>(
     agentId ?? null,
@@ -88,7 +113,10 @@ export function ThreadSheet({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
-  const sendKeyRef = useRef<string | null>(null);
+  const pendingSendRef = useRef<{
+    idempotencyKey: string;
+    queue?: boolean;
+  } | null>(null);
   const refreshGateRef = useRef(new ThreadRefreshGate());
   // The parent rebuilds this array on every render. Read it through a ref so a
   // parent re-render does not reload the thread.
@@ -98,10 +126,18 @@ export function ThreadSheet({
     agentId: resolvedAgentId,
   });
 
+  // Only offer Steer vs Queue when the server's `steerable_run_id` confirms live input is supported.
+  const canSteerActiveRun = Boolean(
+    steerableRunId &&
+    (working || activeRun?.state === "running") &&
+    (!activeRun || activeRun.id === steerableRunId),
+  );
+
   const attSig = replyAttachments.readyIds.join(",");
   useEffect(() => {
-    sendKeyRef.current = null;
-  }, [draft, conversationId, resolvedAgentId, attSig]);
+    pendingSendRef.current = null;
+    setRetryModeLocked(false);
+  }, [draft, conversationId, attSig]);
 
   const load = useCallback(async () => {
     if (!client) {
@@ -147,6 +183,7 @@ export function ThreadSheet({
       setMessages(page.messages);
       setSavedIds(new Set(page.saved));
       setWorking(page.working);
+      setSteerableRunId(page.steerable_run_id ?? null);
       if (page.conversation.title) setResolvedTitle(page.conversation.title);
       if (page.conversation.agent_id) {
         setResolvedAgentId(page.conversation.agent_id);
@@ -211,8 +248,13 @@ export function ThreadSheet({
       (readyNames.length === 1
         ? `Attached ${readyNames[0]}`
         : `Attached ${readyNames.length} files`);
-    if (!sendKeyRef.current) sendKeyRef.current = randomUuid();
-    const idempotencyKey = sendKeyRef.current;
+    if (!pendingSendRef.current) {
+      pendingSendRef.current = {
+        idempotencyKey: randomUuid(),
+        queue: canSteerActiveRun ? deliveryMode === "queue" : undefined,
+      };
+    }
+    const { idempotencyKey, queue } = pendingSendRef.current;
     haptics.medium();
     setSending(true);
     setError("");
@@ -224,14 +266,22 @@ export function ThreadSheet({
         text: finalText,
         attachmentIds: readyIds,
         idempotencyKey,
+        ...(queue !== undefined ? { queue } : {}),
       });
-      sendKeyRef.current = null;
+      pendingSendRef.current = null;
+      setRetryModeLocked(false);
       setDraft("");
       clearAttachments();
       if (client) {
         setTimeout(() => void load(), 500);
       }
     } catch (err) {
+      if (!isUncertainOutcomeError(err)) {
+        pendingSendRef.current = null;
+        setRetryModeLocked(false);
+      } else {
+        setRetryModeLocked(true);
+      }
       haptics.warning();
       setError(err instanceof Error ? err.message : "Could not send reply.");
     } finally {
@@ -302,16 +352,49 @@ export function ThreadSheet({
               <Text style={[styles.headerAgent, { color: theme.text }]}>
                 @{agentName}
               </Text>
-              {working && (
+              {(working || activeRun) && (
                 <View
                   style={[
                     styles.workingBadge,
-                    { backgroundColor: theme.blueSoft },
+                    {
+                      backgroundColor:
+                        activeRun?.state === "failed" ||
+                        activeRun?.state === "interrupted"
+                          ? theme.orangeSoft
+                          : theme.blueSoft,
+                    },
                   ]}
                 >
-                  <Sparkles size={10} color={theme.blue} />
-                  <Text style={[styles.workingText, { color: theme.blue }]}>
-                    Working
+                  <Sparkles
+                    size={10}
+                    color={
+                      activeRun?.state === "failed" ||
+                      activeRun?.state === "interrupted"
+                        ? theme.orange
+                        : theme.blue
+                    }
+                  />
+                  <Text
+                    style={[
+                      styles.workingText,
+                      {
+                        color:
+                          activeRun?.state === "failed" ||
+                          activeRun?.state === "interrupted"
+                            ? theme.orange
+                            : theme.blue,
+                      },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {liveStream?.activity ||
+                      (activeRun?.state === "paused"
+                        ? "Paused"
+                        : activeRun?.state === "failed"
+                          ? "Failed"
+                          : activeRun?.state === "interrupted"
+                            ? "Interrupted"
+                            : "Working")}
                   </Text>
                 </View>
               )}
@@ -324,6 +407,118 @@ export function ThreadSheet({
             </Text>
           </View>
         </View>
+
+        {/* Active Run Control Strip (Pause / Resume / Stop / Retry) */}
+        {activeRun && onControlRun && (
+          <View
+            style={[
+              styles.runBar,
+              {
+                backgroundColor: theme.surface,
+                borderBottomColor: theme.line,
+              },
+            ]}
+          >
+            <Text
+              style={[styles.runBarLabel, { color: theme.muted }]}
+              numberOfLines={1}
+            >
+              {liveStream?.activity ||
+                (activeRun.state === "paused"
+                  ? "Run paused"
+                  : activeRun.state === "failed"
+                    ? "Run failed — retry?"
+                    : activeRun.state === "interrupted"
+                      ? "Run interrupted — retry?"
+                      : "Active run")}
+            </Text>
+            <View style={styles.runBarActions}>
+              {canPause &&
+                (activeRun.state === "running" ||
+                  activeRun.state === "waiting_children") && (
+                  <Pressable
+                    onPress={() => {
+                      haptics.light();
+                      onControlRun(activeRun.id, "pause");
+                    }}
+                    style={[
+                      styles.runBtn,
+                      { backgroundColor: theme.soft, borderColor: theme.line },
+                    ]}
+                  >
+                    <Pause size={12} color={theme.text} />
+                    <Text style={[styles.runBtnText, { color: theme.text }]}>
+                      Pause
+                    </Text>
+                  </Pressable>
+                )}
+              {activeRun.state === "paused" && (
+                <Pressable
+                  onPress={() => {
+                    haptics.light();
+                    onControlRun(activeRun.id, "resume");
+                  }}
+                  style={[
+                    styles.runBtn,
+                    {
+                      backgroundColor: theme.attention,
+                      borderColor: theme.attentionLine,
+                    },
+                  ]}
+                >
+                  <Play size={12} color={theme.brassText} />
+                  <Text style={[styles.runBtnText, { color: theme.brassText }]}>
+                    Resume
+                  </Text>
+                </Pressable>
+              )}
+              {(activeRun.state === "failed" ||
+                activeRun.state === "interrupted") && (
+                <Pressable
+                  onPress={() => {
+                    haptics.medium();
+                    onControlRun(activeRun.id, "retry");
+                  }}
+                  style={[
+                    styles.runBtn,
+                    {
+                      backgroundColor: theme.attention,
+                      borderColor: theme.attentionLine,
+                    },
+                  ]}
+                >
+                  <RotateCcw size={12} color={theme.brassText} />
+                  <Text style={[styles.runBtnText, { color: theme.brassText }]}>
+                    Retry
+                  </Text>
+                </Pressable>
+              )}
+              {(activeRun.state === "running" ||
+                activeRun.state === "pausing" ||
+                activeRun.state === "paused" ||
+                activeRun.state === "waiting_children") && (
+                <Pressable
+                  onPress={() => {
+                    haptics.warning();
+                    onControlRun(activeRun.id, "cancel");
+                  }}
+                  style={[
+                    styles.runBtn,
+                    {
+                      backgroundColor: theme.orangeSoft,
+                      borderColor: theme.orange,
+                    },
+                  ]}
+                >
+                  <Square size={11} color={theme.orange} />
+                  <Text style={[styles.runBtnText, { color: theme.orange }]}>
+                    Stop
+                  </Text>
+                </Pressable>
+              )}
+            </View>
+          </View>
+        )}
 
         {/* Chronological Message Stream */}
         <ScrollView
@@ -343,80 +538,145 @@ export function ThreadSheet({
               {error}
             </Text>
           ) : (
-            messages.map((msg) => {
-              const isUser = msg.role === "user";
-              const isSaved = savedIds.has(msg.id);
-              return (
-                <View
-                  key={msg.id}
-                  style={[
-                    styles.msgCard,
-                    isUser
-                      ? {
-                          backgroundColor: theme.attention,
-                          borderColor: theme.attentionLine,
-                          alignSelf: "flex-end",
-                          maxWidth: "88%",
-                        }
-                      : {
-                          backgroundColor: theme.surface,
-                          borderColor: theme.line,
-                        },
-                  ]}
-                >
-                  <View style={styles.msgHead}>
-                    <Text
-                      style={[
-                        styles.msgAuthor,
-                        { color: isUser ? theme.brassText : theme.muted },
-                      ]}
-                    >
-                      {isUser ? "You" : `@${agentName}`} ·{" "}
-                      {relativeTime(msg.created_at)}
-                    </Text>
-                    {!isUser && (
-                      <Pressable
-                        onPress={() => void handleToggleSave(msg.id)}
-                        hitSlop={8}
+            <>
+              {messages.map((msg) => {
+                const isUser = msg.role === "user";
+                const isSaved = savedIds.has(msg.id);
+                return (
+                  <View
+                    key={msg.id}
+                    style={[
+                      styles.msgCard,
+                      isUser
+                        ? {
+                            backgroundColor: theme.attention,
+                            borderColor: theme.attentionLine,
+                            alignSelf: "flex-end",
+                            maxWidth: "88%",
+                          }
+                        : {
+                            backgroundColor: theme.surface,
+                            borderColor: theme.line,
+                          },
+                    ]}
+                  >
+                    <View style={styles.msgHead}>
+                      <Text
+                        style={[
+                          styles.msgAuthor,
+                          { color: isUser ? theme.brassText : theme.muted },
+                        ]}
                       >
-                        {isSaved ? (
-                          <BookmarkCheck size={15} color={theme.brassText} />
-                        ) : (
-                          <Bookmark size={15} color={theme.muted} />
-                        )}
-                      </Pressable>
+                        {isUser ? "You" : `@${agentName}`} ·{" "}
+                        {relativeTime(msg.created_at)}
+                      </Text>
+                      {!isUser && (
+                        <Pressable
+                          onPress={() => void handleToggleSave(msg.id)}
+                          hitSlop={8}
+                        >
+                          {isSaved ? (
+                            <BookmarkCheck size={15} color={theme.brassText} />
+                          ) : (
+                            <Bookmark size={15} color={theme.muted} />
+                          )}
+                        </Pressable>
+                      )}
+                    </View>
+                    {isUser ? (
+                      <Text style={[styles.userText, { color: theme.text }]}>
+                        {msg.content}
+                      </Text>
+                    ) : (
+                      <>
+                        <RichContent
+                          content={msg.content}
+                          theme={theme}
+                          workspaceOrigin={client?.origin}
+                          onOpenFile={onOpenFileTarget}
+                          onReplyButton={(prompt) => {
+                            pendingSendRef.current = null;
+                            setDraft(prompt);
+                          }}
+                        />
+                        {msg.run_id &&
+                        (runFilesByRunId.get(msg.run_id)?.length ?? 0) > 0 ? (
+                          <PublishedFilesStrip
+                            files={runFilesByRunId.get(msg.run_id)!}
+                            client={client}
+                            theme={theme}
+                            onOpenFile={onOpenFile}
+                          />
+                        ) : null}
+                      </>
                     )}
                   </View>
-                  {isUser ? (
-                    <Text style={[styles.userText, { color: theme.text }]}>
-                      {msg.content}
-                    </Text>
-                  ) : (
-                    <>
+                );
+              })}
+
+              {(working ||
+                (activeRun &&
+                  [
+                    "running",
+                    "pausing",
+                    "awaiting_approval",
+                    "waiting_children",
+                  ].includes(activeRun.state))) &&
+                liveStream &&
+                !liveStream.gapped &&
+                (liveStream.text.trim().length > 0 || liveStream.activity) &&
+                !messages.some((m, idx) => {
+                  if (m.role !== "assistant") return false;
+                  const trimmedStream = liveStream.text.trim();
+                  if (liveStream.messageId) {
+                    if (
+                      m.id === liveStream.messageId &&
+                      m.content.trim().length >= trimmedStream.length
+                    ) {
+                      return true;
+                    }
+                    // Only compare text against the latest persisted message of this run so
+                    // an identical earlier reply (e.g. "Done") never hides a new live turn.
+                    return (
+                      idx === messages.length - 1 &&
+                      Boolean(activeRun && m.run_id === activeRun.id) &&
+                      trimmedStream.length > 0 &&
+                      m.content.trim() === trimmedStream
+                    );
+                  }
+                  return (
+                    activeRun !== null &&
+                    m.run_id === activeRun.id &&
+                    trimmedStream.length > 0 &&
+                    m.content.trim().length >= trimmedStream.length
+                  );
+                }) && (
+                  <View
+                    style={[
+                      styles.msgCard,
+                      {
+                        backgroundColor: theme.surface,
+                        borderColor: theme.blue,
+                      },
+                    ]}
+                  >
+                    <View style={styles.msgHead}>
+                      <Text style={[styles.msgAuthor, { color: theme.blue }]}>
+                        @{agentName} · {liveStream.activity || "Streaming…"}
+                      </Text>
+                      <ActivityIndicator size="small" color={theme.blue} />
+                    </View>
+                    {liveStream.text.trim().length > 0 ? (
                       <RichContent
-                        content={msg.content}
+                        content={liveStream.text}
                         theme={theme}
                         workspaceOrigin={client?.origin}
                         onOpenFile={onOpenFileTarget}
-                        onReplyButton={(prompt) => {
-                          sendKeyRef.current = null;
-                          setDraft(prompt);
-                        }}
                       />
-                      {msg.run_id &&
-                      (runFilesByRunId.get(msg.run_id)?.length ?? 0) > 0 ? (
-                        <PublishedFilesStrip
-                          files={runFilesByRunId.get(msg.run_id)!}
-                          client={client}
-                          theme={theme}
-                          onOpenFile={onOpenFile}
-                        />
-                      ) : null}
-                    </>
-                  )}
-                </View>
-              );
-            })
+                    ) : null}
+                  </View>
+                )}
+            </>
           )}
         </ScrollView>
 
@@ -431,6 +691,76 @@ export function ThreadSheet({
             },
           ]}
         >
+          {canSteerActiveRun && (
+            <View style={styles.deliveryRow}>
+              <Pressable
+                disabled={sending || retryModeLocked}
+                onPress={() => {
+                  haptics.selection();
+                  setDeliveryMode("steer");
+                }}
+                style={[
+                  styles.deliveryPill,
+                  {
+                    backgroundColor:
+                      deliveryMode === "steer" ? theme.attention : theme.soft,
+                    borderColor:
+                      deliveryMode === "steer"
+                        ? theme.attentionLine
+                        : theme.line,
+                    opacity: sending || retryModeLocked ? 0.55 : 1,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.deliveryPillText,
+                    {
+                      color:
+                        deliveryMode === "steer"
+                          ? theme.brassText
+                          : theme.muted,
+                    },
+                  ]}
+                >
+                  Steer live run
+                </Text>
+              </Pressable>
+              <Pressable
+                disabled={sending || retryModeLocked}
+                onPress={() => {
+                  haptics.selection();
+                  setDeliveryMode("queue");
+                }}
+                style={[
+                  styles.deliveryPill,
+                  {
+                    backgroundColor:
+                      deliveryMode === "queue" ? theme.attention : theme.soft,
+                    borderColor:
+                      deliveryMode === "queue"
+                        ? theme.attentionLine
+                        : theme.line,
+                    opacity: sending || retryModeLocked ? 0.55 : 1,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.deliveryPillText,
+                    {
+                      color:
+                        deliveryMode === "queue"
+                          ? theme.brassText
+                          : theme.muted,
+                    },
+                  ]}
+                >
+                  Queue after run
+                </Text>
+              </Pressable>
+            </View>
+          )}
           <AttachmentChipStrip
             attachments={replyAttachments.attachments}
             theme={theme}
@@ -467,7 +797,7 @@ export function ThreadSheet({
             <TextInput
               value={draft}
               onChangeText={(next) => {
-                sendKeyRef.current = null;
+                pendingSendRef.current = null;
                 setDraft(next);
               }}
               placeholder={`Reply to @${agentName}…`}
@@ -595,6 +925,54 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingTop: 10,
     borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  runBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  runBarLabel: {
+    flex: 1,
+    fontSize: 12.5,
+    fontWeight: "600",
+  },
+  runBarActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  runBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  runBtnText: {
+    fontSize: 11.5,
+    fontWeight: "700",
+  },
+  deliveryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 8,
+  },
+  deliveryPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  deliveryPillText: {
+    fontSize: 11.5,
+    fontWeight: "700",
   },
   composerPill: {
     flexDirection: "row",

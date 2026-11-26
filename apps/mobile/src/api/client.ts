@@ -233,6 +233,7 @@ export class LoopClient {
       state: string;
       created_at: number;
       updated_at?: number;
+      payload?: string | { connectionId?: string | null } | null;
     }>
   > {
     return this.request("GET", `/api/runs${active ? "?active=1" : ""}`);
@@ -466,6 +467,7 @@ export class LoopClient {
     input: string;
     attachmentIds?: string[];
     idempotencyKey?: string;
+    queue?: boolean;
   }): Promise<{ id: string; conversation_id?: string }> {
     return this.request(
       "POST",
@@ -479,6 +481,7 @@ export class LoopClient {
           ? { replyToMessageId: input.replyToMessageId }
           : {}),
         ...(input.folderId ? { folderId: input.folderId } : {}),
+        ...(input.queue !== undefined ? { queue: input.queue } : {}),
         input: input.input,
         attachmentIds: input.attachmentIds ?? [],
         idempotencyKey: input.idempotencyKey ?? randomUuid(),
@@ -489,13 +492,28 @@ export class LoopClient {
 
   runAction(
     runId: string,
-    action: "cancel" | "retry" | "dismiss",
+    action: "cancel" | "retry" | "dismiss" | "pause" | "resume",
     idempotencyKey?: string,
   ): Promise<unknown> {
     return this.request(
       "POST",
       `/api/runs/${encodeURIComponent(runId)}/${action}`,
       { idempotencyKey: idempotencyKey ?? randomUuid() },
+    );
+  }
+
+  reorderRun(
+    runId: string,
+    direction: "up" | "down",
+    idempotencyKey?: string,
+  ): Promise<{ ok: boolean }> {
+    return this.request(
+      "POST",
+      `/api/runs/${encodeURIComponent(runId)}/reorder`,
+      {
+        direction,
+        idempotencyKey: idempotencyKey ?? randomUuid(),
+      },
     );
   }
 

@@ -34,7 +34,17 @@ import {
   type PublishedFileItem,
 } from "./src/api/files";
 import { clearPairedSession, loadPairedSession } from "./src/api/pairing";
-import { LoopEventSocket, type SocketStatus } from "./src/api/socket";
+import {
+  applyLiveStreamBatch,
+  buildAgentQueuedRuns,
+  canPauseRun,
+  clearRunFromLiveStreams,
+  LoopEventSocket,
+  pruneLiveStreams,
+  type LiveStreamEvent,
+  type LiveStreamOverlay,
+  type SocketStatus,
+} from "./src/api/socket";
 import {
   ActionKeyStore,
   runSaveToggle,
@@ -43,6 +53,7 @@ import {
 import type {
   ApiAgent,
   ApiApproval,
+  ApiFeedItem,
   ApiFeedSummary,
   ApiFolder,
   ApiNativeDecision,
@@ -155,6 +166,16 @@ function LoopShell() {
   const [approvals, setApprovals] = useState<ApiApproval[]>([]);
   const [decisions, setDecisions] = useState<ApiNativeDecision[]>([]);
   const [activeRuns, setActiveRuns] = useState<AgentRunSummary[]>([]);
+  const [queuedFeedItems, setQueuedFeedItems] = useState<ApiFeedItem[]>([]);
+  const [liveStreams, setLiveStreams] = useState<
+    Map<string, LiveStreamOverlay>
+  >(() => new Map());
+  const liveStreamsRef = useRef<Map<string, LiveStreamOverlay>>(new Map());
+  const streamFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const activeRunsRef = useRef<AgentRunSummary[]>([]);
+  activeRunsRef.current = activeRuns;
   const [environmentName, setEnvironmentName] = useState<string>("");
   const [refreshing, setRefreshing] = useState(false);
   // Bumped after each workspace load so an open thread refreshes in place.
@@ -242,6 +263,10 @@ function LoopShell() {
   const loadCoordRef = useRef(new WorkspaceLoadCoordinator());
   // Durable per-target idempotency/command keys so retries after uncertain timeouts reuse the same key
   const actionKeysRef = useRef(new ActionKeyStore());
+  const inFlightRunActionsRef = useRef<Set<string>>(new Set());
+  // Maps `runId -> timedOutAt` for reorders whose outcome is uncertain; released only by a
+  // queue refresh started after `timedOutAt` (or after 15s fallback so offline never wedges).
+  const uncertainReordersRef = useRef<Map<string, number>>(new Map());
 
   const loadWorkspace = useCallback(
     async (options?: { silent?: boolean }) => {
@@ -251,11 +276,14 @@ function LoopShell() {
         setRefreshing,
         refreshSession: () => client.refreshSession(),
         fetchAll: async () => {
+          const fetchStartedAt = Date.now();
           const [
             boot,
             feedPage,
             doneCardItems,
             replyPage,
+            queuedPage,
+            workingPage,
             appList,
             decList,
             snipList,
@@ -265,10 +293,12 @@ function LoopShell() {
             client.feed("done"),
             client.doneCards().catch(() => null),
             client.feed("replies").catch(() => null),
+            client.feed("queued").catch(() => null),
+            client.feed("working").catch(() => null),
             client.approvals().catch(() => [] as ApiApproval[]),
             client.nativeDecisions().catch(() => [] as ApiNativeDecision[]),
             client.snippets().catch(() => [] as ApiSnippet[]),
-            client.runs(true).catch(() => [] as AgentRunSummary[]),
+            client.runs(true).catch(() => null),
           ]);
           // Drop stale results if workspace switched or signed out mid-flight
           if (gen !== loadCoordRef.current.currentGeneration) return;
@@ -285,10 +315,33 @@ function LoopShell() {
           setLiveCards(
             mergeUnifiedFeedCards(doneSource, replyPage?.items ?? []),
           );
+          if (queuedPage || workingPage) {
+            setQueuedFeedItems([
+              ...(queuedPage?.items ?? []),
+              ...(workingPage?.items ?? []),
+            ]);
+            // Release uncertain-reorder locks only for timeouts that occurred BEFORE this
+            // refresh started — never releasing an actively in-flight reorder request.
+            for (const [id, timedOutAt] of Array.from(
+              uncertainReordersRef.current.entries(),
+            )) {
+              if (fetchStartedAt > timedOutAt) {
+                uncertainReordersRef.current.delete(id);
+              }
+            }
+          }
           setApprovals(appList);
           setDecisions(decList);
           setSnippets(snipList);
-          setActiveRuns(runList);
+          if (runList !== null) {
+            setActiveRuns(runList);
+            actionKeysRef.current.reconcileRunActions(runList);
+            if (
+              pruneLiveStreams(liveStreamsRef.current, runList, fetchStartedAt)
+            ) {
+              setLiveStreams(new Map(liveStreamsRef.current));
+            }
+          }
           setWorkspaceVersion((v) => v + 1);
         },
         onError: (err) => {
@@ -316,6 +369,8 @@ function LoopShell() {
   useEffect(() => {
     workspaceGenRef.current = loadCoordRef.current.reset();
     actionKeysRef.current.clear();
+    inFlightRunActionsRef.current.clear();
+    uncertainReordersRef.current.clear();
     // Clear stale Undo toasts from the previous workspace while preserving status toasts (expiry/pair/sign-out)
     setToast((prev) => (prev?.undo ? null : prev));
     setRefreshing(false);
@@ -326,6 +381,13 @@ function LoopShell() {
     setSnippets([]);
     setConnections([]);
     setActiveRuns([]);
+    setQueuedFeedItems([]);
+    if (streamFlushTimerRef.current) {
+      clearTimeout(streamFlushTimerRef.current);
+      streamFlushTimerRef.current = null;
+    }
+    liveStreamsRef.current = new Map();
+    setLiveStreams(new Map());
     setSummary(null);
     setEnvironmentName("");
     setOpenConversationId(null);
@@ -344,6 +406,20 @@ function LoopShell() {
     void loadWorkspace({ silent: true });
   }, [client, loadWorkspace]);
 
+  const handleStreamEvents = useCallback((events: LiveStreamEvent[]) => {
+    const changed = applyLiveStreamBatch(
+      liveStreamsRef.current,
+      events,
+      activeRunsRef.current,
+    );
+    if (changed && !streamFlushTimerRef.current) {
+      streamFlushTimerRef.current = setTimeout(() => {
+        streamFlushTimerRef.current = null;
+        setLiveStreams(new Map(liveStreamsRef.current));
+      }, 100);
+    }
+  }, []);
+
   // Live WebSocket updates when paired
   useEffect(() => {
     if (!session || !client) return;
@@ -351,10 +427,17 @@ function LoopShell() {
       session,
       () => void loadWorkspaceRef.current({ silent: true }),
       setSocketStatus,
+      handleStreamEvents,
     );
     sock.start();
-    return () => sock.stop();
-  }, [session, client]);
+    return () => {
+      sock.stop();
+      if (streamFlushTimerRef.current) {
+        clearTimeout(streamFlushTimerRef.current);
+        streamFlushTimerRef.current = null;
+      }
+    };
+  }, [session, client, handleStreamEvents]);
 
   const activeCards = client ? liveCards : demoCards;
 
@@ -581,6 +664,7 @@ function LoopShell() {
       prompt: string,
       attachmentIds?: string[],
       idempotencyKey?: string,
+      queue?: boolean,
     ) => {
       if (client) {
         const gen = workspaceGenRef.current;
@@ -598,11 +682,14 @@ function LoopShell() {
           input: prompt,
           attachmentIds,
           idempotencyKey,
+          queue,
         });
         showToast(
-          attachmentIds?.length
-            ? `Sent to @${card.agentName} with ${attachmentIds.length} ${attachmentIds.length === 1 ? "file" : "files"}`
-            : `Sent to @${card.agentName}`,
+          queue
+            ? `Queued for @${card.agentName}`
+            : attachmentIds?.length
+              ? `Sent to @${card.agentName} with ${attachmentIds.length} ${attachmentIds.length === 1 ? "file" : "files"}`
+              : `Sent to @${card.agentName}`,
         );
         scheduleSilentRefresh(450, gen);
         return;
@@ -759,45 +846,192 @@ function LoopShell() {
     [client, scheduleSilentRefresh, showToast],
   );
 
-  const handleCancelQueuedRun = useCallback(
-    (runId: string) => {
+  const handleControlRun = useCallback(
+    (runId: string, action: "pause" | "resume" | "cancel" | "retry") => {
       if (!client) {
-        setDemoCards((prev) => prev.filter((c) => c.id !== runId));
-        showToast("Cancelled queued message");
+        if (action === "cancel") {
+          setDemoCards((prev) => prev.filter((c) => c.id !== runId));
+        }
+        showToast(
+          action === "pause"
+            ? "Paused run"
+            : action === "resume"
+              ? "Resumed run"
+              : action === "retry"
+                ? "Retried run"
+                : "Stopped run",
+        );
         return;
       }
       const gen = workspaceGenRef.current;
-      const scopeKey = actionKeysRef.current.scopeForRunCancel(runId);
+      const flightKey = `${action}:${runId}`;
+      if (inFlightRunActionsRef.current.has(flightKey)) return;
+      inFlightRunActionsRef.current.add(flightKey);
+
+      // Keep one durable key per (runId, action) across uncertain timeouts until reconciled
+      // by a definite response or a refreshed run state via `reconcileRunActions`.
+      const scopeKey = actionKeysRef.current.scopeForRunAction(runId, action);
       const idempotencyKey = actionKeysRef.current.getOrCreate(scopeKey);
       const priorRun = activeRuns.find((r) => r.id === runId);
-      setActiveRuns((prev) => prev.filter((r) => r.id !== runId));
+      if (action === "cancel") {
+        setActiveRuns((prev) => prev.filter((r) => r.id !== runId));
+        setCarouselOverrideCards((prev) =>
+          prev
+            ? prev.filter(
+                (c) => c.runId !== runId && c.id !== `working:${runId}`,
+              )
+            : prev,
+        );
+        setQueuedFeedItems((prev) =>
+          prev
+            .map((item) => {
+              const filteredQueued = item.queued_runs?.filter(
+                (q) => q.id !== runId,
+              );
+              const nextRun =
+                item.run?.id === runId && item.run.state === "queued"
+                  ? null
+                  : item.run;
+              if (filteredQueued === item.queued_runs && nextRun === item.run) {
+                return item;
+              }
+              return {
+                ...item,
+                run: nextRun,
+                ...(filteredQueued ? { queued_runs: filteredQueued } : {}),
+              };
+            })
+            .filter(
+              (item) =>
+                Boolean(item.run) ||
+                Boolean(item.queued_runs && item.queued_runs.length > 0),
+            ),
+        );
+        const hasOtherActiveInConv = Boolean(
+          priorRun?.conversation_id &&
+          activeRuns.some(
+            (r) =>
+              r.id !== runId &&
+              r.conversation_id === priorRun.conversation_id &&
+              r.state !== "queued",
+          ),
+        );
+        if (
+          clearRunFromLiveStreams(
+            liveStreamsRef.current,
+            runId,
+            priorRun?.conversation_id,
+            hasOtherActiveInConv,
+          )
+        ) {
+          setLiveStreams(new Map(liveStreamsRef.current));
+        }
+      } else if (action === "pause" || action === "resume") {
+        // Matches server `controlRun`: Pause transitions running -> pausing,
+        // and Resume transitions paused -> queued (or completed if already answered).
+        setActiveRuns((prev) =>
+          prev.map((r) =>
+            r.id === runId
+              ? { ...r, state: action === "pause" ? "pausing" : "queued" }
+              : r,
+          ),
+        );
+        if (
+          action === "resume" &&
+          clearRunFromLiveStreams(
+            liveStreamsRef.current,
+            runId,
+            priorRun?.conversation_id,
+          )
+        ) {
+          setLiveStreams(new Map(liveStreamsRef.current));
+        }
+      } else if (action === "retry") {
+        // Keep the failed/interrupted run visible until the server confirms retry so that
+        // if retry times out or fails offline, the user can tap Retry again using the retained
+        // durable idempotencyKey (double-taps while in flight are already blocked by `flightKey`).
+      }
       void client
-        .runAction(runId, "cancel", idempotencyKey)
+        .runAction(runId, action, idempotencyKey)
         .then(() => {
-          if (gen === workspaceGenRef.current) {
-            actionKeysRef.current.delete(scopeKey);
-            showToast("Cancelled queued message");
-            scheduleSilentRefresh(350, gen);
+          if (gen !== workspaceGenRef.current) return;
+          inFlightRunActionsRef.current.delete(flightKey);
+          actionKeysRef.current.delete(scopeKey);
+          if (action === "retry") {
+            // Remove the retried failed/interrupted run immediately on server confirmation so a
+            // second Retry tap before the 350ms refresh cannot create a duplicate run.
+            setActiveRuns((prev) => prev.filter((r) => r.id !== runId));
           }
+          showToast(
+            action === "pause"
+              ? "Pausing run…"
+              : action === "resume"
+                ? "Resumed run"
+                : action === "retry"
+                  ? "Retrying run…"
+                  : "Stopped run",
+          );
+          scheduleSilentRefresh(350, gen);
         })
         .catch((err) => {
           if (gen !== workspaceGenRef.current) return;
+          inFlightRunActionsRef.current.delete(flightKey);
           if (isUncertainOutcomeError(err)) {
-            // Preserve uncertain outcome: do not restore optimistic state; re-read from server
-            showToast("Cancel timed out — checking status…");
+            showToast("Run action timed out — checking status…");
             scheduleSilentRefresh(500, gen);
             return;
           }
           actionKeysRef.current.delete(scopeKey);
-          if (priorRun) {
-            setActiveRuns((prev) =>
-              prev.some((r) => r.id === runId) ? prev : [...prev, priorRun],
-            );
-          }
+          // Re-sync from server instead of writing back a potentially stale tap-time snapshot.
           showToast((err as Error).message);
+          scheduleSilentRefresh(50, gen);
         });
     },
     [activeRuns, client, scheduleSilentRefresh, showToast],
+  );
+
+  const handleReorderQueuedRun = useCallback(
+    (runId: string, direction: "up" | "down") => {
+      if (!client) return;
+      const gen = workspaceGenRef.current;
+      const flightKey = `reorder:${runId}`;
+      const uncertainAt = uncertainReordersRef.current.get(runId);
+      if (
+        inFlightRunActionsRef.current.has(flightKey) ||
+        (uncertainAt !== undefined && Date.now() - uncertainAt < 15_000)
+      ) {
+        return;
+      }
+      uncertainReordersRef.current.delete(runId);
+      inFlightRunActionsRef.current.add(flightKey);
+      void client
+        .reorderRun(runId, direction)
+        .then(() => {
+          if (gen !== workspaceGenRef.current) return;
+          inFlightRunActionsRef.current.delete(flightKey);
+          scheduleSilentRefresh(200, gen);
+        })
+        .catch((err) => {
+          if (gen !== workspaceGenRef.current) return;
+          inFlightRunActionsRef.current.delete(flightKey);
+          if (isUncertainOutcomeError(err)) {
+            uncertainReordersRef.current.set(runId, Date.now());
+            showToast("Reorder timed out — syncing queue…");
+            scheduleSilentRefresh(500, gen);
+            return;
+          }
+          showToast((err as Error).message);
+          scheduleSilentRefresh(100, gen);
+        });
+    },
+    [client, scheduleSilentRefresh, showToast],
+  );
+
+  const handleCancelQueuedRun = useCallback(
+    (runId: string) => {
+      handleControlRun(runId, "cancel");
+    },
+    [handleControlRun],
   );
 
   const handleSignOut = useCallback(async () => {
@@ -991,14 +1225,92 @@ function LoopShell() {
     [client, showToast],
   );
 
+  const openCarouselActiveRun = useMemo(() => {
+    if (!openConversationId) return null;
+    return (
+      effectiveActiveRuns.find(
+        (r) =>
+          r.conversation_id === openConversationId &&
+          [
+            "running",
+            "pausing",
+            "paused",
+            "awaiting_approval",
+            "waiting_children",
+            "failed",
+            "interrupted",
+          ].includes(r.state),
+      ) ?? null
+    );
+  }, [effectiveActiveRuns, openConversationId]);
+
   const openCarouselQueuedRuns = useMemo(() => {
     if (!openConversationId || openCarouselCards.length === 0) return [];
-    return effectiveActiveRuns
-      .filter(
-        (r) => r.state === "queued" && r.conversation_id === openConversationId,
-      )
-      .sort((a, b) => a.created_at - b.created_at);
-  }, [effectiveActiveRuns, openCarouselCards, openConversationId]);
+    const agentId =
+      openCarouselCards[0]?.agentId || openCarouselActiveRun?.agent_id || null;
+    return buildAgentQueuedRuns(
+      agentId,
+      openConversationId,
+      client ? queuedFeedItems : [],
+      effectiveActiveRuns,
+    );
+  }, [
+    client,
+    effectiveActiveRuns,
+    openCarouselActiveRun?.agent_id,
+    openCarouselCards,
+    openConversationId,
+    queuedFeedItems,
+  ]);
+
+  const openCarouselCanPause = useMemo(
+    () => canPauseRun(openCarouselActiveRun, agents, connections),
+    [openCarouselActiveRun, agents, connections],
+  );
+
+  const openCarouselLiveStream = useMemo(() => {
+    if (!openConversationId) return null;
+    return (
+      (openCarouselActiveRun &&
+        liveStreams.get(`run:${openCarouselActiveRun.id}`)) ||
+      liveStreams.get(`conv:${openConversationId}`) ||
+      null
+    );
+  }, [liveStreams, openCarouselActiveRun, openConversationId]);
+
+  const openThreadActiveRun = useMemo(() => {
+    if (!threadOverlay) return null;
+    return (
+      effectiveActiveRuns.find(
+        (r) =>
+          r.conversation_id === threadOverlay.conversationId &&
+          [
+            "running",
+            "pausing",
+            "paused",
+            "awaiting_approval",
+            "waiting_children",
+            "failed",
+            "interrupted",
+          ].includes(r.state),
+      ) ?? null
+    );
+  }, [effectiveActiveRuns, threadOverlay]);
+
+  const openThreadCanPause = useMemo(
+    () => canPauseRun(openThreadActiveRun, agents, connections),
+    [openThreadActiveRun, agents, connections],
+  );
+
+  const openThreadLiveStream = useMemo(() => {
+    if (!threadOverlay) return null;
+    return (
+      (openThreadActiveRun &&
+        liveStreams.get(`run:${openThreadActiveRun.id}`)) ||
+      liveStreams.get(`conv:${threadOverlay.conversationId}`) ||
+      null
+    );
+  }, [liveStreams, openThreadActiveRun, threadOverlay]);
 
   return (
     <View style={[styles.root, { backgroundColor: theme.bg }]}>
@@ -1185,10 +1497,15 @@ function LoopShell() {
           key={openConversationId}
           cards={openCarouselCards}
           queuedRuns={openCarouselQueuedRuns}
+          activeRun={openCarouselActiveRun}
+          canPause={openCarouselCanPause}
+          liveStream={openCarouselLiveStream}
           client={client}
           snippets={snippets}
           theme={theme}
           onCancelQueuedRun={handleCancelQueuedRun}
+          onReorderQueuedRun={handleReorderQueuedRun}
+          onControlRun={handleControlRun}
           onClose={() => {
             setOpenConversationId(null);
             setCarouselOverrideCards(null);
@@ -1221,17 +1538,22 @@ function LoopShell() {
       {/* Full Chronological Thread Sheet */}
       {threadOverlay && (
         <ThreadSheet
+          key={threadOverlay.conversationId}
           conversationId={threadOverlay.conversationId}
           title={threadOverlay.title}
           agentName={threadOverlay.agentName}
           agentId={threadOverlay.agentId}
           client={client}
+          activeRun={openThreadActiveRun}
+          canPause={openThreadCanPause}
+          liveStream={openThreadLiveStream}
           fallbackCards={activeCards.filter(
             (c) => c.conversationId === threadOverlay.conversationId,
           )}
           refreshKey={workspaceVersion}
           theme={theme}
           onClose={() => setThreadOverlay(null)}
+          onControlRun={handleControlRun}
           onOpenFile={handleOpenFile}
           onOpenFileTarget={handleOpenFileTarget}
           onSendLiveReply={async (input) => {
@@ -1247,11 +1569,14 @@ function LoopShell() {
                 input: input.text,
                 attachmentIds: input.attachmentIds,
                 idempotencyKey: input.idempotencyKey,
+                queue: input.queue,
               });
               showToast(
-                input.attachmentIds?.length
-                  ? `Sent to @${input.agentName} with ${input.attachmentIds.length} ${input.attachmentIds.length === 1 ? "file" : "files"}`
-                  : `Sent to @${input.agentName}`,
+                input.queue
+                  ? `Queued for @${input.agentName}`
+                  : input.attachmentIds?.length
+                    ? `Sent to @${input.agentName} with ${input.attachmentIds.length} ${input.attachmentIds.length === 1 ? "file" : "files"}`
+                    : `Sent to @${input.agentName}`,
               );
             } else {
               const nextCard = buildSimulatedReply(

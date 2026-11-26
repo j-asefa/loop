@@ -45,9 +45,15 @@ export type AgentRunSummary = {
   id: string;
   agent_id: string;
   conversation_id: string | null;
+  connection_id?: string | null;
+  payload?: string | { connectionId?: string | null } | null;
   input: string;
   state: string;
   created_at: number;
+  queue_position?: number | null;
+  can_move_up?: boolean;
+  can_move_down?: boolean;
+  threadTitle?: string;
 };
 
 export function AgentProfileSheet({
