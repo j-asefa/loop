@@ -359,6 +359,7 @@ export function FeedScreen({
                     style={[
                       styles.agentPortraitRing,
                       {
+                        padding: status === "Working" ? 1.5 : 2.5,
                         borderWidth: status === "Working" ? 2.5 : 1.5,
                         backgroundColor:
                           status === "Working" ? theme.blueSoft : "transparent",
@@ -423,6 +424,8 @@ export function FeedScreen({
                           { color: theme.onBlue },
                         ]}
                         numberOfLines={1}
+                        adjustsFontSizeToFit
+                        minimumFontScale={0.82}
                       >
                         {statusCaption}
                       </Text>
@@ -1155,12 +1158,13 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   workingStatusPill: {
-    paddingHorizontal: 7,
+    paddingHorizontal: 5,
     paddingVertical: 2,
     borderRadius: 999,
+    maxWidth: 72,
   },
   workingStatusText: {
-    fontSize: 10,
+    fontSize: 9.5,
     fontWeight: "800",
     textAlign: "center",
   },
