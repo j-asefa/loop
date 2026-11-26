@@ -13,8 +13,8 @@ import {
   Text,
   View,
 } from "react-native";
-import { BlurView } from "expo-blur";
 import { StatusBar } from "expo-status-bar";
+import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import {
   Folder,
@@ -129,6 +129,7 @@ function LoopShell() {
   const insets = useSafeAreaInsets();
   const [darkMode, setDarkMode] = useState(false);
   const theme = darkMode ? DARK_THEME : LIGHT_THEME;
+  const tabBarBottom = Math.max(insets.bottom, 12);
 
   // Companion session (Keychain-backed)
   const [session, setSession] = useState<PairedSession | null>(null);
@@ -1095,92 +1096,86 @@ function LoopShell() {
         />
       )}
 
-      {/* Frosted Native 5-Tab Bottom Bar (hidden while Spotlight Carousel is open) */}
       {!isCarouselOpen && (
-        <View
-          style={[
-            styles.tabBarOuter,
-            {
-              paddingBottom: Math.max(insets.bottom, 10),
-              borderTopColor: theme.line,
-            },
-          ]}
-        >
-          <BlurView
-            intensity={75}
-            tint={theme.blurTint}
-            style={StyleSheet.absoluteFill}
-          />
+        <View pointerEvents="box-none" style={styles.tabDock}>
+          <View pointerEvents="none" style={styles.tabDockBackdrop}>
+            <Svg
+              width="100%"
+              height={TAB_FADE_HEIGHT}
+              viewBox={`0 0 1 ${TAB_FADE_HEIGHT}`}
+              preserveAspectRatio="none"
+            >
+              <Defs>
+                <LinearGradient
+                  id="tabDockFade"
+                  x1="0%"
+                  y1="0%"
+                  x2="0%"
+                  y2="100%"
+                >
+                  <Stop offset="0" stopColor={theme.bg} stopOpacity={0} />
+                  <Stop offset="1" stopColor={theme.bg} />
+                </LinearGradient>
+              </Defs>
+              <Rect
+                width={1}
+                height={TAB_FADE_HEIGHT}
+                fill="url(#tabDockFade)"
+              />
+            </Svg>
+            <View
+              style={[styles.tabDockGround, { backgroundColor: theme.bg }]}
+            />
+          </View>
           <View
             style={[
-              StyleSheet.absoluteFill,
+              styles.tabBar,
               {
+                marginLeft: Math.max(insets.left, 16),
+                marginRight: Math.max(insets.right, 16),
+                marginBottom: tabBarBottom,
                 backgroundColor: theme.tabBarBg,
+                borderColor: theme.tabBarLine,
               },
             ]}
-          />
-
-          <BottomTabButton
-            label="Feed"
-            active={appTab === "feed"}
-            badge={feedBadgeCount}
-            theme={theme}
-            icon={
-              <Inbox
-                size={20}
-                color={appTab === "feed" ? theme.brassText : theme.muted}
-              />
-            }
-            onPress={() => selectBottomTab("feed")}
-          />
-          <BottomTabButton
-            label="Projects"
-            active={appTab === "projects"}
-            theme={theme}
-            icon={
-              <Folder
-                size={20}
-                color={appTab === "projects" ? theme.brassText : theme.muted}
-              />
-            }
-            onPress={() => selectBottomTab("projects")}
-          />
-          <BottomTabButton
-            label="PRs"
-            active={appTab === "pulls"}
-            theme={theme}
-            icon={
-              <GitPullRequest
-                size={20}
-                color={appTab === "pulls" ? theme.brassText : theme.muted}
-              />
-            }
-            onPress={() => selectBottomTab("pulls")}
-          />
-          <BottomTabButton
-            label="Search"
-            active={appTab === "search"}
-            theme={theme}
-            icon={
-              <Search
-                size={20}
-                color={appTab === "search" ? theme.brassText : theme.muted}
-              />
-            }
-            onPress={() => selectBottomTab("search")}
-          />
-          <BottomTabButton
-            label="Profile"
-            active={appTab === "profile"}
-            theme={theme}
-            icon={
-              <UserRound
-                size={20}
-                color={appTab === "profile" ? theme.brassText : theme.muted}
-              />
-            }
-            onPress={() => selectBottomTab("profile")}
-          />
+          >
+            <BottomTabButton
+              label="Feed"
+              active={appTab === "feed"}
+              badge={feedBadgeCount}
+              theme={theme}
+              icon={Inbox}
+              onPress={() => selectBottomTab("feed")}
+            />
+            <BottomTabButton
+              label="Projects"
+              active={appTab === "projects"}
+              theme={theme}
+              icon={Folder}
+              onPress={() => selectBottomTab("projects")}
+            />
+            <BottomTabButton
+              label="PRs"
+              active={appTab === "pulls"}
+              theme={theme}
+              icon={GitPullRequest}
+              onPress={() => selectBottomTab("pulls")}
+            />
+            <BottomTabButton
+              label="Search"
+              active={appTab === "search"}
+              theme={theme}
+              icon={Search}
+              onPress={() => selectBottomTab("search")}
+            />
+            <BottomTabButton
+              label="Profile"
+              active={appTab === "profile"}
+              theme={theme}
+              icon={UserRound}
+              onPress={() => selectBottomTab("profile")}
+            />
+          </View>
         </View>
       )}
 
@@ -1373,7 +1368,10 @@ function LoopShell() {
 
       {/* Tactile Toast with optional Undo */}
       {toast && (
-        <View pointerEvents="box-none" style={styles.toastWrap}>
+        <View
+          pointerEvents="box-none"
+          style={[styles.toastWrap, { bottom: tabBarBottom + 72 }]}
+        >
           <View
             style={[
               styles.toastPill,
@@ -1411,21 +1409,30 @@ function BottomTabButton({
   label,
   active,
   badge,
-  icon,
+  icon: Icon,
   theme,
   onPress,
 }: {
   label: string;
   active: boolean;
   badge?: number;
-  icon: React.ReactNode;
+  icon: typeof Inbox;
   theme: typeof DARK_THEME;
   onPress: () => void;
 }) {
+  const color = active ? theme.tabBarActiveText : theme.text;
   return (
-    <Pressable onPress={onPress} style={styles.tabBtn}>
+    <Pressable
+      accessibilityRole="tab"
+      accessibilityState={{ selected: active }}
+      onPress={onPress}
+      style={[
+        styles.tabBtn,
+        active && { backgroundColor: theme.tabBarActiveBg },
+      ]}
+    >
       <View style={styles.tabIconWrap}>
-        {icon}
+        <Icon size={20} color={color} />
         {!!badge && badge > 0 && (
           <View
             style={[
@@ -1444,39 +1451,50 @@ function BottomTabButton({
           </View>
         )}
       </View>
-      <Text
-        style={[
-          styles.tabBtnLabel,
-          { color: active ? theme.brassText : theme.muted },
-        ]}
-      >
-        {label}
-      </Text>
+      <Text style={[styles.tabBtnLabel, { color }]}>{label}</Text>
     </Pressable>
   );
 }
 
+const TAB_FADE_HEIGHT = 22;
+
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  tabBarOuter: {
+  tabDock: {
     position: "absolute",
     left: 0,
     right: 0,
     bottom: 0,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-around",
-    paddingTop: 8,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    overflow: "hidden",
     zIndex: 15,
+  },
+  tabDockBackdrop: {
+    ...StyleSheet.absoluteFill,
+    top: -TAB_FADE_HEIGHT,
+  },
+  tabDockGround: {
+    flex: 1,
+  },
+  tabBar: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    minHeight: 62,
+    padding: 6,
+    borderWidth: 1,
+    borderRadius: 22,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 6,
   },
   tabBtn: {
     flex: 1,
+    minHeight: 48,
     alignItems: "center",
     justifyContent: "center",
     gap: 3,
-    paddingVertical: 2,
+    paddingVertical: 4,
+    borderRadius: 16,
   },
   tabIconWrap: {
     position: "relative",
@@ -1498,12 +1516,12 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
   tabBtnLabel: {
-    fontSize: 10.5,
-    fontWeight: "600",
+    fontSize: 12,
+    fontWeight: "700",
+    textAlign: "center",
   },
   toastWrap: {
     position: "absolute",
-    bottom: 102,
     left: 20,
     right: 20,
     alignItems: "center",
