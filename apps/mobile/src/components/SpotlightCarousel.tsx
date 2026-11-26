@@ -244,6 +244,7 @@ export function SpotlightCarousel({
             return next;
           });
           setHistorySlides(extra);
+          setSteerableRunId(page.steerable_run_id ?? null);
         })
         .catch(() => {});
     }, 140);
@@ -251,7 +252,7 @@ export function SpotlightCarousel({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [client, conversationId]);
+  }, [client, conversationId, activeRun?.id, activeRun?.state]);
 
   const slides = useMemo(() => {
     const ordered: NativeResultCard[] = [];
@@ -264,7 +265,10 @@ export function SpotlightCarousel({
       const resolvedRunId =
         card.runId || (msgId ? historyRunIds.get(msgId) : undefined);
       const streamedBody =
-        card.tab === "working" && liveStream?.text && !liveStream.gapped
+        card.tab === "working" &&
+        liveStream?.text &&
+        !liveStream.gapped &&
+        !liveStream.truncated
           ? liveStream.text
           : undefined;
       return {
@@ -298,6 +302,7 @@ export function SpotlightCarousel({
     fullBodies,
     liveStream?.text,
     liveStream?.gapped,
+    liveStream?.truncated,
   ]);
 
   const [activeIndex, setActiveIndex] = useState(0);
@@ -322,6 +327,7 @@ export function SpotlightCarousel({
   const [sending, setSending] = useState(false);
   const [replyError, setReplyError] = useState("");
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [steerableRunId, setSteerableRunId] = useState<string | null>(null);
   const [deliveryMode, setDeliveryMode] = useState<"steer" | "queue">("steer");
   const [retryModeLocked, setRetryModeLocked] = useState(false);
   // Preserve idempotencyKey, replyToMessageId, and queue delivery mode across retries after
@@ -335,8 +341,14 @@ export function SpotlightCarousel({
     agentId: activeCard?.agentId,
   });
 
-  const canSteerActiveRun =
-    activeRun?.state === "running" || activeRun?.state === "waiting_children";
+  // Authoritative server capability: only show Steer/Queue toggle when the server reports
+  // `steerable_run_id` matching the active run (harnesses with `midTurn: "steer"` / active live input).
+  const canSteerActiveRun = Boolean(
+    activeRun &&
+    activeRun.state === "running" &&
+    steerableRunId &&
+    steerableRunId === activeRun.id,
+  );
 
   // Invalidate pending retry key ONLY when the reply payload or conversation changes;
   // toggling Steer/Queue after an uncertain timeout is locked so the chip matches the pending retry.

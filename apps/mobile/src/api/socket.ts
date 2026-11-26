@@ -40,6 +40,7 @@ export type LiveStreamMessageState = {
   revision?: number;
   anchored?: boolean;
   gapped?: boolean;
+  truncated?: boolean;
 };
 
 export type LiveStreamOverlay = {
@@ -55,6 +56,8 @@ export type LiveStreamOverlay = {
   anchored?: boolean;
   /** True if text was received mid-stream without an anchor or after a byte-offset gap. */
   gapped?: boolean;
+  /** True if streamed text exceeded MAX_STREAM_TEXT_CHARS and was truncated at the tail. */
+  truncated?: boolean;
   /** Per-message stream buffers so interleaved assistant messages in one run never false-gap each other. */
   messagesById?: Record<string, LiveStreamMessageState>;
   updatedAt: number;
@@ -258,6 +261,11 @@ export function buildAgentQueuedRuns(
   }>,
 ): QueuedRunView[] {
   const byId = new Map<string, QueuedRunView>();
+  // Exclude runs that `activeRuns` already knows have transitioned out of "queued"
+  // (e.g. queued -> running between concurrent feed and runs requests).
+  const nonQueuedRunIds = new Set(
+    activeRuns.filter((r) => r.state !== "queued").map((r) => r.id),
+  );
   if (agentId) {
     for (const item of feedItems) {
       if (item.agent_id !== agentId) continue;
@@ -268,6 +276,7 @@ export function buildAgentQueuedRuns(
 
       if (Array.isArray(item.queued_runs)) {
         for (const qr of item.queued_runs) {
+          if (nonQueuedRunIds.has(qr.id)) continue;
           byId.set(qr.id, {
             id: qr.id,
             agent_id: agentId,
@@ -283,7 +292,12 @@ export function buildAgentQueuedRuns(
         }
       }
 
-      if (item.run && item.run.state === "queued" && !byId.has(item.run.id)) {
+      if (
+        item.run &&
+        item.run.state === "queued" &&
+        !nonQueuedRunIds.has(item.run.id) &&
+        !byId.has(item.run.id)
+      ) {
         byId.set(item.run.id, {
           id: item.run.id,
           agent_id: agentId,
@@ -698,22 +712,36 @@ export function applyLiveStreamEvent(
       byteEnd: nextMsg.byteEnd,
       anchored: nextMsg.anchored,
       gapped: nextMsg.gapped,
+      truncated: nextMsg.truncated,
       messagesById: nextMap,
       updatedAt: now,
     };
   };
 
+  // Bound display buffer to the opening MAX_STREAM_TEXT_CHARS characters and flag `truncated`
+  // so very long replies never silently replace a card's opening text with only its tail.
+  const boundStreamText = (
+    text: string,
+    wasTruncated = false,
+  ): { text: string; truncated: boolean } => {
+    if (wasTruncated || text.length > MAX_STREAM_TEXT_CHARS) {
+      return {
+        text: text.slice(0, MAX_STREAM_TEXT_CHARS),
+        truncated: true,
+      };
+    }
+    return { text, truncated: false };
+  };
+
   if (event.replace) {
-    const bounded =
-      event.text.length > MAX_STREAM_TEXT_CHARS
-        ? event.text.slice(event.text.length - MAX_STREAM_TEXT_CHARS)
-        : event.text;
+    const { text: bounded, truncated } = boundStreamText(event.text);
     return commitMessage({
       text: bounded,
       revision: event.revision,
       byteEnd: eventBytes,
       anchored: true,
       gapped: false,
+      truncated,
     });
   }
 
@@ -727,6 +755,7 @@ export function applyLiveStreamEvent(
 
   const baseText = msgPrev?.text ?? "";
   const prevGapped = Boolean(msgPrev?.gapped);
+  const prevTruncated = Boolean(msgPrev?.truncated);
   const prevAnchored = Boolean(msgPrev?.anchored ?? prev?.anchored);
   const prevByteEnd =
     msgPrev?.byteEnd ?? (baseText ? utf8ByteLength(baseText) : undefined);
@@ -735,16 +764,14 @@ export function applyLiveStreamEvent(
   if (event.offset !== undefined) {
     // Clean start from byte offset 0.
     if (event.offset === 0) {
-      const bounded =
-        event.text.length > MAX_STREAM_TEXT_CHARS
-          ? event.text.slice(event.text.length - MAX_STREAM_TEXT_CHARS)
-          : event.text;
+      const { text: bounded, truncated } = boundStreamText(event.text);
       return commitMessage({
         text: bounded,
         revision: event.revision ?? msgPrev?.revision,
         byteEnd: eventBytes,
         anchored: true,
         gapped: false,
+        truncated,
       });
     }
 
@@ -757,22 +784,22 @@ export function applyLiveStreamEvent(
         byteEnd: prevByteEnd,
         anchored: false,
         gapped: true,
+        truncated: prevTruncated,
       });
     }
 
     // Exact UTF-8 byte continuation (still accurate past MAX_STREAM_TEXT_CHARS truncation).
     if (event.offset === prevByteEnd) {
-      const combined = baseText + event.text;
-      const bounded =
-        combined.length > MAX_STREAM_TEXT_CHARS
-          ? combined.slice(combined.length - MAX_STREAM_TEXT_CHARS)
-          : combined;
+      const { text: bounded, truncated } = prevTruncated
+        ? { text: baseText, truncated: true }
+        : boundStreamText(baseText + event.text);
       return commitMessage({
         text: bounded,
         revision: event.revision ?? msgPrev?.revision,
         byteEnd: prevByteEnd + eventBytes,
         anchored: true,
         gapped: false,
+        truncated,
       });
     }
 
@@ -790,19 +817,19 @@ export function applyLiveStreamEvent(
           byteEnd: prevByteEnd,
           anchored: false,
           gapped: true,
+          truncated: prevTruncated,
         });
       }
-      const combined = baseText + suffix;
-      const bounded =
-        combined.length > MAX_STREAM_TEXT_CHARS
-          ? combined.slice(combined.length - MAX_STREAM_TEXT_CHARS)
-          : combined;
+      const { text: bounded, truncated } = prevTruncated
+        ? { text: baseText, truncated: true }
+        : boundStreamText(baseText + suffix);
       return commitMessage({
         text: bounded,
         revision: event.revision ?? msgPrev?.revision,
         byteEnd: event.offset + eventBytes,
         anchored: true,
         gapped: false,
+        truncated,
       });
     }
 
@@ -813,6 +840,7 @@ export function applyLiveStreamEvent(
       byteEnd: prevByteEnd,
       anchored: false,
       gapped: true,
+      truncated: prevTruncated,
     });
   }
 
@@ -826,20 +854,20 @@ export function applyLiveStreamEvent(
       byteEnd: prevByteEnd,
       anchored: false,
       gapped: true,
+      truncated: prevTruncated,
     });
   }
 
-  const combined = baseText + event.text;
-  const bounded =
-    combined.length > MAX_STREAM_TEXT_CHARS
-      ? combined.slice(combined.length - MAX_STREAM_TEXT_CHARS)
-      : combined;
+  const { text: bounded, truncated } = prevTruncated
+    ? { text: baseText, truncated: true }
+    : boundStreamText(baseText + event.text);
   return commitMessage({
     text: bounded,
     revision: event.revision ?? msgPrev?.revision,
     byteEnd: (prevByteEnd ?? 0) + eventBytes,
     anchored: true,
     gapped: false,
+    truncated,
   });
 }
 

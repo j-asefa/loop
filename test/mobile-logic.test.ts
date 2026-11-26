@@ -1713,8 +1713,9 @@ describe("mobile live run streaming & run controls", () => {
     expect(followUpMap.get("run:r-new-follow")?.text).toBe("Fresh start ");
     expect(followUpMap.get("run:r-new-follow")?.gapped).toBe(false);
 
-    // Streams past 80,000 chars keep advancing byteEnd without falsely setting gapped
-    const big = "a".repeat(80_010);
+    // Streams past 80,000 chars keep advancing byteEnd, flag `truncated: true`,
+    // and retain the opening text instead of replacing a card with only its tail.
+    const big = "START" + "a".repeat(80_005);
     let longOv: LiveStreamOverlay | undefined;
     longOv =
       applyLiveStreamEvent(
@@ -1730,6 +1731,8 @@ describe("mobile live run streaming & run controls", () => {
         1,
       ) ?? undefined;
     expect(longOv?.text.length).toBe(80_000);
+    expect(longOv?.text.startsWith("START")).toBe(true);
+    expect(longOv?.truncated).toBe(true);
     expect(longOv?.byteEnd).toBe(80_010);
     longOv =
       applyLiveStreamEvent(
@@ -1745,7 +1748,8 @@ describe("mobile live run streaming & run controls", () => {
         2,
       ) ?? undefined;
     expect(longOv?.gapped).toBe(false);
-    expect(longOv?.text.endsWith("XYZ")).toBe(true);
+    expect(longOv?.truncated).toBe(true);
+    expect(longOv?.text.startsWith("START")).toBe(true);
     expect(longOv?.byteEnd).toBe(80_013);
   });
 
@@ -1764,6 +1768,15 @@ describe("mobile live run streaming & run controls", () => {
             queue_position: 1,
             can_move_up: false,
             can_move_down: true,
+          },
+          {
+            // Already transitioned to running in activeRuns: must be excluded from queued list
+            id: "r-running",
+            input: "Stale queued feed row for already-running turn",
+            created_at: 50,
+            queue_position: 0,
+            can_move_up: false,
+            can_move_down: false,
           },
         ],
       }),

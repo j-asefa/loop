@@ -316,6 +316,12 @@ function LoopShell() {
               ...(queuedPage?.items ?? []),
               ...(workingPage?.items ?? []),
             ]);
+            // Release any pending uncertain-reorder locks once the queue has synced from server
+            for (const key of Array.from(inFlightRunActionsRef.current)) {
+              if (key.startsWith("reorder:")) {
+                inFlightRunActionsRef.current.delete(key);
+              }
+            }
           }
           setApprovals(appList);
           setDecisions(decList);
@@ -943,6 +949,11 @@ function LoopShell() {
           if (gen !== workspaceGenRef.current) return;
           inFlightRunActionsRef.current.delete(flightKey);
           actionKeysRef.current.delete(scopeKey);
+          if (action === "retry") {
+            // Remove the retried failed/interrupted run immediately on server confirmation so a
+            // second Retry tap before the 350ms refresh cannot create a duplicate run.
+            setActiveRuns((prev) => prev.filter((r) => r.id !== runId));
+          }
           showToast(
             action === "pause"
               ? "Pausing run…"
@@ -987,12 +998,14 @@ function LoopShell() {
         })
         .catch((err) => {
           if (gen !== workspaceGenRef.current) return;
-          inFlightRunActionsRef.current.delete(flightKey);
           if (isUncertainOutcomeError(err)) {
+            // Keep `flightKey` locked until the queue refresh confirms the new order so
+            // a repeated tap after timeout cannot swap the run a second time.
             showToast("Reorder timed out — syncing queue…");
             scheduleSilentRefresh(500, gen);
             return;
           }
+          inFlightRunActionsRef.current.delete(flightKey);
           showToast((err as Error).message);
           scheduleSilentRefresh(100, gen);
         });

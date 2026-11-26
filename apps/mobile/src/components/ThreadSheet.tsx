@@ -101,6 +101,7 @@ export function ThreadSheet({
   >(() => new Map());
   const [savedIds, setSavedIds] = useState<Set<string>>(() => new Set());
   const [working, setWorking] = useState(false);
+  const [steerableRunId, setSteerableRunId] = useState<string | null>(null);
   const [deliveryMode, setDeliveryMode] = useState<"steer" | "queue">("steer");
   const [retryModeLocked, setRetryModeLocked] = useState(false);
   const [resolvedTitle, setResolvedTitle] = useState(title);
@@ -125,10 +126,12 @@ export function ThreadSheet({
     agentId: resolvedAgentId,
   });
 
-  const canSteerActiveRun =
-    working ||
-    activeRun?.state === "running" ||
-    activeRun?.state === "waiting_children";
+  // Only offer Steer vs Queue when the server's `steerable_run_id` confirms live input is supported.
+  const canSteerActiveRun = Boolean(
+    steerableRunId &&
+    (working || activeRun?.state === "running") &&
+    (!activeRun || activeRun.id === steerableRunId),
+  );
 
   const attSig = replyAttachments.readyIds.join(",");
   useEffect(() => {
@@ -180,6 +183,7 @@ export function ThreadSheet({
       setMessages(page.messages);
       setSavedIds(new Set(page.saved));
       setWorking(page.working);
+      setSteerableRunId(page.steerable_run_id ?? null);
       if (page.conversation.title) setResolvedTitle(page.conversation.title);
       if (page.conversation.agent_id) {
         setResolvedAgentId(page.conversation.agent_id);
