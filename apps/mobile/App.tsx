@@ -27,11 +27,7 @@ import {
   SafeAreaProvider,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
-import {
-  isUncertainOutcomeError,
-  LoopClient,
-  randomUuid,
-} from "./src/api/client";
+import { isUncertainOutcomeError, LoopClient } from "./src/api/client";
 import {
   guessMimeFromName,
   type LoopFileTarget,
@@ -326,6 +322,7 @@ function LoopShell() {
           setSnippets(snipList);
           if (runList !== null) {
             setActiveRuns(runList);
+            actionKeysRef.current.reconcileRunActions(runList);
             if (
               pruneLiveStreams(liveStreamsRef.current, runList, fetchStartedAt)
             ) {
@@ -857,16 +854,10 @@ function LoopShell() {
       if (inFlightRunActionsRef.current.has(flightKey)) return;
       inFlightRunActionsRef.current.add(flightKey);
 
-      // `retry` creates a new run and keeps one durable key across uncertain retries;
-      // state-transition controls (`pause`, `resume`, `cancel`) use a fresh key per tap
-      // so later separate actions (e.g. pause -> resume -> pause) never collide on an old key.
-      const retryScopeKey =
-        action === "retry"
-          ? actionKeysRef.current.scopeForRunAction(runId, "retry")
-          : null;
-      const idempotencyKey = retryScopeKey
-        ? actionKeysRef.current.getOrCreate(retryScopeKey)
-        : randomUuid();
+      // Keep one durable key per (runId, action) across uncertain timeouts until reconciled
+      // by a definite response or a refreshed run state via `reconcileRunActions`.
+      const scopeKey = actionKeysRef.current.scopeForRunAction(runId, action);
+      const idempotencyKey = actionKeysRef.current.getOrCreate(scopeKey);
       const priorRun = activeRuns.find((r) => r.id === runId);
       if (action === "cancel") {
         setActiveRuns((prev) => prev.filter((r) => r.id !== runId));
@@ -932,30 +923,29 @@ function LoopShell() {
       void client
         .runAction(runId, action, idempotencyKey)
         .then(() => {
+          if (gen !== workspaceGenRef.current) return;
           inFlightRunActionsRef.current.delete(flightKey);
-          if (gen === workspaceGenRef.current) {
-            if (retryScopeKey) actionKeysRef.current.delete(retryScopeKey);
-            showToast(
-              action === "pause"
-                ? "Pausing run…"
-                : action === "resume"
-                  ? "Resumed run"
-                  : action === "retry"
-                    ? "Retrying run…"
-                    : "Stopped run",
-            );
-            scheduleSilentRefresh(350, gen);
-          }
+          actionKeysRef.current.delete(scopeKey);
+          showToast(
+            action === "pause"
+              ? "Pausing run…"
+              : action === "resume"
+                ? "Resumed run"
+                : action === "retry"
+                  ? "Retrying run…"
+                  : "Stopped run",
+          );
+          scheduleSilentRefresh(350, gen);
         })
         .catch((err) => {
-          inFlightRunActionsRef.current.delete(flightKey);
           if (gen !== workspaceGenRef.current) return;
+          inFlightRunActionsRef.current.delete(flightKey);
           if (isUncertainOutcomeError(err)) {
             showToast("Run action timed out — checking status…");
             scheduleSilentRefresh(500, gen);
             return;
           }
-          if (retryScopeKey) actionKeysRef.current.delete(retryScopeKey);
+          actionKeysRef.current.delete(scopeKey);
           // Re-sync from server instead of writing back a potentially stale tap-time snapshot.
           showToast((err as Error).message);
           scheduleSilentRefresh(50, gen);
@@ -974,14 +964,13 @@ function LoopShell() {
       void client
         .reorderRun(runId, direction)
         .then(() => {
+          if (gen !== workspaceGenRef.current) return;
           inFlightRunActionsRef.current.delete(flightKey);
-          if (gen === workspaceGenRef.current) {
-            scheduleSilentRefresh(200, gen);
-          }
+          scheduleSilentRefresh(200, gen);
         })
         .catch((err) => {
-          inFlightRunActionsRef.current.delete(flightKey);
           if (gen !== workspaceGenRef.current) return;
+          inFlightRunActionsRef.current.delete(flightKey);
           if (isUncertainOutcomeError(err)) {
             showToast("Reorder timed out — syncing queue…");
             scheduleSilentRefresh(500, gen);

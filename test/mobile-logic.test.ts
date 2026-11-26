@@ -1356,6 +1356,13 @@ describe("mobile live run streaming & run controls", () => {
       canPauseRun({ state: "running", agent_id: "a-api" }, agents, connections),
     ).toBe(true);
     expect(
+      canPauseRun(
+        { state: "waiting_children", agent_id: "a-native" },
+        agents,
+        connections,
+      ),
+    ).toBe(true);
+    expect(
       canPauseRun({ state: "paused", agent_id: "a-api" }, agents, connections),
     ).toBe(false);
     // Run-level connection_id overrides agent's current connection_id
@@ -1522,6 +1529,58 @@ describe("mobile live run streaming & run controls", () => {
     );
     expect(prodMap.get("run:r-next")?.text).toBe("Fresh turn");
     expect(prodMap.get("conv:conv-prod")?.text).toBe("Fresh turn");
+
+    // When `activeRuns` lags a new run, `conv:` advances on conversation-scoped deltas;
+    // once `activeRuns` catches up, the reducer chooses the further-advanced `conv:` overlay
+    // instead of regressing to the older `run:` entry and falsely marking gapped.
+    const lagMap = new Map<string, LiveStreamOverlay>();
+    applyLiveStreamBatch(
+      lagMap,
+      [
+        {
+          kind: "delta",
+          runId: "r-lag",
+          conversationId: "conv-lag",
+          messageId: "m-lag",
+          text: "Part 1 ",
+          replace: true,
+        },
+      ],
+      [],
+      100,
+    );
+    applyLiveStreamBatch(
+      lagMap,
+      [
+        {
+          kind: "delta",
+          conversationId: "conv-lag",
+          messageId: "m-lag",
+          text: "Part 2 ",
+          offset: 7,
+          revision: 2,
+        },
+      ],
+      [],
+      110,
+    );
+    applyLiveStreamBatch(
+      lagMap,
+      [
+        {
+          kind: "delta",
+          conversationId: "conv-lag",
+          messageId: "m-lag",
+          text: "Part 3",
+          offset: 14,
+          revision: 3,
+        },
+      ],
+      [{ id: "r-lag", conversation_id: "conv-lag", state: "running" }],
+      120,
+    );
+    expect(lagMap.get("run:r-lag")?.gapped).toBe(false);
+    expect(lagMap.get("run:r-lag")?.text).toBe("Part 1 Part 2 Part 3");
 
     // Streams past 80,000 chars keep advancing byteEnd without falsely setting gapped
     const big = "a".repeat(80_010);
@@ -1733,11 +1792,25 @@ describe("mobile live run streaming & run controls", () => {
       idempotencyKey: "reorder-key-1234",
     });
 
-    const store = new ActionKeyStore(() => "durable-1");
+    let seq = 0;
+    const store = new ActionKeyStore(() => `durable-${++seq}`);
+    const pauseScope = store.scopeForRunAction("r1", "pause");
+    const cancelScope = store.scopeForRunCancel("r2");
     expect(store.scopeForRunAction("r1", "retry")).toBe("run-retry:r1");
-    expect(store.getOrCreate(store.scopeForRunAction("r1", "retry"))).toBe(
-      "durable-1",
-    );
+    expect(cancelScope).toBe("run-cancel:r2");
+    expect(store.getOrCreate(pauseScope)).toBe("durable-1");
+    expect(store.getOrCreate(cancelScope)).toBe("durable-2");
+    // While r1 is still running and r2 is still queued, uncertain retries reuse their keys
+    store.reconcileRunActions([
+      { id: "r1", state: "running" },
+      { id: "r2", state: "queued" },
+    ]);
+    expect(store.getOrCreate(pauseScope)).toBe("durable-1");
+    expect(store.getOrCreate(cancelScope)).toBe("durable-2");
+    // Once r1 pauses and r2 leaves activeRuns, reconcileRunActions releases both keys
+    store.reconcileRunActions([{ id: "r1", state: "paused" }]);
+    expect(store.getOrCreate(pauseScope)).toBe("durable-3");
+    expect(store.getOrCreate(cancelScope)).toBe("durable-4");
   });
 });
 

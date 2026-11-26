@@ -38,7 +38,7 @@ export class ActionKeyStore {
   }
 
   scopeForRunCancel(runId: string): string {
-    return `run-cancel:${runId}`;
+    return this.scopeForRunAction(runId, "cancel");
   }
 
   scopeForRunAction(
@@ -46,6 +46,33 @@ export class ActionKeyStore {
     action: "cancel" | "retry" | "dismiss" | "pause" | "resume",
   ): string {
     return `run-${action}:${runId}`;
+  }
+
+  /**
+   * Release durable run-action keys once a workspace refresh confirms the run has already
+   * left the state that action targeted, so future distinct actions get fresh keys while
+   * uncertain retries still reuse the pending key until reconciled.
+   */
+  reconcileRunActions(
+    activeRuns: ReadonlyArray<{ id: string; state: string }>,
+  ): void {
+    const byId = new Map(activeRuns.map((r) => [r.id, r.state]));
+    for (const scopeKey of Array.from(this.keys.keys())) {
+      const match = /^run-(cancel|pause|resume|retry):(.+)$/.exec(scopeKey);
+      if (!match) continue;
+      const [, action, runId] = match;
+      const state = byId.get(runId);
+      const settled =
+        (action === "cancel" && !state) ||
+        (action === "pause" &&
+          state !== "running" &&
+          state !== "waiting_children") ||
+        (action === "resume" && state !== "paused") ||
+        (action === "retry" && state !== "failed" && state !== "interrupted");
+      if (settled) {
+        this.keys.delete(scopeKey);
+      }
+    }
   }
 
   getOrCreate(scopeKey: string): string {

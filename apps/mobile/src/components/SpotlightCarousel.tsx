@@ -337,11 +337,12 @@ export function SpotlightCarousel({
   const canSteerActiveRun =
     activeRun?.state === "running" || activeRun?.state === "waiting_children";
 
-  // Invalidate pending retry key ONLY when the reply payload, delivery mode, or conversation changes
+  // Invalidate pending retry key ONLY when the reply payload or conversation changes;
+  // toggling Steer/Queue after an uncertain timeout keeps the pending key so retries never duplicate.
   const attachmentKeySig = replyAttachments.readyIds.join(",");
   useEffect(() => {
     pendingReplyRef.current = null;
-  }, [draft, conversationId, attachmentKeySig, deliveryMode]);
+  }, [draft, conversationId, attachmentKeySig]);
 
   // If the user opened a synthetic working:* placeholder at slide 0 and the run
   // finishes (superseding the placeholder with a live Done card), promote it smoothly.

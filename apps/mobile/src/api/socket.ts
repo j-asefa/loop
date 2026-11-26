@@ -177,13 +177,16 @@ export function canPauseRun(
   if (run.state !== "running" && run.state !== "waiting_children") {
     return false;
   }
-  const agent = run.agent_id
-    ? agents.find((a) => a.id === run.agent_id)
-    : undefined;
-  const connId = run.connection_id ?? agent?.connection_id ?? null;
-  const conn = connId ? connections.find((c) => c.id === connId) : undefined;
-  if (isNativeHarnessConnection(conn)) {
-    return false;
+  // Matches `src/server/run-attention.ts`: native-owned turns cannot be paused while `running`.
+  if (run.state === "running") {
+    const agent = run.agent_id
+      ? agents.find((a) => a.id === run.agent_id)
+      : undefined;
+    const connId = run.connection_id ?? agent?.connection_id ?? null;
+    const conn = connId ? connections.find((c) => c.id === connId) : undefined;
+    if (isNativeHarnessConnection(conn)) {
+      return false;
+    }
   }
   return true;
 }
@@ -863,13 +866,21 @@ export function applyLiveStreamBatch(
       continue;
     }
 
+    const runExisting = runKey ? map.get(runKey) : undefined;
     const convExisting = convKey ? map.get(convKey) : undefined;
     const convMatchesRun =
       convExisting &&
       (!runId || !convExisting.runId || convExisting.runId === runId);
+    // If both exist (e.g. `conv:` kept advancing while `activeRuns` lagged behind a new run),
+    // choose the fresher / further-advanced overlay so we never regress byteEnd and false-gap.
     const existing =
-      (runKey ? map.get(runKey) : undefined) ??
-      (convMatchesRun ? convExisting : undefined);
+      runExisting && convMatchesRun && convExisting
+        ? (convExisting.byteEnd ?? 0) > (runExisting.byteEnd ?? 0) ||
+          ((convExisting.byteEnd ?? 0) === (runExisting.byteEnd ?? 0) &&
+            convExisting.updatedAt > runExisting.updatedAt)
+          ? convExisting
+          : runExisting
+        : (runExisting ?? (convMatchesRun ? convExisting : undefined));
     const next = applyLiveStreamEvent(existing, { ...ev, runId }, now);
     if (next === null) continue;
 

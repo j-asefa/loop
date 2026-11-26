@@ -132,7 +132,7 @@ export function ThreadSheet({
   const attSig = replyAttachments.readyIds.join(",");
   useEffect(() => {
     pendingSendRef.current = null;
-  }, [draft, conversationId, attSig, deliveryMode]);
+  }, [draft, conversationId, attSig]);
 
   const load = useCallback(async () => {
     if (!client) {
