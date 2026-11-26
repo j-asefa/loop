@@ -624,12 +624,17 @@ export function ThreadSheet({
                 !messages.some((m) => {
                   if (m.role !== "assistant") return false;
                   const trimmedStream = liveStream.text.trim();
-                  if (
-                    liveStream.messageId &&
-                    m.id === liveStream.messageId &&
-                    m.content.trim().length >= trimmedStream.length
-                  ) {
-                    return true;
+                  if (liveStream.messageId) {
+                    if (
+                      m.id === liveStream.messageId &&
+                      m.content.trim().length >= trimmedStream.length
+                    ) {
+                      return true;
+                    }
+                    return (
+                      trimmedStream.length > 0 &&
+                      m.content.trim() === trimmedStream
+                    );
                   }
                   if (
                     activeRun &&
@@ -687,7 +692,7 @@ export function ThreadSheet({
           {canSteerActiveRun && (
             <View style={styles.deliveryRow}>
               <Pressable
-                disabled={retryModeLocked}
+                disabled={sending || retryModeLocked}
                 onPress={() => {
                   haptics.selection();
                   setDeliveryMode("steer");
@@ -701,7 +706,7 @@ export function ThreadSheet({
                       deliveryMode === "steer"
                         ? theme.attentionLine
                         : theme.line,
-                    opacity: retryModeLocked ? 0.55 : 1,
+                    opacity: sending || retryModeLocked ? 0.55 : 1,
                   },
                 ]}
               >
@@ -720,7 +725,7 @@ export function ThreadSheet({
                 </Text>
               </Pressable>
               <Pressable
-                disabled={retryModeLocked}
+                disabled={sending || retryModeLocked}
                 onPress={() => {
                   haptics.selection();
                   setDeliveryMode("queue");
@@ -734,7 +739,7 @@ export function ThreadSheet({
                       deliveryMode === "queue"
                         ? theme.attentionLine
                         : theme.line,
-                    opacity: retryModeLocked ? 0.55 : 1,
+                    opacity: sending || retryModeLocked ? 0.55 : 1,
                   },
                 ]}
               >

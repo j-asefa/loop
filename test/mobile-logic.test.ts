@@ -1389,6 +1389,13 @@ describe("mobile live run streaming & run controls", () => {
         agents,
         connections,
       ),
+    ).toBe(false);
+    expect(
+      canPauseRun(
+        { state: "waiting_children", agent_id: "a-api" },
+        agents,
+        connections,
+      ),
     ).toBe(true);
     expect(
       canPauseRun({ state: "paused", agent_id: "a-api" }, agents, connections),

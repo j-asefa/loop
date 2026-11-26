@@ -209,20 +209,19 @@ export function canPauseRun(
   if (run.state !== "running" && run.state !== "waiting_children") {
     return false;
   }
-  // Matches `src/server/run-attention.ts`: native-owned turns cannot be paused while `running`.
-  if (run.state === "running") {
-    const agent = run.agent_id
-      ? agents.find((a) => a.id === run.agent_id)
-      : undefined;
-    const connId =
-      run.connection_id ??
-      extractRunPayloadConnectionId(run.payload) ??
-      agent?.connection_id ??
-      null;
-    const conn = connId ? connections.find((c) => c.id === connId) : undefined;
-    if (isNativeHarnessConnection(conn)) {
-      return false;
-    }
+  // Matches `src/server/run-attention.ts`: `waiting_children` is stored as `state = 'running'`,
+  // so native-owned runs return 409 for Pause in both `running` and `waiting_children`.
+  const agent = run.agent_id
+    ? agents.find((a) => a.id === run.agent_id)
+    : undefined;
+  const connId =
+    run.connection_id ??
+    extractRunPayloadConnectionId(run.payload) ??
+    agent?.connection_id ??
+    null;
+  const conn = connId ? connections.find((c) => c.id === connId) : undefined;
+  if (isNativeHarnessConnection(conn)) {
+    return false;
   }
   return true;
 }
@@ -507,20 +506,25 @@ export function extractLiveStreamEvents(raw: unknown): LiveStreamEvent[] {
         if (
           TERMINAL_RUN_STATES.has(rawStatus) ||
           rawStatus === "idle" ||
-          rawStatus === "done"
+          rawStatus === "done" ||
+          rawStatus === "stopped"
         ) {
           out.push({
             kind: "state",
             runId: scopeRunId,
             conversationId: scopeConvId,
-            state: TERMINAL_RUN_STATES.has(rawStatus) ? rawStatus : "completed",
+            state: TERMINAL_RUN_STATES.has(rawStatus)
+              ? rawStatus
+              : rawStatus === "stopped"
+                ? "interrupted"
+                : "completed",
           });
           continue;
         }
         const detail =
           typeof inner.detail === "string" && inner.detail.trim()
             ? inner.detail.trim()
-            : rawStatus;
+            : "";
         if (detail) {
           out.push({
             kind: "activity",
@@ -642,7 +646,9 @@ export function applyLiveStreamEvent(
   // assistant messages within the same run never reset each other's byteEnd or false-gap.
   const targetMsgId = event.messageId ?? prev?.messageId;
   const storedMsg =
-    targetMsgId && prev?.messagesById
+    targetMsgId &&
+    prev?.messagesById &&
+    Object.prototype.hasOwnProperty.call(prev.messagesById, targetMsgId)
       ? prev.messagesById[targetMsgId]
       : undefined;
   const sameAsActive =
@@ -665,9 +671,17 @@ export function applyLiveStreamEvent(
   const commitMessage = (
     nextMsg: LiveStreamMessageState,
   ): LiveStreamOverlay => {
-    let nextMap = prev?.messagesById ? { ...prev.messagesById } : undefined;
+    let nextMap: Record<string, LiveStreamMessageState> | undefined;
+    if (prev?.messagesById) {
+      nextMap = Object.assign(
+        Object.create(null) as Record<string, LiveStreamMessageState>,
+        prev.messagesById,
+      );
+    }
     if (targetMsgId) {
-      if (!nextMap) nextMap = {};
+      if (!nextMap) {
+        nextMap = Object.create(null) as Record<string, LiveStreamMessageState>;
+      }
       nextMap[targetMsgId] = nextMsg;
       const keys = Object.keys(nextMap);
       if (keys.length > 8) {

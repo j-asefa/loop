@@ -1453,7 +1453,7 @@ export function SpotlightCarousel({
             {canSteerActiveRun && (
               <View style={styles.deliveryModeRow}>
                 <Pressable
-                  disabled={retryModeLocked}
+                  disabled={sending || retryModeLocked}
                   onPress={() => {
                     haptics.selection();
                     setDeliveryMode("steer");
@@ -1469,7 +1469,7 @@ export function SpotlightCarousel({
                         deliveryMode === "steer"
                           ? theme.attentionLine
                           : theme.line,
-                      opacity: retryModeLocked ? 0.55 : 1,
+                      opacity: sending || retryModeLocked ? 0.55 : 1,
                     },
                   ]}
                 >
@@ -1488,7 +1488,7 @@ export function SpotlightCarousel({
                   </Text>
                 </Pressable>
                 <Pressable
-                  disabled={retryModeLocked}
+                  disabled={sending || retryModeLocked}
                   onPress={() => {
                     haptics.selection();
                     setDeliveryMode("queue");
@@ -1504,7 +1504,7 @@ export function SpotlightCarousel({
                         deliveryMode === "queue"
                           ? theme.attentionLine
                           : theme.line,
-                      opacity: retryModeLocked ? 0.55 : 1,
+                      opacity: sending || retryModeLocked ? 0.55 : 1,
                     },
                   ]}
                 >
