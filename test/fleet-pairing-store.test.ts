@@ -23,6 +23,9 @@ import {
   fleetEnrollmentFromLink,
 } from "../src/shared/fleet-pairing.js";
 import { hash } from "../src/state.js";
+import { EXPIRY_GUARD_WINDOW_MS } from "../src/server/device-pairing.js";
+
+const year = 365 * 86_400_000;
 
 const root = mkdtempSync(join(tmpdir(), "loop-fleet-pairing-"));
 process.env.LOOP_DATA_DIR = root;
@@ -506,7 +509,34 @@ it("keeps an observed expiry durable under a writer lock while another valid dev
   expect(readdirSync(join(m.dir, "device-expiry-checks"))).toEqual([]);
 });
 
-it("refuses authentication before reading the clock when an expiry check cannot be made durable", () => {
+it("accepts a device far from expiry without recording a check", () => {
+  const m = machine(undefined, () => 1_000_000),
+    pairing = m.open();
+  const issued = pairing.redeem(
+    { ...capabilities(pairing).device, name: "Phone" },
+    origin,
+  );
+  const id = pairing.authenticate(hash(issued.token))!.id;
+  // One millisecond outside the guard window on the nearer expiry.
+  m.db
+    .prepare("UPDATE devices SET expires=?,max_expires=? WHERE id=?")
+    .run(1_000_000 + year, 1_000_000 + EXPIRY_GUARD_WINDOW_MS + 1, id);
+  const checks = join(m.dir, "device-expiry-checks");
+  // An unwritable guard directory proves no check file is needed.
+  chmodSync(checks, 0o500);
+  try {
+    expect(pairing.authenticate(hash(issued.token))).toBeDefined();
+    pairing.expire();
+    expect(pairing.authenticate(hash(issued.token))).toBeDefined();
+    // Pairing is still available: no clock failure was recorded.
+    expect(() => pairing.pair(origin)).not.toThrow();
+  } finally {
+    chmodSync(checks, 0o700);
+  }
+  expect(readdirSync(checks)).toEqual([]);
+});
+
+it("refuses a device near expiry before its deciding clock read when the check cannot be made durable", () => {
   let observations = 0;
   const m = machine(undefined, () => {
       observations++;
@@ -517,12 +547,18 @@ it("refuses authentication before reading the clock when an expiry check cannot 
     { ...capabilities(pairing).device, name: "Phone" },
     origin,
   );
+  const id = pairing.authenticate(hash(issued.token))!.id;
+  // Exactly at the guard window: the guarded path applies.
+  m.db
+    .prepare("UPDATE devices SET expires=? WHERE id=?")
+    .run(1_000_000 + EXPIRY_GUARD_WINDOW_MS, id);
   const checks = join(m.dir, "device-expiry-checks");
   chmodSync(checks, 0o500);
   observations = 0;
   try {
     expect(pairing.authenticate(hash(issued.token))).toBeUndefined();
-    expect(observations).toBe(0);
+    // Only the unguarded glance; the deciding read never happened.
+    expect(observations).toBe(1);
     expect(() => pairing.pair(origin)).toThrow("could not be persisted");
   } finally {
     chmodSync(checks, 0o700);
@@ -536,11 +572,14 @@ it("keeps a prewritten expiry intent through simultaneous storage failures and r
   let checks = "";
   const m = machine(undefined, () => {
     if (fail) {
-      // The guard must already exist before this clock observation. Later
-      // file mutations and SQLite retirement now both fail.
-      expect(
-        readdirSync(checks).filter((name) => name.endsWith(".json")),
-      ).toHaveLength(1);
+      const guards = readdirSync(checks).filter((name) =>
+        name.endsWith(".json"),
+      );
+      // The unguarded glance may only accept a device; this one is expired,
+      // so the deciding read follows once the guard exists. Later file
+      // mutations and SQLite retirement then both fail.
+      if (!guards.length) return now;
+      expect(guards).toHaveLength(1);
       chmodSync(checks, 0o500);
     }
     return now;
@@ -599,6 +638,8 @@ it("conservatively retires only the device in a clock check interrupted by real 
     ...device,
     id: pairing.authenticate(hash(device.token))!.id,
   }));
+  // Both devices were paired at 1_000_000 and expire a year later.
+  const nearExpiry = 1_000_000 + year - 60_000;
   const code = `
     import Database from 'better-sqlite3';
     import {FleetAuthority} from './src/server/fleet-authority.ts';
@@ -606,7 +647,10 @@ it("conservatively retires only the device in a clock check interrupted by real 
     import * as secrets from './src/server/secrets.ts';
     const db=new Database(${JSON.stringify(m.path)});
     const authority=new FleetAuthority(db,secrets);
-    new FleetPairing(db,authority,${JSON.stringify(m.owner)},${JSON.stringify(m.dir)},()=>process.exit(17));
+    let reads=0;
+    // The glance sees a device inside the guard window; the process dies on
+    // the deciding read, after the guard is durable.
+    new FleetPairing(db,authority,${JSON.stringify(m.owner)},${JSON.stringify(m.dir)},()=>reads++?process.exit(17):${nearExpiry});
   `;
   const child = spawnSync(
     process.execPath,

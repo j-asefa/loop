@@ -23,7 +23,10 @@ const Intent = z
   .strict();
 export type DeviceExpiryCheck = { path: string; devices: string[] };
 
-/** A clock check starts with a durable intent before reading wall time. If both
+/** A device more than EXPIRY_GUARD_WINDOW_MS (device-pairing.ts) from either
+ * expiry is accepted from a plain clock read; nothing here is written. Any
+ * other clock check starts with a durable intent before the wall time read
+ * that decides it. If both
  * SQLite and later filesystem writes fail, the intent still identifies devices
  * whose expiry observation may be lost. Recovery conservatively retires them,
  * even if the clock has since moved backwards, so an interrupted check can

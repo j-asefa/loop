@@ -43,6 +43,8 @@ export const Ceremony = z.object({
   result: z.string().nullable(),
 });
 const year = 365 * 86_400_000;
+/** Devices within this window of either expiry use a durable expiry check. */
+export const EXPIRY_GUARD_WINDOW_MS = 15 * 60_000;
 export const rejected = () =>
   new Problem(
     403,
@@ -111,6 +113,14 @@ export class DevicePairing implements DeviceTrust {
     if (persist) pairingClockQueries.observe(this.db, value);
     return value;
   }
+  /** An unguarded clock read that may only be used to accept a device. */
+  private glance() {
+    try {
+      return this.now(false);
+    } catch {
+      return undefined;
+    }
+  }
   private insertDevice(device: TrustedDevice) {
     const d = Device.parse(device);
     devicesQueries.insert(
@@ -134,8 +144,21 @@ export class DevicePairing implements DeviceTrust {
           .some((pending) => pending.devices.includes(device.id))
       )
         return;
-      // No wall clock is read until the intent is durable. A failure to start
-      // the check refuses access without making an unrecorded expiry decision.
+      // Accepting a device well inside both lifetimes makes no expiry
+      // decision that a crash could lose, so it needs no durable intent. This
+      // keeps two fsyncs off every authenticated request. A device closer to
+      // expiry, or a clock read that fails its rollback checks, takes the
+      // guarded path below, which ignores this read.
+      const glance = this.glance();
+      if (
+        glance !== undefined &&
+        Math.min(device.expires, device.maxExpires) - glance >
+          EXPIRY_GUARD_WINDOW_MS
+      )
+        return { device, now: glance };
+      // The deciding clock read happens only after the intent is durable. A
+      // failure to start the check refuses access without making an
+      // unrecorded expiry decision.
       check = this.checks.begin([device.id]);
       const now = this.now(false);
       if (device.expires <= now || device.maxExpires <= now) {

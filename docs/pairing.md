@@ -24,9 +24,11 @@ the complete workspace directory, including the database and
 `device-expiry-checks/`, together. Isolated previews use their own database and
 cookie namespace; their paired devices cannot access the everyday workspace.
 
-An interrupted expiry check can require a device to pair again. If expiry checks
-are unreadable, the clock moved backwards or a check cannot be recorded, device
-access is refused until the clock or storage is repaired and Loop restarts;
+A device more than 15 minutes from expiry is accepted without recording a check.
+Closer to expiry, an interrupted check can require the device to pair again. If
+expiry checks are unreadable, the clock moved backwards or a needed check cannot
+be recorded, device access is refused until the clock or storage is repaired and
+Loop restarts;
 `loop devices` listing and revocation still work. The check protocol is described
 in [device-expiry.ts](../src/server/device-expiry.ts).
 
