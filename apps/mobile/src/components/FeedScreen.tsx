@@ -844,6 +844,8 @@ const SwipeableStackCard = React.memo(function SwipeableStackCard({
       <GestureDetector gesture={panGesture}>
         <Animated.View style={cardAnimatedStyle}>
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`${entry.unreadCount > 0 ? `${entry.unreadCount} unread, ` : ""}@${item.agentName}, ${header.title}${stackCount > 1 ? `, ${stackCount} cards` : ""}`}
             onPressIn={() => {
               pressScale.value = withSpring(0.978, {
                 damping: 20,

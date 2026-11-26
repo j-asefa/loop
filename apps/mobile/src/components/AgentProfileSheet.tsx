@@ -560,6 +560,8 @@ export function AgentProfileSheet({
                 {displayedResults.map((card) => (
                   <Pressable
                     key={card.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${card.unread ? "Unread, " : ""}${card.fallbackTitle}, ${card.projectName}`}
                     onPress={() => {
                       haptics.medium();
                       onOpenStack(card.conversationId, card);
