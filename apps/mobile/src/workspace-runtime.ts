@@ -41,6 +41,17 @@ export class ActionKeyStore {
     return `run-cancel:${runId}`;
   }
 
+  scopeForRunAction(
+    runId: string,
+    action: "cancel" | "retry" | "dismiss" | "pause" | "resume",
+  ): string {
+    return `run-${action}:${runId}`;
+  }
+
+  scopeForRunReorder(runId: string, direction: "up" | "down"): string {
+    return `run-reorder:${runId}:${direction}`;
+  }
+
   getOrCreate(scopeKey: string): string {
     let key = this.keys.get(scopeKey);
     if (!key) {

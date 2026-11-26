@@ -12,7 +12,11 @@ import {
   resolveLoopFileTarget,
   sanitizeDownloadFilename,
 } from "../apps/mobile/src/api/files.js";
-import { shouldRefreshForFrame } from "../apps/mobile/src/api/socket.js";
+import {
+  applyLiveStreamEvent,
+  extractLiveStreamEvents,
+  shouldRefreshForFrame,
+} from "../apps/mobile/src/api/socket.js";
 import {
   assertSameOriginResponse,
   extractSessionCookie,
@@ -1011,6 +1015,155 @@ describe("mobile agent-published file resolution, metadata, and client APIs", ()
       ),
     ).toThrow(/unsupported/i);
     expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("mobile live run streaming & run controls", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("extracts and reduces message.delta, activity.updated, native.event, and terminal run state frames", () => {
+    const deltaFrame = JSON.stringify({
+      v: 3,
+      type: "events",
+      events: [
+        {
+          id: 1,
+          event: {
+            type: "activity.updated",
+            scope: { kind: "run", id: "run-1" },
+            payload: { key: "k1", kind: "tool", sequence: 1 },
+          },
+        },
+        {
+          id: 2,
+          event: {
+            type: "message.delta",
+            scope: { kind: "run", id: "run-1" },
+            payload: {
+              messageId: "m-1",
+              conversationId: "conv-1",
+              text: "Hello ",
+            },
+          },
+        },
+        {
+          id: 3,
+          event: {
+            type: "message.delta",
+            scope: { kind: "run", id: "run-1" },
+            payload: {
+              messageId: "m-1",
+              conversationId: "conv-1",
+              text: "world!",
+            },
+          },
+        },
+      ],
+    });
+
+    const events = extractLiveStreamEvents(deltaFrame);
+    expect(events).toHaveLength(3);
+    let overlay = undefined;
+    for (const ev of events) {
+      overlay = applyLiveStreamEvent(overlay, ev, 1000) ?? undefined;
+    }
+    expect(overlay).toEqual({
+      text: "Hello world!",
+      messageId: "m-1",
+      activity: "Running tool…",
+      state: "running",
+      updatedAt: 1000,
+    });
+
+    // Terminal state clears the live overlay so stale text never lingers
+    const doneEvents = extractLiveStreamEvents(
+      JSON.stringify({
+        v: 3,
+        type: "events",
+        events: [
+          {
+            id: 4,
+            event: {
+              type: "completed",
+              scope: { kind: "run", id: "run-1" },
+              payload: { runId: "run-1" },
+            },
+          },
+        ],
+      }),
+    );
+    expect(applyLiveStreamEvent(overlay, doneEvents[0], 2000)).toBeNull();
+  });
+
+  it("submits steer vs queue flags, pause/resume/retry actions, and queue reorders with durable keys", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      redirected: false,
+      url: "https://loop.example.com/api/runs",
+      text: async () => JSON.stringify({ id: "r-new", ok: true }),
+    } as unknown as Response);
+
+    const client = new LoopClient({
+      origin: "https://loop.example.com",
+      cookie: "__Host-loop=tok",
+      csrf: "csrf-1",
+      deviceName: "Test iPhone",
+      pairedAt: 1,
+    });
+
+    await client.submitRun({
+      agentId: "a1",
+      conversationId: "c1",
+      input: "Steer now",
+      queue: false,
+      idempotencyKey: "steer-key-1234",
+    });
+    await client.submitRun({
+      agentId: "a1",
+      conversationId: "c1",
+      input: "Queue later",
+      queue: true,
+      idempotencyKey: "queue-key-1234",
+    });
+    await client.runAction("r1", "pause", "pause-key-1234");
+    await client.runAction("r1", "resume", "resume-key-1234");
+    await client.runAction("r1", "retry", "retry-key-1234");
+    await client.reorderRun("r2", "up", "reorder-key-1234");
+
+    expect(JSON.parse(String(fetchSpy.mock.calls[0][1]?.body))).toMatchObject({
+      queue: false,
+      idempotencyKey: "steer-key-1234",
+    });
+    expect(JSON.parse(String(fetchSpy.mock.calls[1][1]?.body))).toMatchObject({
+      queue: true,
+      idempotencyKey: "queue-key-1234",
+    });
+    expect(fetchSpy.mock.calls[2][0]).toBe(
+      "https://loop.example.com/api/runs/r1/pause",
+    );
+    expect(fetchSpy.mock.calls[3][0]).toBe(
+      "https://loop.example.com/api/runs/r1/resume",
+    );
+    expect(fetchSpy.mock.calls[4][0]).toBe(
+      "https://loop.example.com/api/runs/r1/retry",
+    );
+    expect(fetchSpy.mock.calls[5][0]).toBe(
+      "https://loop.example.com/api/runs/r2/reorder",
+    );
+    expect(JSON.parse(String(fetchSpy.mock.calls[5][1]?.body))).toEqual({
+      direction: "up",
+      idempotencyKey: "reorder-key-1234",
+    });
+
+    const store = new ActionKeyStore(() => "durable-1");
+    expect(store.scopeForRunAction("r1", "retry")).toBe("run-retry:r1");
+    expect(store.scopeForRunReorder("r2", "up")).toBe("run-reorder:r2:up");
+    expect(store.getOrCreate(store.scopeForRunAction("r1", "retry"))).toBe(
+      "durable-1",
+    );
   });
 });
 

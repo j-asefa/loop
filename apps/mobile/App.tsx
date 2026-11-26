@@ -34,7 +34,13 @@ import {
   type PublishedFileItem,
 } from "./src/api/files";
 import { clearPairedSession, loadPairedSession } from "./src/api/pairing";
-import { LoopEventSocket, type SocketStatus } from "./src/api/socket";
+import {
+  applyLiveStreamEvent,
+  LoopEventSocket,
+  type LiveStreamEvent,
+  type LiveStreamOverlay,
+  type SocketStatus,
+} from "./src/api/socket";
 import {
   ActionKeyStore,
   runSaveToggle,
@@ -154,6 +160,15 @@ function LoopShell() {
   const [approvals, setApprovals] = useState<ApiApproval[]>([]);
   const [decisions, setDecisions] = useState<ApiNativeDecision[]>([]);
   const [activeRuns, setActiveRuns] = useState<AgentRunSummary[]>([]);
+  const [liveStreams, setLiveStreams] = useState<
+    Map<string, LiveStreamOverlay>
+  >(() => new Map());
+  const liveStreamsRef = useRef<Map<string, LiveStreamOverlay>>(new Map());
+  const streamFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const activeRunsRef = useRef<AgentRunSummary[]>([]);
+  activeRunsRef.current = activeRuns;
   const [environmentName, setEnvironmentName] = useState<string>("");
   const [refreshing, setRefreshing] = useState(false);
   // Bumped after each workspace load so an open thread refreshes in place.
@@ -325,6 +340,12 @@ function LoopShell() {
     setSnippets([]);
     setConnections([]);
     setActiveRuns([]);
+    if (streamFlushTimerRef.current) {
+      clearTimeout(streamFlushTimerRef.current);
+      streamFlushTimerRef.current = null;
+    }
+    liveStreamsRef.current = new Map();
+    setLiveStreams(new Map());
     setSummary(null);
     setEnvironmentName("");
     setOpenConversationId(null);
@@ -343,6 +364,45 @@ function LoopShell() {
     void loadWorkspace({ silent: true });
   }, [client, loadWorkspace]);
 
+  const handleStreamEvents = useCallback((events: LiveStreamEvent[]) => {
+    const map = liveStreamsRef.current;
+    let changed = false;
+    for (const ev of events) {
+      const matchedRun = ev.runId
+        ? activeRunsRef.current.find((r) => r.id === ev.runId)
+        : ev.conversationId
+          ? activeRunsRef.current.find(
+              (r) =>
+                r.conversation_id === ev.conversationId && r.state !== "queued",
+            )
+          : undefined;
+      const runId = ev.runId ?? matchedRun?.id;
+      const convId =
+        ev.conversationId ?? matchedRun?.conversation_id ?? undefined;
+      const keys: string[] = [];
+      if (runId) keys.push(`run:${runId}`);
+      if (convId) keys.push(`conv:${convId}`);
+      if (keys.length === 0) continue;
+
+      const existing = keys.map((k) => map.get(k)).find(Boolean);
+      const next = applyLiveStreamEvent(existing, ev);
+      for (const k of keys) {
+        if (next === null) {
+          if (map.delete(k)) changed = true;
+        } else {
+          map.set(k, next);
+          changed = true;
+        }
+      }
+    }
+    if (changed && !streamFlushTimerRef.current) {
+      streamFlushTimerRef.current = setTimeout(() => {
+        streamFlushTimerRef.current = null;
+        setLiveStreams(new Map(liveStreamsRef.current));
+      }, 100);
+    }
+  }, []);
+
   // Live WebSocket updates when paired
   useEffect(() => {
     if (!session || !client) return;
@@ -350,10 +410,17 @@ function LoopShell() {
       session,
       () => void loadWorkspaceRef.current({ silent: true }),
       setSocketStatus,
+      handleStreamEvents,
     );
     sock.start();
-    return () => sock.stop();
-  }, [session, client]);
+    return () => {
+      sock.stop();
+      if (streamFlushTimerRef.current) {
+        clearTimeout(streamFlushTimerRef.current);
+        streamFlushTimerRef.current = null;
+      }
+    };
+  }, [session, client, handleStreamEvents]);
 
   const activeCards = client ? liveCards : demoCards;
 
@@ -580,6 +647,7 @@ function LoopShell() {
       prompt: string,
       attachmentIds?: string[],
       idempotencyKey?: string,
+      queue?: boolean,
     ) => {
       if (client) {
         const gen = workspaceGenRef.current;
@@ -597,11 +665,14 @@ function LoopShell() {
           input: prompt,
           attachmentIds,
           idempotencyKey,
+          queue,
         });
         showToast(
-          attachmentIds?.length
-            ? `Sent to @${card.agentName} with ${attachmentIds.length} ${attachmentIds.length === 1 ? "file" : "files"}`
-            : `Sent to @${card.agentName}`,
+          queue
+            ? `Queued for @${card.agentName}`
+            : attachmentIds?.length
+              ? `Sent to @${card.agentName} with ${attachmentIds.length} ${attachmentIds.length === 1 ? "file" : "files"}`
+              : `Sent to @${card.agentName}`,
         );
         scheduleSilentRefresh(450, gen);
         return;
@@ -758,45 +829,114 @@ function LoopShell() {
     [client, scheduleSilentRefresh, showToast],
   );
 
-  const handleCancelQueuedRun = useCallback(
-    (runId: string) => {
+  const handleControlRun = useCallback(
+    (runId: string, action: "pause" | "resume" | "cancel" | "retry") => {
       if (!client) {
-        setDemoCards((prev) => prev.filter((c) => c.id !== runId));
-        showToast("Cancelled queued message");
+        if (action === "cancel") {
+          setDemoCards((prev) => prev.filter((c) => c.id !== runId));
+        }
+        showToast(
+          action === "pause"
+            ? "Paused run"
+            : action === "resume"
+              ? "Resumed run"
+              : action === "retry"
+                ? "Retried run"
+                : "Stopped run",
+        );
         return;
       }
       const gen = workspaceGenRef.current;
-      const scopeKey = actionKeysRef.current.scopeForRunCancel(runId);
+      const scopeKey = actionKeysRef.current.scopeForRunAction(runId, action);
       const idempotencyKey = actionKeysRef.current.getOrCreate(scopeKey);
       const priorRun = activeRuns.find((r) => r.id === runId);
-      setActiveRuns((prev) => prev.filter((r) => r.id !== runId));
+      if (action === "cancel") {
+        setActiveRuns((prev) => prev.filter((r) => r.id !== runId));
+      } else if (action === "pause" || action === "resume") {
+        setActiveRuns((prev) =>
+          prev.map((r) =>
+            r.id === runId
+              ? { ...r, state: action === "pause" ? "pausing" : "running" }
+              : r,
+          ),
+        );
+      }
       void client
-        .runAction(runId, "cancel", idempotencyKey)
+        .runAction(runId, action, idempotencyKey)
         .then(() => {
           if (gen === workspaceGenRef.current) {
             actionKeysRef.current.delete(scopeKey);
-            showToast("Cancelled queued message");
+            showToast(
+              action === "pause"
+                ? "Pausing run…"
+                : action === "resume"
+                  ? "Resumed run"
+                  : action === "retry"
+                    ? "Retrying run…"
+                    : "Stopped run",
+            );
             scheduleSilentRefresh(350, gen);
           }
         })
         .catch((err) => {
           if (gen !== workspaceGenRef.current) return;
           if (isUncertainOutcomeError(err)) {
-            // Preserve uncertain outcome: do not restore optimistic state; re-read from server
-            showToast("Cancel timed out — checking status…");
+            showToast("Run action timed out — checking status…");
             scheduleSilentRefresh(500, gen);
             return;
           }
           actionKeysRef.current.delete(scopeKey);
           if (priorRun) {
-            setActiveRuns((prev) =>
-              prev.some((r) => r.id === runId) ? prev : [...prev, priorRun],
-            );
+            setActiveRuns((prev) => {
+              const exists = prev.some((r) => r.id === runId);
+              if (exists) {
+                return prev.map((r) => (r.id === runId ? priorRun : r));
+              }
+              return [...prev, priorRun];
+            });
           }
           showToast((err as Error).message);
         });
     },
     [activeRuns, client, scheduleSilentRefresh, showToast],
+  );
+
+  const handleReorderQueuedRun = useCallback(
+    (runId: string, direction: "up" | "down") => {
+      if (!client) return;
+      const gen = workspaceGenRef.current;
+      const scopeKey = actionKeysRef.current.scopeForRunReorder(
+        runId,
+        direction,
+      );
+      const idempotencyKey = actionKeysRef.current.getOrCreate(scopeKey);
+      void client
+        .reorderRun(runId, direction, idempotencyKey)
+        .then(() => {
+          if (gen === workspaceGenRef.current) {
+            actionKeysRef.current.delete(scopeKey);
+            scheduleSilentRefresh(200, gen);
+          }
+        })
+        .catch((err) => {
+          if (gen !== workspaceGenRef.current) return;
+          if (isUncertainOutcomeError(err)) {
+            showToast("Reorder timed out — syncing queue…");
+            scheduleSilentRefresh(500, gen);
+            return;
+          }
+          actionKeysRef.current.delete(scopeKey);
+          showToast((err as Error).message);
+        });
+    },
+    [client, scheduleSilentRefresh, showToast],
+  );
+
+  const handleCancelQueuedRun = useCallback(
+    (runId: string) => {
+      handleControlRun(runId, "cancel");
+    },
+    [handleControlRun],
   );
 
   const handleSignOut = useCallback(async () => {
@@ -999,6 +1139,64 @@ function LoopShell() {
       .sort((a, b) => a.created_at - b.created_at);
   }, [effectiveActiveRuns, openCarouselCards, openConversationId]);
 
+  const openCarouselActiveRun = useMemo(() => {
+    if (!openConversationId) return null;
+    return (
+      effectiveActiveRuns.find(
+        (r) =>
+          r.conversation_id === openConversationId &&
+          [
+            "running",
+            "pausing",
+            "paused",
+            "awaiting_approval",
+            "waiting_children",
+            "failed",
+            "interrupted",
+          ].includes(r.state),
+      ) ?? null
+    );
+  }, [effectiveActiveRuns, openConversationId]);
+
+  const openCarouselLiveStream = useMemo(() => {
+    if (!openConversationId) return null;
+    return (
+      (openCarouselActiveRun &&
+        liveStreams.get(`run:${openCarouselActiveRun.id}`)) ||
+      liveStreams.get(`conv:${openConversationId}`) ||
+      null
+    );
+  }, [liveStreams, openCarouselActiveRun, openConversationId]);
+
+  const openThreadActiveRun = useMemo(() => {
+    if (!threadOverlay) return null;
+    return (
+      effectiveActiveRuns.find(
+        (r) =>
+          r.conversation_id === threadOverlay.conversationId &&
+          [
+            "running",
+            "pausing",
+            "paused",
+            "awaiting_approval",
+            "waiting_children",
+            "failed",
+            "interrupted",
+          ].includes(r.state),
+      ) ?? null
+    );
+  }, [effectiveActiveRuns, threadOverlay]);
+
+  const openThreadLiveStream = useMemo(() => {
+    if (!threadOverlay) return null;
+    return (
+      (openThreadActiveRun &&
+        liveStreams.get(`run:${openThreadActiveRun.id}`)) ||
+      liveStreams.get(`conv:${threadOverlay.conversationId}`) ||
+      null
+    );
+  }, [liveStreams, openThreadActiveRun, threadOverlay]);
+
   return (
     <View style={[styles.root, { backgroundColor: theme.bg }]}>
       <StatusBar style={darkMode ? "light" : "dark"} />
@@ -1190,10 +1388,14 @@ function LoopShell() {
           key={openConversationId}
           cards={openCarouselCards}
           queuedRuns={openCarouselQueuedRuns}
+          activeRun={openCarouselActiveRun}
+          liveStream={openCarouselLiveStream}
           client={client}
           snippets={snippets}
           theme={theme}
           onCancelQueuedRun={handleCancelQueuedRun}
+          onReorderQueuedRun={handleReorderQueuedRun}
+          onControlRun={handleControlRun}
           onClose={() => {
             setOpenConversationId(null);
             setCarouselOverrideCards(null);
@@ -1231,12 +1433,15 @@ function LoopShell() {
           agentName={threadOverlay.agentName}
           agentId={threadOverlay.agentId}
           client={client}
+          activeRun={openThreadActiveRun}
+          liveStream={openThreadLiveStream}
           fallbackCards={activeCards.filter(
             (c) => c.conversationId === threadOverlay.conversationId,
           )}
           refreshKey={workspaceVersion}
           theme={theme}
           onClose={() => setThreadOverlay(null)}
+          onControlRun={handleControlRun}
           onOpenFile={handleOpenFile}
           onOpenFileTarget={handleOpenFileTarget}
           onSendLiveReply={async (input) => {
@@ -1252,11 +1457,14 @@ function LoopShell() {
                 input: input.text,
                 attachmentIds: input.attachmentIds,
                 idempotencyKey: input.idempotencyKey,
+                queue: input.queue,
               });
               showToast(
-                input.attachmentIds?.length
-                  ? `Sent to @${input.agentName} with ${input.attachmentIds.length} ${input.attachmentIds.length === 1 ? "file" : "files"}`
-                  : `Sent to @${input.agentName}`,
+                input.queue
+                  ? `Queued for @${input.agentName}`
+                  : input.attachmentIds?.length
+                    ? `Sent to @${input.agentName} with ${input.attachmentIds.length} ${input.attachmentIds.length === 1 ? "file" : "files"}`
+                    : `Sent to @${input.agentName}`,
               );
             } else {
               const nextCard = buildSimulatedReply(

@@ -38,13 +38,19 @@ import {
   Bookmark,
   BookmarkCheck,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Clock,
   CornerUpLeft,
   Paperclip,
+  Pause,
+  Play,
+  RotateCcw,
   Search,
   Sparkles,
+  Square,
   X,
   Zap,
 } from "lucide-react-native";
@@ -61,6 +67,7 @@ import {
   type LoopClient,
 } from "../api/client";
 import type { LoopFileTarget, PublishedFileItem } from "../api/files";
+import type { LiveStreamOverlay } from "../api/socket";
 import type { ApiSnippet } from "../api/types";
 import type { AgentRunSummary } from "./AgentProfileSheet";
 import { PublishedFilesStrip } from "./FilePreviewModal";
@@ -86,11 +93,18 @@ const EMPTY_PUBLISHED_FILES: PublishedFileItem[] = [];
 type SpotlightCarouselProps = {
   cards: NativeResultCard[];
   queuedRuns?: AgentRunSummary[];
+  activeRun?: AgentRunSummary | null;
+  liveStream?: LiveStreamOverlay | null;
   client?: LoopClient | null;
   snippets?: ApiSnippet[];
   theme: LoopTheme;
   onClose: () => void;
   onCancelQueuedRun?: (runId: string) => void;
+  onReorderQueuedRun?: (runId: string, direction: "up" | "down") => void;
+  onControlRun?: (
+    runId: string,
+    action: "pause" | "resume" | "cancel" | "retry",
+  ) => void;
   onOpenAgent?: (agentId: string | null | undefined, agentName: string) => void;
   onOpenThread?: (card: NativeResultCard) => void;
   onOpenFile?: (file: PublishedFileItem) => void;
@@ -104,17 +118,22 @@ type SpotlightCarouselProps = {
     prompt: string,
     attachmentIds?: string[],
     idempotencyKey?: string,
+    queue?: boolean,
   ) => Promise<void> | void;
 };
 
 export function SpotlightCarousel({
   cards,
   queuedRuns = [],
+  activeRun = null,
+  liveStream = null,
   client,
   snippets = [],
   theme,
   onClose,
   onCancelQueuedRun,
+  onReorderQueuedRun,
+  onControlRun,
   onOpenAgent,
   onOpenThread,
   onOpenFile,
@@ -242,10 +261,15 @@ export function SpotlightCarousel({
       const fullBody = msgId ? fullBodies.get(msgId) : undefined;
       const resolvedRunId =
         card.runId || (msgId ? historyRunIds.get(msgId) : undefined);
+      const streamedBody =
+        card.tab === "working" && liveStream?.text
+          ? liveStream.text
+          : undefined;
       return {
         ...card,
         ...(exactPrompt ? { prompt: exactPrompt } : {}),
         ...(fullBody ? { body: fullBody, bodyTruncated: false } : {}),
+        ...(streamedBody ? { body: streamedBody, bodyTruncated: false } : {}),
         ...(resolvedRunId ? { runId: resolvedRunId } : {}),
       };
     };
@@ -270,6 +294,7 @@ export function SpotlightCarousel({
     historyRunIds,
     historySlides,
     fullBodies,
+    liveStream?.text,
   ]);
 
   const [activeIndex, setActiveIndex] = useState(0);
@@ -294,6 +319,7 @@ export function SpotlightCarousel({
   const [sending, setSending] = useState(false);
   const [replyError, setReplyError] = useState("");
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [deliveryMode, setDeliveryMode] = useState<"steer" | "queue">("steer");
   // Preserve both idempotencyKey and original replyToMessageId across retries after uncertain errors,
   // even if a background refresh promotes a working:* slide to its finished Done card.
   const pendingReplyRef = useRef<{
@@ -304,11 +330,16 @@ export function SpotlightCarousel({
     agentId: activeCard?.agentId,
   });
 
-  // Invalidate pending retry key ONLY when the reply payload or conversation changes
+  const canSteerActiveRun =
+    activeRun?.state === "running" ||
+    activeRun?.state === "waiting_children" ||
+    liveStream?.state === "running";
+
+  // Invalidate pending retry key ONLY when the reply payload, delivery mode, or conversation changes
   const attachmentKeySig = replyAttachments.readyIds.join(",");
   useEffect(() => {
     pendingReplyRef.current = null;
-  }, [draft, conversationId, attachmentKeySig]);
+  }, [draft, conversationId, attachmentKeySig, deliveryMode]);
 
   // If the user opened a synthetic working:* placeholder at slide 0 and the run
   // finishes (superseding the placeholder with a live Done card), promote it smoothly.
@@ -667,7 +698,13 @@ export function SpotlightCarousel({
     setReplyError("");
     try {
       await Promise.resolve(
-        onSendReply(targetCard, finalPrompt, readyIds, idempotencyKey),
+        onSendReply(
+          targetCard,
+          finalPrompt,
+          readyIds,
+          idempotencyKey,
+          canSteerActiveRun ? deliveryMode === "queue" : undefined,
+        ),
       );
       pendingReplyRef.current = null;
       setDraft("");
@@ -684,7 +721,16 @@ export function SpotlightCarousel({
     } finally {
       setTimeout(() => setSending(false), client ? 250 : 1150);
     }
-  }, [draft, sending, activeCard, onSendReply, client, replyAttachments]);
+  }, [
+    draft,
+    sending,
+    activeCard,
+    onSendReply,
+    client,
+    replyAttachments,
+    canSteerActiveRun,
+    deliveryMode,
+  ]);
 
   const handleSelectNeighbor = useCallback(
     (idx: number) => {
@@ -880,8 +926,176 @@ export function SpotlightCarousel({
             </GestureDetector>
           )}
 
+          {/* Live Run Activity & Controls Banner */}
+          {!searchOpen && activeRun && (
+            <View style={styles.statusBannerWrap}>
+              <View
+                style={[
+                  styles.runControlBanner,
+                  {
+                    backgroundColor:
+                      activeRun.state === "failed" ||
+                      activeRun.state === "interrupted"
+                        ? theme.orangeSoft
+                        : theme.pillBg,
+                    borderColor:
+                      activeRun.state === "failed" ||
+                      activeRun.state === "interrupted"
+                        ? theme.orange
+                        : theme.line,
+                  },
+                ]}
+              >
+                <Sparkles
+                  size={13}
+                  color={
+                    activeRun.state === "failed" ||
+                    activeRun.state === "interrupted"
+                      ? theme.orange
+                      : theme.blue
+                  }
+                />
+                <Text
+                  style={[
+                    styles.statusBannerText,
+                    {
+                      color:
+                        activeRun.state === "failed" ||
+                        activeRun.state === "interrupted"
+                          ? theme.orange
+                          : theme.text,
+                      flexShrink: 1,
+                    },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {liveStream?.activity ||
+                    (activeRun.state === "paused"
+                      ? "Paused"
+                      : activeRun.state === "pausing"
+                        ? "Pausing…"
+                        : activeRun.state === "failed"
+                          ? "Run failed"
+                          : activeRun.state === "interrupted"
+                            ? "Run interrupted"
+                            : activeRun.state === "awaiting_approval"
+                              ? "Needs approval"
+                              : `@${agentName} is working…`)}
+                </Text>
+
+                {onControlRun && (
+                  <View style={styles.runControlActions}>
+                    {(activeRun.state === "running" ||
+                      activeRun.state === "waiting_children") && (
+                      <Pressable
+                        accessibilityLabel="Pause run"
+                        onPress={() => {
+                          haptics.light();
+                          onControlRun(activeRun.id, "pause");
+                        }}
+                        style={[
+                          styles.runCtrlBtn,
+                          {
+                            backgroundColor: theme.soft,
+                            borderColor: theme.line,
+                          },
+                        ]}
+                      >
+                        <Pause size={12} color={theme.text} />
+                        <Text
+                          style={[styles.runCtrlText, { color: theme.text }]}
+                        >
+                          Pause
+                        </Text>
+                      </Pressable>
+                    )}
+                    {activeRun.state === "paused" && (
+                      <Pressable
+                        accessibilityLabel="Resume run"
+                        onPress={() => {
+                          haptics.light();
+                          onControlRun(activeRun.id, "resume");
+                        }}
+                        style={[
+                          styles.runCtrlBtn,
+                          {
+                            backgroundColor: theme.attention,
+                            borderColor: theme.attentionLine,
+                          },
+                        ]}
+                      >
+                        <Play size={12} color={theme.brassText} />
+                        <Text
+                          style={[
+                            styles.runCtrlText,
+                            { color: theme.brassText },
+                          ]}
+                        >
+                          Resume
+                        </Text>
+                      </Pressable>
+                    )}
+                    {(activeRun.state === "failed" ||
+                      activeRun.state === "interrupted") && (
+                      <Pressable
+                        accessibilityLabel="Retry run"
+                        onPress={() => {
+                          haptics.medium();
+                          onControlRun(activeRun.id, "retry");
+                        }}
+                        style={[
+                          styles.runCtrlBtn,
+                          {
+                            backgroundColor: theme.attention,
+                            borderColor: theme.attentionLine,
+                          },
+                        ]}
+                      >
+                        <RotateCcw size={12} color={theme.brassText} />
+                        <Text
+                          style={[
+                            styles.runCtrlText,
+                            { color: theme.brassText },
+                          ]}
+                        >
+                          Retry
+                        </Text>
+                      </Pressable>
+                    )}
+                    {(activeRun.state === "running" ||
+                      activeRun.state === "pausing" ||
+                      activeRun.state === "paused" ||
+                      activeRun.state === "waiting_children") && (
+                      <Pressable
+                        accessibilityLabel="Stop run"
+                        onPress={() => {
+                          haptics.warning();
+                          onControlRun(activeRun.id, "cancel");
+                        }}
+                        style={[
+                          styles.runCtrlBtn,
+                          {
+                            backgroundColor: theme.orangeSoft,
+                            borderColor: theme.orange,
+                          },
+                        ]}
+                      >
+                        <Square size={11} color={theme.orange} />
+                        <Text
+                          style={[styles.runCtrlText, { color: theme.orange }]}
+                        >
+                          Stop
+                        </Text>
+                      </Pressable>
+                    )}
+                  </View>
+                )}
+              </View>
+            </View>
+          )}
+
           {/* Simulated arrival / sending status pills */}
-          {!searchOpen && sending && (
+          {!searchOpen && sending && !activeRun && (
             <View style={styles.statusBannerWrap}>
               <View
                 style={[
@@ -1231,6 +1445,76 @@ export function SpotlightCarousel({
 
           {/* Detached Floating Reply Pill along the bottom */}
           <View style={styles.replyFloatWrap}>
+            {canSteerActiveRun && (
+              <View style={styles.deliveryModeRow}>
+                <Pressable
+                  onPress={() => {
+                    haptics.selection();
+                    setDeliveryMode("steer");
+                  }}
+                  style={[
+                    styles.deliveryChip,
+                    {
+                      backgroundColor:
+                        deliveryMode === "steer"
+                          ? theme.attention
+                          : theme.pillBg,
+                      borderColor:
+                        deliveryMode === "steer"
+                          ? theme.attentionLine
+                          : theme.line,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.deliveryChipText,
+                      {
+                        color:
+                          deliveryMode === "steer"
+                            ? theme.brassText
+                            : theme.muted,
+                      },
+                    ]}
+                  >
+                    Steer live run
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    haptics.selection();
+                    setDeliveryMode("queue");
+                  }}
+                  style={[
+                    styles.deliveryChip,
+                    {
+                      backgroundColor:
+                        deliveryMode === "queue"
+                          ? theme.attention
+                          : theme.pillBg,
+                      borderColor:
+                        deliveryMode === "queue"
+                          ? theme.attentionLine
+                          : theme.line,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.deliveryChipText,
+                      {
+                        color:
+                          deliveryMode === "queue"
+                            ? theme.brassText
+                            : theme.muted,
+                      },
+                    ]}
+                  >
+                    Queue after run
+                  </Text>
+                </Pressable>
+              </View>
+            )}
             {replyError ? (
               <Text
                 style={[styles.replyErrorText, { color: theme.orange }]}
@@ -1433,28 +1717,73 @@ export function SpotlightCarousel({
                         Queued {relativeTime(run.created_at)}
                       </Text>
                     </View>
-                    {onCancelQueuedRun && (
-                      <Pressable
-                        accessibilityLabel="Cancel queued message"
-                        hitSlop={8}
-                        onPress={() => {
-                          haptics.warning();
-                          onCancelQueuedRun(run.id);
-                          if (queuedRuns.length <= 1) {
-                            setQueuedSheetOpen(false);
-                          }
-                        }}
-                        style={[
-                          styles.controlsCollapseBtn,
-                          {
-                            backgroundColor: theme.raised,
-                            borderColor: theme.line,
-                          },
-                        ]}
-                      >
-                        <X size={14} color={theme.muted} />
-                      </Pressable>
-                    )}
+                    <View style={styles.queuedActions}>
+                      {onReorderQueuedRun && queuedRuns.length > 1 && (
+                        <>
+                          <Pressable
+                            accessibilityLabel="Move queued message up"
+                            disabled={idx === 0}
+                            hitSlop={6}
+                            onPress={() => {
+                              haptics.selection();
+                              onReorderQueuedRun(run.id, "up");
+                            }}
+                            style={[
+                              styles.controlsCollapseBtn,
+                              {
+                                backgroundColor: theme.raised,
+                                borderColor: theme.line,
+                                opacity: idx === 0 ? 0.35 : 1,
+                              },
+                            ]}
+                          >
+                            <ChevronUp size={14} color={theme.text} />
+                          </Pressable>
+                          <Pressable
+                            accessibilityLabel="Move queued message down"
+                            disabled={idx === queuedRuns.length - 1}
+                            hitSlop={6}
+                            onPress={() => {
+                              haptics.selection();
+                              onReorderQueuedRun(run.id, "down");
+                            }}
+                            style={[
+                              styles.controlsCollapseBtn,
+                              {
+                                backgroundColor: theme.raised,
+                                borderColor: theme.line,
+                                opacity:
+                                  idx === queuedRuns.length - 1 ? 0.35 : 1,
+                              },
+                            ]}
+                          >
+                            <ChevronDown size={14} color={theme.text} />
+                          </Pressable>
+                        </>
+                      )}
+                      {onCancelQueuedRun && (
+                        <Pressable
+                          accessibilityLabel="Cancel queued message"
+                          hitSlop={8}
+                          onPress={() => {
+                            haptics.warning();
+                            onCancelQueuedRun(run.id);
+                            if (queuedRuns.length <= 1) {
+                              setQueuedSheetOpen(false);
+                            }
+                          }}
+                          style={[
+                            styles.controlsCollapseBtn,
+                            {
+                              backgroundColor: theme.raised,
+                              borderColor: theme.line,
+                            },
+                          ]}
+                        >
+                          <X size={14} color={theme.muted} />
+                        </Pressable>
+                      )}
+                    </View>
                   </View>
                 ))}
               </View>
@@ -2464,6 +2793,56 @@ const styles = StyleSheet.create({
   statusBannerText: {
     fontSize: 12.5,
     fontWeight: "600",
+  },
+  runControlBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    maxWidth: "94%",
+  },
+  runControlActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginLeft: 2,
+  },
+  runCtrlBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  runCtrlText: {
+    fontSize: 11.5,
+    fontWeight: "700",
+  },
+  deliveryModeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 6,
+  },
+  deliveryChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  deliveryChipText: {
+    fontSize: 11.5,
+    fontWeight: "700",
+  },
+  queuedActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
   },
   matchPillWrap: {
     alignItems: "center",
