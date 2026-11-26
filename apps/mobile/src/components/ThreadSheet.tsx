@@ -48,6 +48,7 @@ export function ThreadSheet({
   agentId,
   client,
   activeRun = null,
+  canPause = true,
   liveStream = null,
   fallbackCards,
   refreshKey,
@@ -65,6 +66,7 @@ export function ThreadSheet({
   agentId?: string | null;
   client: LoopClient | null;
   activeRun?: AgentRunSummary | null;
+  canPause?: boolean;
   liveStream?: LiveStreamOverlay | null;
   fallbackCards?: NativeResultCard[];
   /** Changes when the workspace has new data; the open thread then refreshes in place. */
@@ -105,7 +107,10 @@ export function ThreadSheet({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
-  const sendKeyRef = useRef<string | null>(null);
+  const pendingSendRef = useRef<{
+    idempotencyKey: string;
+    queue?: boolean;
+  } | null>(null);
   const refreshGateRef = useRef(new ThreadRefreshGate());
   // The parent rebuilds this array on every render. Read it through a ref so a
   // parent re-render does not reload the thread.
@@ -118,12 +123,11 @@ export function ThreadSheet({
   const canSteerActiveRun =
     working ||
     activeRun?.state === "running" ||
-    activeRun?.state === "waiting_children" ||
-    liveStream?.state === "running";
+    activeRun?.state === "waiting_children";
 
   const attSig = replyAttachments.readyIds.join(",");
   useEffect(() => {
-    sendKeyRef.current = null;
+    pendingSendRef.current = null;
   }, [draft, conversationId, resolvedAgentId, attSig, deliveryMode]);
 
   const load = useCallback(async () => {
@@ -234,8 +238,13 @@ export function ThreadSheet({
       (readyNames.length === 1
         ? `Attached ${readyNames[0]}`
         : `Attached ${readyNames.length} files`);
-    if (!sendKeyRef.current) sendKeyRef.current = randomUuid();
-    const idempotencyKey = sendKeyRef.current;
+    if (!pendingSendRef.current) {
+      pendingSendRef.current = {
+        idempotencyKey: randomUuid(),
+        queue: canSteerActiveRun ? deliveryMode === "queue" : undefined,
+      };
+    }
+    const { idempotencyKey, queue } = pendingSendRef.current;
     haptics.medium();
     setSending(true);
     setError("");
@@ -247,9 +256,9 @@ export function ThreadSheet({
         text: finalText,
         attachmentIds: readyIds,
         idempotencyKey,
-        ...(canSteerActiveRun ? { queue: deliveryMode === "queue" } : {}),
+        ...(queue !== undefined ? { queue } : {}),
       });
-      sendKeyRef.current = null;
+      pendingSendRef.current = null;
       setDraft("");
       clearAttachments();
       if (client) {
@@ -407,24 +416,25 @@ export function ThreadSheet({
                       : "Active run")}
             </Text>
             <View style={styles.runBarActions}>
-              {(activeRun.state === "running" ||
-                activeRun.state === "waiting_children") && (
-                <Pressable
-                  onPress={() => {
-                    haptics.light();
-                    onControlRun(activeRun.id, "pause");
-                  }}
-                  style={[
-                    styles.runBtn,
-                    { backgroundColor: theme.soft, borderColor: theme.line },
-                  ]}
-                >
-                  <Pause size={12} color={theme.text} />
-                  <Text style={[styles.runBtnText, { color: theme.text }]}>
-                    Pause
-                  </Text>
-                </Pressable>
-              )}
+              {canPause &&
+                (activeRun.state === "running" ||
+                  activeRun.state === "waiting_children") && (
+                  <Pressable
+                    onPress={() => {
+                      haptics.light();
+                      onControlRun(activeRun.id, "pause");
+                    }}
+                    style={[
+                      styles.runBtn,
+                      { backgroundColor: theme.soft, borderColor: theme.line },
+                    ]}
+                  >
+                    <Pause size={12} color={theme.text} />
+                    <Text style={[styles.runBtnText, { color: theme.text }]}>
+                      Pause
+                    </Text>
+                  </Pressable>
+                )}
               {activeRun.state === "paused" && (
                 <Pressable
                   onPress={() => {
@@ -568,7 +578,7 @@ export function ThreadSheet({
                           workspaceOrigin={client?.origin}
                           onOpenFile={onOpenFileTarget}
                           onReplyButton={(prompt) => {
-                            sendKeyRef.current = null;
+                            pendingSendRef.current = null;
                             setDraft(prompt);
                           }}
                         />
@@ -587,14 +597,40 @@ export function ThreadSheet({
                 );
               })}
 
-              {liveStream &&
+              {(working ||
+                (activeRun &&
+                  [
+                    "running",
+                    "pausing",
+                    "awaiting_approval",
+                    "waiting_children",
+                  ].includes(activeRun.state))) &&
+                liveStream &&
+                !liveStream.gapped &&
                 (liveStream.text.trim().length > 0 || liveStream.activity) &&
-                (!liveStream.messageId ||
-                  !messages.some(
-                    (m) =>
-                      m.id === liveStream.messageId &&
-                      m.content.length >= liveStream.text.length,
-                  )) && (
+                !messages.some((m) => {
+                  if (m.role !== "assistant") return false;
+                  const trimmedStream = liveStream.text.trim();
+                  if (
+                    liveStream.messageId &&
+                    m.id === liveStream.messageId &&
+                    m.content.trim().length >= trimmedStream.length
+                  ) {
+                    return true;
+                  }
+                  if (
+                    activeRun &&
+                    m.run_id === activeRun.id &&
+                    trimmedStream.length > 0 &&
+                    m.content.trim().length >= trimmedStream.length
+                  ) {
+                    return true;
+                  }
+                  return (
+                    trimmedStream.length > 0 &&
+                    m.content.trim() === trimmedStream
+                  );
+                }) && (
                   <View
                     style={[
                       styles.msgCard,
@@ -737,7 +773,7 @@ export function ThreadSheet({
             <TextInput
               value={draft}
               onChangeText={(next) => {
-                sendKeyRef.current = null;
+                pendingSendRef.current = null;
                 setDraft(next);
               }}
               placeholder={`Reply to @${agentName}…`}

@@ -77,6 +77,9 @@ export type ApiFeedRun = {
   error?: string | null;
   created_at?: number;
   updated_at?: number;
+  queue_position?: number | null;
+  can_move_up?: boolean;
+  can_move_down?: boolean;
 };
 
 export type ApiFeedItem = {

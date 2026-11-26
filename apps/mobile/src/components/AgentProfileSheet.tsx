@@ -48,6 +48,10 @@ export type AgentRunSummary = {
   input: string;
   state: string;
   created_at: number;
+  queue_position?: number | null;
+  can_move_up?: boolean;
+  can_move_down?: boolean;
+  threadTitle?: string;
 };
 
 export function AgentProfileSheet({

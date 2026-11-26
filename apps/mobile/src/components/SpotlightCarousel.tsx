@@ -94,6 +94,7 @@ type SpotlightCarouselProps = {
   cards: NativeResultCard[];
   queuedRuns?: AgentRunSummary[];
   activeRun?: AgentRunSummary | null;
+  canPause?: boolean;
   liveStream?: LiveStreamOverlay | null;
   client?: LoopClient | null;
   snippets?: ApiSnippet[];
@@ -126,6 +127,7 @@ export function SpotlightCarousel({
   cards,
   queuedRuns = [],
   activeRun = null,
+  canPause = true,
   liveStream = null,
   client,
   snippets = [],
@@ -262,7 +264,7 @@ export function SpotlightCarousel({
       const resolvedRunId =
         card.runId || (msgId ? historyRunIds.get(msgId) : undefined);
       const streamedBody =
-        card.tab === "working" && liveStream?.text
+        card.tab === "working" && liveStream?.text && !liveStream.gapped
           ? liveStream.text
           : undefined;
       return {
@@ -295,6 +297,7 @@ export function SpotlightCarousel({
     historySlides,
     fullBodies,
     liveStream?.text,
+    liveStream?.gapped,
   ]);
 
   const [activeIndex, setActiveIndex] = useState(0);
@@ -320,20 +323,19 @@ export function SpotlightCarousel({
   const [replyError, setReplyError] = useState("");
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [deliveryMode, setDeliveryMode] = useState<"steer" | "queue">("steer");
-  // Preserve both idempotencyKey and original replyToMessageId across retries after uncertain errors,
-  // even if a background refresh promotes a working:* slide to its finished Done card.
+  // Preserve idempotencyKey, replyToMessageId, and queue delivery mode across retries after
+  // uncertain errors so retrying never mutates the request semantics for the same idempotencyKey.
   const pendingReplyRef = useRef<{
     idempotencyKey: string;
     replyToMessageId?: string;
+    queue?: boolean;
   } | null>(null);
   const replyAttachments = useAttachments(client, {
     agentId: activeCard?.agentId,
   });
 
   const canSteerActiveRun =
-    activeRun?.state === "running" ||
-    activeRun?.state === "waiting_children" ||
-    liveStream?.state === "running";
+    activeRun?.state === "running" || activeRun?.state === "waiting_children";
 
   // Invalidate pending retry key ONLY when the reply payload, delivery mode, or conversation changes
   const attachmentKeySig = replyAttachments.readyIds.join(",");
@@ -680,15 +682,16 @@ export function SpotlightCarousel({
       (readyNames.length === 1
         ? `Attached ${readyNames[0]}`
         : `Attached ${readyNames.length} files`);
-    // Keep one durable idempotency key + reply target per unsent draft so retries after
-    // uncertain failures never duplicate runs even if the active slide updates mid-flight.
+    // Keep one durable idempotency key, reply target, and queue flag per unsent draft so
+    // retries after uncertain failures never duplicate or mutate the run request semantics.
     if (!pendingReplyRef.current) {
       pendingReplyRef.current = {
         idempotencyKey: randomUuid(),
         replyToMessageId: activeCard.messageId,
+        queue: canSteerActiveRun ? deliveryMode === "queue" : undefined,
       };
     }
-    const { idempotencyKey, replyToMessageId } = pendingReplyRef.current;
+    const { idempotencyKey, replyToMessageId, queue } = pendingReplyRef.current;
     const targetCard =
       replyToMessageId === activeCard.messageId
         ? activeCard
@@ -698,13 +701,7 @@ export function SpotlightCarousel({
     setReplyError("");
     try {
       await Promise.resolve(
-        onSendReply(
-          targetCard,
-          finalPrompt,
-          readyIds,
-          idempotencyKey,
-          canSteerActiveRun ? deliveryMode === "queue" : undefined,
-        ),
+        onSendReply(targetCard, finalPrompt, readyIds, idempotencyKey, queue),
       );
       pendingReplyRef.current = null;
       setDraft("");
@@ -985,30 +982,31 @@ export function SpotlightCarousel({
 
                 {onControlRun && (
                   <View style={styles.runControlActions}>
-                    {(activeRun.state === "running" ||
-                      activeRun.state === "waiting_children") && (
-                      <Pressable
-                        accessibilityLabel="Pause run"
-                        onPress={() => {
-                          haptics.light();
-                          onControlRun(activeRun.id, "pause");
-                        }}
-                        style={[
-                          styles.runCtrlBtn,
-                          {
-                            backgroundColor: theme.soft,
-                            borderColor: theme.line,
-                          },
-                        ]}
-                      >
-                        <Pause size={12} color={theme.text} />
-                        <Text
-                          style={[styles.runCtrlText, { color: theme.text }]}
+                    {canPause &&
+                      (activeRun.state === "running" ||
+                        activeRun.state === "waiting_children") && (
+                        <Pressable
+                          accessibilityLabel="Pause run"
+                          onPress={() => {
+                            haptics.light();
+                            onControlRun(activeRun.id, "pause");
+                          }}
+                          style={[
+                            styles.runCtrlBtn,
+                            {
+                              backgroundColor: theme.soft,
+                              borderColor: theme.line,
+                            },
+                          ]}
                         >
-                          Pause
-                        </Text>
-                      </Pressable>
-                    )}
+                          <Pause size={12} color={theme.text} />
+                          <Text
+                            style={[styles.runCtrlText, { color: theme.text }]}
+                          >
+                            Pause
+                          </Text>
+                        </Pressable>
+                      )}
                     {activeRun.state === "paused" && (
                       <Pressable
                         accessibilityLabel="Resume run"
@@ -1713,54 +1711,57 @@ export function SpotlightCarousel({
                       </Text>
                       <Text
                         style={[styles.quickOptionHint, { color: theme.muted }]}
+                        numberOfLines={1}
                       >
-                        Queued {relativeTime(run.created_at)}
+                        {run.threadTitle
+                          ? `${run.threadTitle} · ${relativeTime(run.created_at)}`
+                          : `Queued ${relativeTime(run.created_at)}`}
                       </Text>
                     </View>
                     <View style={styles.queuedActions}>
-                      {onReorderQueuedRun && queuedRuns.length > 1 && (
-                        <>
-                          <Pressable
-                            accessibilityLabel="Move queued message up"
-                            disabled={idx === 0}
-                            hitSlop={6}
-                            onPress={() => {
-                              haptics.selection();
-                              onReorderQueuedRun(run.id, "up");
-                            }}
-                            style={[
-                              styles.controlsCollapseBtn,
-                              {
-                                backgroundColor: theme.raised,
-                                borderColor: theme.line,
-                                opacity: idx === 0 ? 0.35 : 1,
-                              },
-                            ]}
-                          >
-                            <ChevronUp size={14} color={theme.text} />
-                          </Pressable>
-                          <Pressable
-                            accessibilityLabel="Move queued message down"
-                            disabled={idx === queuedRuns.length - 1}
-                            hitSlop={6}
-                            onPress={() => {
-                              haptics.selection();
-                              onReorderQueuedRun(run.id, "down");
-                            }}
-                            style={[
-                              styles.controlsCollapseBtn,
-                              {
-                                backgroundColor: theme.raised,
-                                borderColor: theme.line,
-                                opacity:
-                                  idx === queuedRuns.length - 1 ? 0.35 : 1,
-                              },
-                            ]}
-                          >
-                            <ChevronDown size={14} color={theme.text} />
-                          </Pressable>
-                        </>
-                      )}
+                      {onReorderQueuedRun &&
+                        (run.can_move_up || run.can_move_down) && (
+                          <>
+                            <Pressable
+                              accessibilityLabel="Move queued message up"
+                              disabled={!run.can_move_up}
+                              hitSlop={6}
+                              onPress={() => {
+                                haptics.selection();
+                                onReorderQueuedRun(run.id, "up");
+                              }}
+                              style={[
+                                styles.controlsCollapseBtn,
+                                {
+                                  backgroundColor: theme.raised,
+                                  borderColor: theme.line,
+                                  opacity: run.can_move_up ? 1 : 0.35,
+                                },
+                              ]}
+                            >
+                              <ChevronUp size={14} color={theme.text} />
+                            </Pressable>
+                            <Pressable
+                              accessibilityLabel="Move queued message down"
+                              disabled={!run.can_move_down}
+                              hitSlop={6}
+                              onPress={() => {
+                                haptics.selection();
+                                onReorderQueuedRun(run.id, "down");
+                              }}
+                              style={[
+                                styles.controlsCollapseBtn,
+                                {
+                                  backgroundColor: theme.raised,
+                                  borderColor: theme.line,
+                                  opacity: run.can_move_down ? 1 : 0.35,
+                                },
+                              ]}
+                            >
+                              <ChevronDown size={14} color={theme.text} />
+                            </Pressable>
+                          </>
+                        )}
                       {onCancelQueuedRun && (
                         <Pressable
                           accessibilityLabel="Cancel queued message"

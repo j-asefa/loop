@@ -1,4 +1,4 @@
-import type { PairedSession } from "./types";
+import type { ApiAgent, ApiConnection, PairedSession } from "./types";
 
 export type SocketStatus = "connecting" | "live" | "reconnecting" | "offline";
 
@@ -10,6 +10,8 @@ export type LiveStreamEvent =
       messageId?: string;
       text: string;
       replace?: boolean;
+      offset?: number;
+      revision?: number;
     }
   | {
       kind: "activity";
@@ -22,13 +24,19 @@ export type LiveStreamEvent =
       runId?: string;
       conversationId?: string;
       state: string;
+    }
+  | {
+      kind: "reset";
     };
 
 export type LiveStreamOverlay = {
+  runId?: string;
   text: string;
   messageId?: string;
   activity?: string;
   state?: string;
+  revision?: number;
+  gapped?: boolean;
   updatedAt: number;
 };
 
@@ -38,18 +46,18 @@ type RNWebSocketConstructor = new (
   options?: { headers?: Record<string, string> },
 ) => WebSocket;
 
-const ACTIVITY_LABELS: Record<string, string> = {
-  plan: "Updating plan…",
-  tool: "Running tool…",
-  file_change: "Editing files…",
-  output: "Streaming response…",
-  commands: "Running command…",
-  settings: "Configuring session…",
-  capabilities: "Checking capabilities…",
-};
+const ACTIVITY_LABELS = new Map<string, string>([
+  ["plan", "Updating plan…"],
+  ["tool", "Running tool…"],
+  ["file_change", "Editing files…"],
+  ["output", "Streaming response…"],
+  ["commands", "Running command…"],
+  ["settings", "Configuring session…"],
+  ["capabilities", "Checking capabilities…"],
+]);
 
+// Excludes "queued" so newly queued follow-ups never overwrite or clear an active run's stream overlay.
 const RUN_STATE_TYPES = new Set([
-  "queued",
   "running",
   "pausing",
   "paused",
@@ -58,6 +66,14 @@ const RUN_STATE_TYPES = new Set([
   "failed",
   "cancelled",
   "interrupted",
+  "waiting_children",
+]);
+
+const ACTIVE_STREAM_STATES = new Set([
+  "running",
+  "pausing",
+  "paused",
+  "awaiting_approval",
   "waiting_children",
 ]);
 
@@ -70,6 +86,45 @@ const TERMINAL_RUN_STATES = new Set([
 
 const MAX_STREAM_TEXT_CHARS = 80_000;
 
+export function isNativeHarnessConnection(
+  connection?: Pick<ApiConnection, "metadata"> | null,
+): boolean {
+  if (!connection?.metadata) return false;
+  try {
+    const parsed = JSON.parse(connection.metadata) as {
+      loopHarness?: unknown;
+    };
+    return parsed != null && parsed.loopHarness != null;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Matches server `controlRun` (`src/server/run-attention.ts`): active native-harness
+ * turns cannot be paused mid-turn (the server returns 409 and advises interrupting instead).
+ */
+export function canPauseRun(
+  run: { state: string; agent_id?: string | null } | null | undefined,
+  agents: Array<Pick<ApiAgent, "id" | "connection_id">>,
+  connections: Array<Pick<ApiConnection, "id" | "metadata">>,
+): boolean {
+  if (!run) return false;
+  if (run.state !== "running" && run.state !== "waiting_children") {
+    return false;
+  }
+  const agent = run.agent_id
+    ? agents.find((a) => a.id === run.agent_id)
+    : undefined;
+  const conn = agent?.connection_id
+    ? connections.find((c) => c.id === agent.connection_id)
+    : undefined;
+  if (isNativeHarnessConnection(conn)) {
+    return false;
+  }
+  return true;
+}
+
 export function extractLiveStreamEvents(raw: unknown): LiveStreamEvent[] {
   if (typeof raw !== "string" || !raw) return [];
   let parsed: unknown;
@@ -80,9 +135,13 @@ export function extractLiveStreamEvents(raw: unknown): LiveStreamEvent[] {
   }
   if (!parsed || typeof parsed !== "object") return [];
   const root = parsed as {
+    type?: unknown;
     events?: Array<{ event?: Record<string, unknown> }>;
     event?: Record<string, unknown>;
   };
+  if (root.type === "reset") {
+    return [{ kind: "reset" }];
+  }
   const envelopes: Array<Record<string, unknown>> = [];
   if (Array.isArray(root.events)) {
     for (const entry of root.events) {
@@ -139,6 +198,16 @@ export function extractLiveStreamEvents(raw: unknown): LiveStreamEvent[] {
               : undefined,
           text: payload.text,
           replace: false,
+          offset:
+            typeof payload.offset === "number" &&
+            Number.isFinite(payload.offset)
+              ? payload.offset
+              : undefined,
+          revision:
+            typeof payload.revision === "number" &&
+            Number.isFinite(payload.revision)
+              ? payload.revision
+              : undefined,
         });
       }
       continue;
@@ -255,7 +324,7 @@ export function extractLiveStreamEvents(raw: unknown): LiveStreamEvent[] {
     }
 
     if (type === "activity.updated" && typeof payload.kind === "string") {
-      const label = ACTIVITY_LABELS[payload.kind];
+      const label = ACTIVITY_LABELS.get(payload.kind);
       if (label) {
         out.push({
           kind: "activity",
@@ -297,11 +366,16 @@ export function applyLiveStreamEvent(
   event: LiveStreamEvent,
   now = Date.now(),
 ): LiveStreamOverlay | null {
+  if (event.kind === "reset") {
+    return null;
+  }
+
   if (event.kind === "state") {
     if (TERMINAL_RUN_STATES.has(event.state)) {
       return null;
     }
     return {
+      runId: event.runId ?? prev?.runId,
       text: prev?.text ?? "",
       messageId: prev?.messageId,
       activity:
@@ -313,16 +387,21 @@ export function applyLiveStreamEvent(
               ? "Waiting for your approval"
               : prev?.activity,
       state: event.state,
+      revision: prev?.revision,
+      gapped: prev?.gapped,
       updatedAt: now,
     };
   }
 
   if (event.kind === "activity") {
     return {
+      runId: event.runId ?? prev?.runId,
       text: prev?.text ?? "",
       messageId: prev?.messageId,
       activity: event.label,
       state: prev?.state ?? "running",
+      revision: prev?.revision,
+      gapped: prev?.gapped,
       updatedAt: now,
     };
   }
@@ -330,19 +409,278 @@ export function applyLiveStreamEvent(
   // Delta or full assistant upsert
   const sameMessage =
     !prev?.messageId || !event.messageId || prev.messageId === event.messageId;
-  const baseText = event.replace || !sameMessage ? "" : (prev?.text ?? "");
+  const runId = event.runId ?? prev?.runId;
+
+  if (event.replace) {
+    const bounded =
+      event.text.length > MAX_STREAM_TEXT_CHARS
+        ? event.text.slice(event.text.length - MAX_STREAM_TEXT_CHARS)
+        : event.text;
+    return {
+      runId,
+      text: bounded,
+      messageId: event.messageId ?? prev?.messageId,
+      activity: prev?.activity ?? "Streaming response…",
+      state: prev?.state ?? "running",
+      revision: event.revision,
+      gapped: false,
+      updatedAt: now,
+    };
+  }
+
+  if (
+    sameMessage &&
+    event.revision !== undefined &&
+    prev?.revision !== undefined &&
+    event.revision < prev.revision
+  ) {
+    return prev;
+  }
+
+  const baseText = sameMessage ? (prev?.text ?? "") : "";
+  const prevGapped = sameMessage ? Boolean(prev?.gapped) : false;
+
+  // When explicit byte/char offset is provided, guard against missed chunks (gaps)
+  // and deduplicate overlapping replays instead of blindly concatenating garbled text.
+  if (event.offset !== undefined) {
+    if (event.offset === 0) {
+      const bounded =
+        event.text.length > MAX_STREAM_TEXT_CHARS
+          ? event.text.slice(event.text.length - MAX_STREAM_TEXT_CHARS)
+          : event.text;
+      return {
+        runId,
+        text: bounded,
+        messageId: event.messageId ?? prev?.messageId,
+        activity: prev?.activity ?? "Streaming response…",
+        state: prev?.state ?? "running",
+        revision: event.revision ?? prev?.revision,
+        gapped: false,
+        updatedAt: now,
+      };
+    }
+    if (prevGapped || event.offset > baseText.length) {
+      return {
+        runId,
+        text: baseText,
+        messageId: event.messageId ?? prev?.messageId,
+        activity: prev?.activity ?? "Streaming response…",
+        state: prev?.state ?? "running",
+        revision: event.revision ?? prev?.revision,
+        gapped: true,
+        updatedAt: now,
+      };
+    }
+    const merged = baseText.slice(0, event.offset) + event.text;
+    const bounded =
+      merged.length > MAX_STREAM_TEXT_CHARS
+        ? merged.slice(merged.length - MAX_STREAM_TEXT_CHARS)
+        : merged;
+    return {
+      runId,
+      text: bounded,
+      messageId: event.messageId ?? prev?.messageId,
+      activity: prev?.activity ?? "Streaming response…",
+      state: prev?.state ?? "running",
+      revision: event.revision ?? prev?.revision,
+      gapped: false,
+      updatedAt: now,
+    };
+  }
+
+  if (prevGapped) {
+    return {
+      runId,
+      text: baseText,
+      messageId: event.messageId ?? prev?.messageId,
+      activity: prev?.activity ?? "Streaming response…",
+      state: prev?.state ?? "running",
+      revision: event.revision ?? prev?.revision,
+      gapped: true,
+      updatedAt: now,
+    };
+  }
+
   const combined = baseText + event.text;
   const bounded =
     combined.length > MAX_STREAM_TEXT_CHARS
       ? combined.slice(combined.length - MAX_STREAM_TEXT_CHARS)
       : combined;
   return {
+    runId,
     text: bounded,
     messageId: event.messageId ?? prev?.messageId,
     activity: prev?.activity ?? "Streaming response…",
     state: prev?.state ?? "running",
+    revision: event.revision ?? prev?.revision,
+    gapped: false,
     updatedAt: now,
   };
+}
+
+/**
+ * Pure reducer that applies a batch of live stream events to the `run:` / `conv:` overlay map.
+ * - `reset` clears all overlays so reconnected sockets never append onto stale partial text.
+ * - Terminal states for a `runId` clear both `run:<id>` and any `conv:*` overlay owned by that run,
+ *   even when the terminal frame omits `conversationId`, while never wiping a different active run's overlay.
+ */
+export function applyLiveStreamBatch(
+  map: Map<string, LiveStreamOverlay>,
+  events: LiveStreamEvent[],
+  activeRuns: Array<{
+    id: string;
+    conversation_id: string | null;
+    state: string;
+  }>,
+  now = Date.now(),
+): boolean {
+  let changed = false;
+  for (const ev of events) {
+    if (ev.kind === "reset") {
+      if (map.size > 0) {
+        map.clear();
+        changed = true;
+      }
+      continue;
+    }
+
+    const matchedRun = ev.runId
+      ? activeRuns.find((r) => r.id === ev.runId)
+      : ev.conversationId
+        ? activeRuns.find(
+            (r) =>
+              r.conversation_id === ev.conversationId &&
+              ACTIVE_STREAM_STATES.has(r.state),
+          )
+        : undefined;
+    const runId = ev.runId ?? matchedRun?.id;
+    const convId =
+      ev.conversationId ?? matchedRun?.conversation_id ?? undefined;
+    const runKey = runId ? `run:${runId}` : undefined;
+    const convKey = convId ? `conv:${convId}` : undefined;
+    if (!runKey && !convKey) continue;
+
+    // Terminal state: delete run:<id> and any conv:* entry belonging to this run
+    // (or unattributed entry for convKey), without clobbering another active run in the same thread.
+    if (ev.kind === "state" && TERMINAL_RUN_STATES.has(ev.state)) {
+      if (runKey && map.delete(runKey)) changed = true;
+      if (runId) {
+        for (const [key, entry] of Array.from(map.entries())) {
+          if (key.startsWith("conv:") && entry.runId === runId) {
+            map.delete(key);
+            changed = true;
+          }
+        }
+      }
+      if (convKey) {
+        const existingConv = map.get(convKey);
+        if (
+          existingConv &&
+          (!runId || !existingConv.runId || existingConv.runId === runId)
+        ) {
+          map.delete(convKey);
+          changed = true;
+        }
+      }
+      continue;
+    }
+
+    const existing =
+      (runKey ? map.get(runKey) : undefined) ??
+      (convKey ? map.get(convKey) : undefined);
+    const next = applyLiveStreamEvent(existing, { ...ev, runId }, now);
+    if (next === null) continue;
+
+    if (runKey) {
+      map.set(runKey, next);
+      changed = true;
+    }
+    if (convKey) {
+      const existingConv = map.get(convKey);
+      // Do not let a different run overwrite a conversation's active overlay unless
+      // the previous run is no longer active or no runId was recorded.
+      const canUpdateConv =
+        !existingConv ||
+        !existingConv.runId ||
+        !runId ||
+        existingConv.runId === runId ||
+        !activeRuns.some(
+          (r) =>
+            r.id === existingConv.runId && ACTIVE_STREAM_STATES.has(r.state),
+        );
+      if (canUpdateConv) {
+        map.set(convKey, next);
+        changed = true;
+      }
+    }
+  }
+  return changed;
+}
+
+/** Remove overlays for runs/conversations that are no longer active after a workspace refresh. */
+export function pruneLiveStreams(
+  map: Map<string, LiveStreamOverlay>,
+  activeRuns: Array<{
+    id: string;
+    conversation_id: string | null;
+    state: string;
+  }>,
+): boolean {
+  const activeRunIds = new Set(
+    activeRuns
+      .filter((r) => ACTIVE_STREAM_STATES.has(r.state))
+      .map((r) => r.id),
+  );
+  const activeConvIds = new Set(
+    activeRuns
+      .filter((r) => ACTIVE_STREAM_STATES.has(r.state) && r.conversation_id)
+      .map((r) => r.conversation_id!),
+  );
+  let changed = false;
+  for (const [key, entry] of Array.from(map.entries())) {
+    if (key.startsWith("run:")) {
+      const id = key.slice(4);
+      if (!activeRunIds.has(id)) {
+        map.delete(key);
+        changed = true;
+      }
+    } else if (key.startsWith("conv:")) {
+      const cid = key.slice(5);
+      if (
+        !activeConvIds.has(cid) ||
+        (entry.runId && !activeRunIds.has(entry.runId))
+      ) {
+        map.delete(key);
+        changed = true;
+      }
+    }
+  }
+  return changed;
+}
+
+/** Immediately purge overlays for a locally cancelled or resumed run. */
+export function clearRunFromLiveStreams(
+  map: Map<string, LiveStreamOverlay>,
+  runId: string,
+  conversationId?: string | null,
+): boolean {
+  let changed = false;
+  if (map.delete(`run:${runId}`)) changed = true;
+  for (const [key, entry] of Array.from(map.entries())) {
+    if (key.startsWith("conv:") && entry.runId === runId) {
+      map.delete(key);
+      changed = true;
+    }
+  }
+  if (conversationId) {
+    const convKey = `conv:${conversationId}`;
+    const existing = map.get(convKey);
+    if (existing && (!existing.runId || existing.runId === runId)) {
+      map.delete(convKey);
+      changed = true;
+    }
+  }
+  return changed;
 }
 
 const IGNORED_TYPES = new Set([
@@ -491,8 +829,13 @@ export class LoopEventSocket {
           ws.close();
           return;
         }
+        const reconnected = this.attempt > 0;
         this.attempt = 0;
         this.onStatus("live");
+        if (reconnected) {
+          this.onStreamEvents?.([{ kind: "reset" }]);
+          this.scheduleRefresh();
+        }
       };
 
       ws.onmessage = (event) => {

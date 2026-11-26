@@ -35,8 +35,11 @@ import {
 } from "./src/api/files";
 import { clearPairedSession, loadPairedSession } from "./src/api/pairing";
 import {
-  applyLiveStreamEvent,
+  applyLiveStreamBatch,
+  canPauseRun,
+  clearRunFromLiveStreams,
   LoopEventSocket,
+  pruneLiveStreams,
   type LiveStreamEvent,
   type LiveStreamOverlay,
   type SocketStatus,
@@ -49,6 +52,7 @@ import {
 import type {
   ApiAgent,
   ApiApproval,
+  ApiFeedItem,
   ApiFeedSummary,
   ApiFolder,
   ApiNativeDecision,
@@ -160,6 +164,7 @@ function LoopShell() {
   const [approvals, setApprovals] = useState<ApiApproval[]>([]);
   const [decisions, setDecisions] = useState<ApiNativeDecision[]>([]);
   const [activeRuns, setActiveRuns] = useState<AgentRunSummary[]>([]);
+  const [queuedFeedItems, setQueuedFeedItems] = useState<ApiFeedItem[]>([]);
   const [liveStreams, setLiveStreams] = useState<
     Map<string, LiveStreamOverlay>
   >(() => new Map());
@@ -270,6 +275,7 @@ function LoopShell() {
             feedPage,
             doneCardItems,
             replyPage,
+            queuedPage,
             appList,
             decList,
             snipList,
@@ -279,6 +285,7 @@ function LoopShell() {
             client.feed("done"),
             client.doneCards().catch(() => null),
             client.feed("replies").catch(() => null),
+            client.feed("queued").catch(() => null),
             client.approvals().catch(() => [] as ApiApproval[]),
             client.nativeDecisions().catch(() => [] as ApiNativeDecision[]),
             client.snippets().catch(() => [] as ApiSnippet[]),
@@ -299,10 +306,14 @@ function LoopShell() {
           setLiveCards(
             mergeUnifiedFeedCards(doneSource, replyPage?.items ?? []),
           );
+          setQueuedFeedItems(queuedPage?.items ?? []);
           setApprovals(appList);
           setDecisions(decList);
           setSnippets(snipList);
           setActiveRuns(runList);
+          if (pruneLiveStreams(liveStreamsRef.current, runList)) {
+            setLiveStreams(new Map(liveStreamsRef.current));
+          }
           setWorkspaceVersion((v) => v + 1);
         },
         onError: (err) => {
@@ -340,6 +351,7 @@ function LoopShell() {
     setSnippets([]);
     setConnections([]);
     setActiveRuns([]);
+    setQueuedFeedItems([]);
     if (streamFlushTimerRef.current) {
       clearTimeout(streamFlushTimerRef.current);
       streamFlushTimerRef.current = null;
@@ -365,36 +377,11 @@ function LoopShell() {
   }, [client, loadWorkspace]);
 
   const handleStreamEvents = useCallback((events: LiveStreamEvent[]) => {
-    const map = liveStreamsRef.current;
-    let changed = false;
-    for (const ev of events) {
-      const matchedRun = ev.runId
-        ? activeRunsRef.current.find((r) => r.id === ev.runId)
-        : ev.conversationId
-          ? activeRunsRef.current.find(
-              (r) =>
-                r.conversation_id === ev.conversationId && r.state !== "queued",
-            )
-          : undefined;
-      const runId = ev.runId ?? matchedRun?.id;
-      const convId =
-        ev.conversationId ?? matchedRun?.conversation_id ?? undefined;
-      const keys: string[] = [];
-      if (runId) keys.push(`run:${runId}`);
-      if (convId) keys.push(`conv:${convId}`);
-      if (keys.length === 0) continue;
-
-      const existing = keys.map((k) => map.get(k)).find(Boolean);
-      const next = applyLiveStreamEvent(existing, ev);
-      for (const k of keys) {
-        if (next === null) {
-          if (map.delete(k)) changed = true;
-        } else {
-          map.set(k, next);
-          changed = true;
-        }
-      }
-    }
+    const changed = applyLiveStreamBatch(
+      liveStreamsRef.current,
+      events,
+      activeRunsRef.current,
+    );
     if (changed && !streamFlushTimerRef.current) {
       streamFlushTimerRef.current = setTimeout(() => {
         streamFlushTimerRef.current = null;
@@ -852,14 +839,35 @@ function LoopShell() {
       const priorRun = activeRuns.find((r) => r.id === runId);
       if (action === "cancel") {
         setActiveRuns((prev) => prev.filter((r) => r.id !== runId));
+        if (
+          clearRunFromLiveStreams(
+            liveStreamsRef.current,
+            runId,
+            priorRun?.conversation_id,
+          )
+        ) {
+          setLiveStreams(new Map(liveStreamsRef.current));
+        }
       } else if (action === "pause" || action === "resume") {
+        // Matches server `controlRun`: Pause transitions running -> pausing,
+        // and Resume transitions paused -> queued (or completed if already answered).
         setActiveRuns((prev) =>
           prev.map((r) =>
             r.id === runId
-              ? { ...r, state: action === "pause" ? "pausing" : "running" }
+              ? { ...r, state: action === "pause" ? "pausing" : "queued" }
               : r,
           ),
         );
+        if (
+          action === "resume" &&
+          clearRunFromLiveStreams(
+            liveStreamsRef.current,
+            runId,
+            priorRun?.conversation_id,
+          )
+        ) {
+          setLiveStreams(new Map(liveStreamsRef.current));
+        }
       }
       void client
         .runAction(runId, action, idempotencyKey)
@@ -1130,15 +1138,6 @@ function LoopShell() {
     [client, showToast],
   );
 
-  const openCarouselQueuedRuns = useMemo(() => {
-    if (!openConversationId || openCarouselCards.length === 0) return [];
-    return effectiveActiveRuns
-      .filter(
-        (r) => r.state === "queued" && r.conversation_id === openConversationId,
-      )
-      .sort((a, b) => a.created_at - b.created_at);
-  }, [effectiveActiveRuns, openCarouselCards, openConversationId]);
-
   const openCarouselActiveRun = useMemo(() => {
     if (!openConversationId) return null;
     return (
@@ -1157,6 +1156,55 @@ function LoopShell() {
       ) ?? null
     );
   }, [effectiveActiveRuns, openConversationId]);
+
+  const openCarouselQueuedRuns = useMemo(() => {
+    if (!openConversationId || openCarouselCards.length === 0) return [];
+    const agentId =
+      openCarouselCards[0]?.agentId || openCarouselActiveRun?.agent_id || null;
+    // Prefer server-ordered queued feed items for this agent so `can_move_up` / `can_move_down`
+    // reflect `canSwapQueuedRuns` (cross-thread swaps only) and displayed order matches `queue_key`.
+    if (client && agentId && queuedFeedItems.length > 0) {
+      const serverQueued: AgentRunSummary[] = [];
+      for (const item of queuedFeedItems) {
+        if (item.agent_id !== agentId || !item.run) continue;
+        if (item.run.state !== "queued") continue;
+        serverQueued.push({
+          id: item.run.id,
+          agent_id: agentId,
+          conversation_id: item.conversation_id,
+          input: item.run.input || item.title || "Queued task",
+          state: item.run.state,
+          created_at: item.run.created_at ?? item.last_activity_at,
+          queue_position: item.run.queue_position ?? null,
+          can_move_up: Boolean(item.run.can_move_up),
+          can_move_down: Boolean(item.run.can_move_down),
+          threadTitle:
+            item.conversation_id !== openConversationId
+              ? item.title
+              : undefined,
+        });
+      }
+      if (serverQueued.length > 0) return serverQueued;
+    }
+    return effectiveActiveRuns
+      .filter(
+        (r) => r.state === "queued" && r.conversation_id === openConversationId,
+      )
+      .sort((a, b) => a.created_at - b.created_at)
+      .map((r) => ({ ...r, can_move_up: false, can_move_down: false }));
+  }, [
+    client,
+    effectiveActiveRuns,
+    openCarouselActiveRun?.agent_id,
+    openCarouselCards,
+    openConversationId,
+    queuedFeedItems,
+  ]);
+
+  const openCarouselCanPause = useMemo(
+    () => canPauseRun(openCarouselActiveRun, agents, connections),
+    [openCarouselActiveRun, agents, connections],
+  );
 
   const openCarouselLiveStream = useMemo(() => {
     if (!openConversationId) return null;
@@ -1186,6 +1234,11 @@ function LoopShell() {
       ) ?? null
     );
   }, [effectiveActiveRuns, threadOverlay]);
+
+  const openThreadCanPause = useMemo(
+    () => canPauseRun(openThreadActiveRun, agents, connections),
+    [openThreadActiveRun, agents, connections],
+  );
 
   const openThreadLiveStream = useMemo(() => {
     if (!threadOverlay) return null;
@@ -1389,6 +1442,7 @@ function LoopShell() {
           cards={openCarouselCards}
           queuedRuns={openCarouselQueuedRuns}
           activeRun={openCarouselActiveRun}
+          canPause={openCarouselCanPause}
           liveStream={openCarouselLiveStream}
           client={client}
           snippets={snippets}
@@ -1434,6 +1488,7 @@ function LoopShell() {
           agentId={threadOverlay.agentId}
           client={client}
           activeRun={openThreadActiveRun}
+          canPause={openThreadCanPause}
           liveStream={openThreadLiveStream}
           fallbackCards={activeCards.filter(
             (c) => c.conversationId === threadOverlay.conversationId,
