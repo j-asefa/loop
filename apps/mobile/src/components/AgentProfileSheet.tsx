@@ -567,8 +567,12 @@ export function AgentProfileSheet({
                     style={[
                       styles.itemCard,
                       {
-                        backgroundColor: theme.surface,
-                        borderColor: theme.line,
+                        backgroundColor: card.unread
+                          ? theme.unreadSurface
+                          : theme.surface,
+                        borderColor: card.unread
+                          ? theme.unreadLine
+                          : theme.line,
                       },
                     ]}
                   >

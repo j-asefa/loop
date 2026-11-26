@@ -359,6 +359,9 @@ export function FeedScreen({
                     style={[
                       styles.agentPortraitRing,
                       {
+                        borderWidth: status === "Working" ? 2.5 : 1.5,
+                        backgroundColor:
+                          status === "Working" ? theme.blueSoft : "transparent",
                         borderColor:
                           status === "Working"
                             ? theme.blue
@@ -407,17 +410,36 @@ export function FeedScreen({
                   >
                     @{agent.name}
                   </Text>
-                  <Text
-                    style={[
-                      styles.shortcutStatus,
-                      {
-                        color: status === "Ready" ? theme.muted : dotColor,
-                      },
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {statusCaption}
-                  </Text>
+                  {status === "Working" ? (
+                    <View
+                      style={[
+                        styles.workingStatusPill,
+                        { backgroundColor: theme.blue },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.workingStatusText,
+                          { color: theme.onBlue },
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {statusCaption}
+                      </Text>
+                    </View>
+                  ) : (
+                    <Text
+                      style={[
+                        styles.shortcutStatus,
+                        {
+                          color: status === "Ready" ? theme.muted : dotColor,
+                        },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {statusCaption}
+                    </Text>
+                  )}
                 </Pressable>
               );
             })}
@@ -792,7 +814,12 @@ const SwipeableStackCard = React.memo(function SwipeableStackCard({
           pointerEvents="none"
           style={[
             styles.stackLayerBack,
-            { backgroundColor: theme.surface, borderColor: theme.line },
+            {
+              backgroundColor:
+                entry.unreadCount > 0 ? theme.unreadSurface : theme.surface,
+              borderColor:
+                entry.unreadCount > 0 ? theme.unreadLine : theme.line,
+            },
           ]}
         />
       )}
@@ -801,7 +828,12 @@ const SwipeableStackCard = React.memo(function SwipeableStackCard({
           pointerEvents="none"
           style={[
             styles.stackLayerMid,
-            { backgroundColor: theme.surface, borderColor: theme.line },
+            {
+              backgroundColor:
+                entry.unreadCount > 0 ? theme.unreadSurface : theme.surface,
+              borderColor:
+                entry.unreadCount > 0 ? theme.unreadLine : theme.line,
+            },
           ]}
         />
       )}
@@ -825,9 +857,11 @@ const SwipeableStackCard = React.memo(function SwipeableStackCard({
             style={[
               styles.feedCard,
               {
-                backgroundColor: theme.surface,
+                backgroundColor:
+                  entry.unreadCount > 0 ? theme.unreadSurface : theme.surface,
                 borderColor:
-                  entry.unreadCount > 0 ? theme.attentionLine : theme.line,
+                  entry.unreadCount > 0 ? theme.unreadLine : theme.line,
+                borderWidth: entry.unreadCount > 0 ? 1.5 : 1,
               },
             ]}
           >
@@ -853,31 +887,6 @@ const SwipeableStackCard = React.memo(function SwipeableStackCard({
                 </Text>
               </Pressable>
               <View style={styles.cardMetaRight}>
-                {entry.unreadCount > 0 && (
-                  <View
-                    style={[
-                      styles.unreadBadgeTop,
-                      {
-                        backgroundColor: theme.attention,
-                        borderColor: theme.brass,
-                      },
-                    ]}
-                  >
-                    <View
-                      style={[
-                        styles.unreadDot,
-                        { backgroundColor: theme.brass },
-                      ]}
-                    />
-                    <Text
-                      style={[styles.unreadText, { color: theme.brassText }]}
-                    >
-                      {entry.unreadCount === 1
-                        ? "Unread"
-                        : `${entry.unreadCount} unread`}
-                    </Text>
-                  </View>
-                )}
                 <Text style={[styles.cardTime, { color: theme.muted }]}>
                   {relativeTime(item.createdAt)}
                 </Text>
@@ -1145,6 +1154,16 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     textAlign: "center",
   },
+  workingStatusPill: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 999,
+  },
+  workingStatusText: {
+    fontSize: 10,
+    fontWeight: "800",
+    textAlign: "center",
+  },
   needsSection: {
     gap: 8,
     marginBottom: 4,
@@ -1318,15 +1337,6 @@ const styles = StyleSheet.create({
     gap: 7,
     flexShrink: 0,
   },
-  unreadBadgeTop: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-    borderWidth: 1,
-  },
   cardTime: {
     fontSize: 12,
     fontVariant: ["tabular-nums"],
@@ -1359,24 +1369,6 @@ const styles = StyleSheet.create({
   },
   stackBadgeText: {
     fontSize: 12,
-    fontWeight: "700",
-  },
-  unreadPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 999,
-    borderWidth: 1,
-  },
-  unreadDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  unreadText: {
-    fontSize: 11.5,
     fontWeight: "700",
   },
   savedPill: {
