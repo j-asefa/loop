@@ -761,7 +761,14 @@ function parseMarkdownBlocks(content: string): ContentBlock[] {
   return blocks;
 }
 
-const CHART_COLORS = ["#c9aa4f", "#78cf8a", "#86b0ff", "#e49d64"];
+const CHART_COLORS = [
+  "#e0a350",
+  "#32884a",
+  "#2288dc",
+  "#d2605c",
+  "#7878ac",
+  "#e098a8",
+];
 
 function NativeSpecChart({
   props,

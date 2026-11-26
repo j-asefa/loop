@@ -24,6 +24,13 @@ import {
   runSaveToggle,
   WorkspaceLoadCoordinator,
 } from "../apps/mobile/src/workspace-runtime.js";
+import {
+  avatarColors,
+  DARK_THEME,
+  LIGHT_THEME,
+  type LoopTheme,
+} from "../apps/mobile/src/theme.js";
+import { getAgentArt, PALETTES } from "../apps/mobile/src/agentArt.js";
 import type { ApiFeedItem } from "../apps/mobile/src/api/types.js";
 
 function makeFeedItem(overrides: Partial<ApiFeedItem> = {}): ApiFeedItem {
@@ -763,5 +770,38 @@ describe("mobile production workspace runtime & feed previews", () => {
     releaseStale();
     await staleRun;
     expect(staleErrorReported).toBe(false);
+  });
+});
+
+describe("mobile sage & risograph palette themes", () => {
+  it("exposes matching semantic tokens for sage light and dark ink themes", () => {
+    const checkTheme = (t: LoopTheme) => {
+      expect(t.bg).toMatch(/^#/);
+      expect(t.surface).toMatch(/^#/);
+      expect(t.brass).toBe("#e0a350");
+      expect(t.onGreen).toMatch(/^#/);
+      expect(t.purple).toMatch(/^#/);
+      expect(t.rose).toMatch(/^#/);
+      expect(t.tabBarBg).toMatch(/^rgba\(/);
+    };
+    expect(LIGHT_THEME.isDark).toBe(false);
+    expect(LIGHT_THEME.bg).toBe("#7eb098");
+    expect(DARK_THEME.isDark).toBe(true);
+    expect(DARK_THEME.bg).toBe("#171d1a");
+    checkTheme(LIGHT_THEME);
+    checkTheme(DARK_THEME);
+  });
+
+  it("maps agent avatars and Charley-Harper habitats to the coordinated palette", () => {
+    expect(PALETTES).toHaveLength(9);
+    const willowArt = getAgentArt("@willow");
+    const cedarArt = getAgentArt("cedar");
+    expect(willowArt.avatarSvg).toContain(willowArt.palette.bg);
+    expect(cedarArt.coverSvg).toContain(cedarArt.palette.main);
+    expect(avatarColors("@willow")).toEqual({ bg: "#e098a8", fg: "#1c211e" });
+    expect(avatarColors("unknown-agent")).toEqual({
+      bg: "#32884a",
+      fg: "#fcfbf7",
+    });
   });
 });

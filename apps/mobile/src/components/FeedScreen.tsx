@@ -456,14 +456,14 @@ export function FeedScreen({
                     }}
                     style={[
                       styles.needsApproveBtn,
-                      { backgroundColor: theme.brass },
+                      { backgroundColor: theme.green },
                     ]}
                   >
-                    <Check size={14} color={theme.onBrass} />
+                    <Check size={14} color={theme.onGreen} />
                     <Text
                       style={[
                         styles.needsApproveText,
-                        { color: theme.onBrass },
+                        { color: theme.onGreen },
                       ]}
                     >
                       Approve
@@ -894,14 +894,14 @@ const SwipeableStackCard = React.memo(function SwipeableStackCard({
                   style={[
                     styles.stackBadge,
                     {
-                      backgroundColor: theme.attention,
-                      borderColor: theme.attentionLine,
+                      backgroundColor: theme.purpleSoft,
+                      borderColor: theme.purple,
                     },
                   ]}
                 >
-                  <Layers size={12} color={theme.brassText} />
+                  <Layers size={12} color={theme.purple} />
                   <Text
-                    style={[styles.stackBadgeText, { color: theme.brassText }]}
+                    style={[styles.stackBadgeText, { color: theme.purple }]}
                   >
                     {stackCount} cards
                   </Text>
@@ -911,11 +911,14 @@ const SwipeableStackCard = React.memo(function SwipeableStackCard({
                 <View
                   style={[
                     styles.savedPill,
-                    { backgroundColor: theme.soft, borderColor: theme.line },
+                    {
+                      backgroundColor: theme.roseSoft,
+                      borderColor: theme.rose,
+                    },
                   ]}
                 >
-                  <BookmarkCheck size={12} color={theme.brassText} />
-                  <Text style={[styles.savedText, { color: theme.brassText }]}>
+                  <BookmarkCheck size={12} color={theme.rose} />
+                  <Text style={[styles.savedText, { color: theme.rose }]}>
                     Saved
                   </Text>
                 </View>
@@ -926,12 +929,13 @@ const SwipeableStackCard = React.memo(function SwipeableStackCard({
                     styles.statusPill,
                     {
                       backgroundColor:
-                        item.tab === "working"
+                        item.tab === "working" || item.tab === "replies"
                           ? theme.blueSoft
-                          : item.tab === "replies"
-                            ? theme.orangeSoft
-                            : theme.soft,
-                      borderColor: theme.line,
+                          : theme.soft,
+                      borderColor:
+                        item.tab === "working" || item.tab === "replies"
+                          ? theme.blue
+                          : theme.line,
                     },
                   ]}
                 >
@@ -940,11 +944,9 @@ const SwipeableStackCard = React.memo(function SwipeableStackCard({
                       styles.statusText,
                       {
                         color:
-                          item.tab === "working"
+                          item.tab === "working" || item.tab === "replies"
                             ? theme.blue
-                            : item.tab === "replies"
-                              ? theme.orange
-                              : theme.muted,
+                            : theme.muted,
                       },
                     ]}
                   >

@@ -117,7 +117,7 @@ export default function App() {
 
 function LoopShell() {
   const insets = useSafeAreaInsets();
-  const [darkMode, setDarkMode] = useState(true);
+  const [darkMode, setDarkMode] = useState(false);
   const theme = darkMode ? DARK_THEME : LIGHT_THEME;
 
   // Companion session (Keychain-backed)
@@ -1059,9 +1059,7 @@ function LoopShell() {
             style={[
               StyleSheet.absoluteFill,
               {
-                backgroundColor: theme.isDark
-                  ? "rgba(20, 20, 18, 0.72)"
-                  : "rgba(255, 255, 255, 0.78)",
+                backgroundColor: theme.tabBarBg,
               },
             ]}
           />
@@ -1359,10 +1357,15 @@ function BottomTabButton({
           <View
             style={[
               styles.tabBarBadge,
-              { backgroundColor: theme.brass, borderColor: theme.bg },
+              { backgroundColor: theme.orange, borderColor: theme.bg },
             ]}
           >
-            <Text style={[styles.tabBarBadgeText, { color: theme.onBrass }]}>
+            <Text
+              style={[
+                styles.tabBarBadgeText,
+                { color: theme.isDark ? theme.onBrass : "#ffffff" },
+              ]}
+            >
               {badge > 9 ? "9+" : badge}
             </Text>
           </View>
