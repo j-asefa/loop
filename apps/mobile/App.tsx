@@ -1357,7 +1357,7 @@ function BottomTabButton({
           <View
             style={[
               styles.tabBarBadge,
-              { backgroundColor: theme.orange, borderColor: theme.bg },
+              { backgroundColor: theme.orange, borderColor: theme.surface },
             ]}
           >
             <Text

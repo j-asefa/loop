@@ -174,7 +174,7 @@ export function FeedScreen({
     socketStatus === "live"
       ? theme.green
       : socketStatus === "connecting" || socketStatus === "reconnecting"
-        ? theme.brass
+        ? theme.brassText
         : theme.muted;
 
   return (
@@ -194,11 +194,19 @@ export function FeedScreen({
             <View
               style={[
                 styles.logoMark,
-                { borderColor: theme.brass, backgroundColor: theme.attention },
+                {
+                  borderColor: theme.isDark ? theme.brass : theme.text,
+                  backgroundColor: theme.isDark ? theme.attention : theme.brass,
+                },
               ]}
             >
               <View
-                style={[styles.logoDot, { backgroundColor: theme.brass }]}
+                style={[
+                  styles.logoDot,
+                  {
+                    backgroundColor: theme.isDark ? theme.brass : theme.onBrass,
+                  },
+                ]}
               />
             </View>
             <Text style={[styles.brandTitle, { color: theme.text }]}>Loop</Text>
@@ -250,7 +258,7 @@ export function FeedScreen({
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor={theme.brass}
+            tintColor={theme.brassText}
           />
         }
         contentContainerStyle={[
@@ -303,13 +311,16 @@ export function FeedScreen({
             </Pressable>
 
             {orderedAgents.map(({ agent, status, workingRun, queuedCount }) => {
+              const queuedIndicatorColor = theme.isDark
+                ? theme.brass
+                : theme.brassText;
               const dotColor =
                 status === "Needs you"
                   ? theme.orange
                   : status === "Working"
                     ? theme.blue
                     : status === "Queued"
-                      ? theme.brass
+                      ? queuedIndicatorColor
                       : theme.green;
               const shortModel = (agent.model || "")
                 .replace(/^Claude /i, "")
@@ -354,7 +365,7 @@ export function FeedScreen({
                             : status === "Needs you"
                               ? theme.orange
                               : queuedCount > 0
-                                ? theme.brass
+                                ? queuedIndicatorColor
                                 : theme.line,
                       },
                     ]}

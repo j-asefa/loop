@@ -275,7 +275,7 @@ export function ThreadSheet({
         >
           {loading ? (
             <View style={styles.centered}>
-              <ActivityIndicator color={theme.brass} />
+              <ActivityIndicator color={theme.brassText} />
             </View>
           ) : error ? (
             <Text style={[styles.errorText, { color: theme.orange }]}>

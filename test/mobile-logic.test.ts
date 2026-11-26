@@ -786,6 +786,8 @@ describe("mobile sage & risograph palette themes", () => {
     };
     expect(LIGHT_THEME.isDark).toBe(false);
     expect(LIGHT_THEME.bg).toBe("#7eb098");
+    expect(LIGHT_THEME.brassText).not.toBe(LIGHT_THEME.brass);
+    expect(LIGHT_THEME.greenSoft).toMatch(/^#/);
     expect(DARK_THEME.isDark).toBe(true);
     expect(DARK_THEME.bg).toBe("#171d1a");
     checkTheme(LIGHT_THEME);
@@ -795,7 +797,7 @@ describe("mobile sage & risograph palette themes", () => {
   it("maps agent avatars and Charley-Harper habitats to the coordinated palette", () => {
     expect(PALETTES).toHaveLength(9);
     for (const p of PALETTES) {
-      expect(p.dark).not.toBe(p.eye);
+      expect(new Set([p.bg, p.main, p.dark, p.light, p.eye]).size).toBe(5);
       expect(p.bg).not.toBe(LIGHT_THEME.bg);
     }
     const willowArt = getAgentArt("@willow");

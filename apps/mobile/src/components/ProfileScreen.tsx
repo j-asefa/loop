@@ -392,7 +392,7 @@ export function ProfileScreen({
           <RefreshControl
             refreshing={loading}
             onRefresh={() => void loadSection()}
-            tintColor={theme.brass}
+            tintColor={theme.brassText}
           />
         }
         contentContainerStyle={[
@@ -402,7 +402,7 @@ export function ProfileScreen({
       >
         {loading && (
           <ActivityIndicator
-            color={theme.brass}
+            color={theme.brassText}
             style={{ marginVertical: 12 }}
           />
         )}

@@ -110,7 +110,7 @@ export function PullRequestsScreen({
           <RefreshControl
             refreshing={loading}
             onRefresh={() => void load()}
-            tintColor={theme.brass}
+            tintColor={theme.brassText}
           />
         }
         contentContainerStyle={[
