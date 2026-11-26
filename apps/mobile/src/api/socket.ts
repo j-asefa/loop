@@ -1,4 +1,9 @@
-import type { ApiAgent, ApiConnection, PairedSession } from "./types";
+import type {
+  ApiAgent,
+  ApiConnection,
+  ApiFeedItem,
+  PairedSession,
+} from "./types";
 
 export type SocketStatus = "connecting" | "live" | "reconnecting" | "offline";
 
@@ -36,9 +41,62 @@ export type LiveStreamOverlay = {
   activity?: string;
   state?: string;
   revision?: number;
+  /** Cumulative UTF-8 byte offset at the end of the received message stream. */
+  byteEnd?: number;
   gapped?: boolean;
   updatedAt: number;
 };
+
+/** Exact UTF-8 byte length of a JS UTF-16 string (matches server `Buffer.byteLength` / `TextEncoder`). */
+export function utf8ByteLength(text: string): number {
+  let bytes = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    const code = text.charCodeAt(i);
+    if (code < 0x80) {
+      bytes += 1;
+    } else if (code < 0x800) {
+      bytes += 2;
+    } else if (code >= 0xd800 && code <= 0xdbff && i + 1 < text.length) {
+      const next = text.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        bytes += 4;
+        i += 1;
+      } else {
+        bytes += 3;
+      }
+    } else {
+      bytes += 3;
+    }
+  }
+  return bytes;
+}
+
+/** Return the suffix of `text` starting after `skipBytes` UTF-8 bytes (or null if mid-codepoint). */
+function sliceAfterUtf8Bytes(text: string, skipBytes: number): string | null {
+  if (skipBytes <= 0) return text;
+  let bytes = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    if (bytes === skipBytes) return text.slice(i);
+    if (bytes > skipBytes) return null;
+    const code = text.charCodeAt(i);
+    if (code < 0x80) {
+      bytes += 1;
+    } else if (code < 0x800) {
+      bytes += 2;
+    } else if (code >= 0xd800 && code <= 0xdbff && i + 1 < text.length) {
+      const next = text.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        bytes += 4;
+        i += 1;
+      } else {
+        bytes += 3;
+      }
+    } else {
+      bytes += 3;
+    }
+  }
+  return bytes === skipBytes ? "" : null;
+}
 
 type RNWebSocketConstructor = new (
   url: string,
@@ -105,7 +163,10 @@ export function isNativeHarnessConnection(
  * turns cannot be paused mid-turn (the server returns 409 and advises interrupting instead).
  */
 export function canPauseRun(
-  run: { state: string; agent_id?: string | null } | null | undefined,
+  run:
+    | { state: string; agent_id?: string | null; connection_id?: string | null }
+    | null
+    | undefined,
   agents: Array<Pick<ApiAgent, "id" | "connection_id">>,
   connections: Array<Pick<ApiConnection, "id" | "metadata">>,
 ): boolean {
@@ -116,13 +177,119 @@ export function canPauseRun(
   const agent = run.agent_id
     ? agents.find((a) => a.id === run.agent_id)
     : undefined;
-  const conn = agent?.connection_id
-    ? connections.find((c) => c.id === agent.connection_id)
-    : undefined;
+  const connId = run.connection_id ?? agent?.connection_id ?? null;
+  const conn = connId ? connections.find((c) => c.id === connId) : undefined;
   if (isNativeHarnessConnection(conn)) {
     return false;
   }
   return true;
+}
+
+export type QueuedRunView = {
+  id: string;
+  agent_id: string;
+  conversation_id: string | null;
+  input: string;
+  state: string;
+  created_at: number;
+  queue_position: number | null;
+  can_move_up: boolean;
+  can_move_down: boolean;
+  threadTitle?: string;
+};
+
+/**
+ * Assemble an agent's complete queued run list in server `queue_position` order by
+ * combining `item.queued_runs` (which includes queued follow-ups on currently working threads),
+ * `item.run` (when queued), and any remaining queued `activeRuns` not yet reflected in the feed.
+ */
+export function buildAgentQueuedRuns(
+  agentId: string | null | undefined,
+  openConversationId: string | null,
+  feedItems: readonly ApiFeedItem[],
+  activeRuns: ReadonlyArray<{
+    id: string;
+    agent_id: string;
+    conversation_id: string | null;
+    input: string;
+    state: string;
+    created_at: number;
+  }>,
+): QueuedRunView[] {
+  const byId = new Map<string, QueuedRunView>();
+  if (agentId) {
+    for (const item of feedItems) {
+      if (item.agent_id !== agentId) continue;
+      const threadTitle =
+        openConversationId && item.conversation_id !== openConversationId
+          ? item.title
+          : undefined;
+
+      if (Array.isArray(item.queued_runs)) {
+        for (const qr of item.queued_runs) {
+          byId.set(qr.id, {
+            id: qr.id,
+            agent_id: agentId,
+            conversation_id: item.conversation_id,
+            input: qr.input || item.title || "Queued task",
+            state: "queued",
+            created_at: qr.created_at,
+            queue_position: qr.queue_position ?? null,
+            can_move_up: Boolean(qr.can_move_up),
+            can_move_down: Boolean(qr.can_move_down),
+            threadTitle,
+          });
+        }
+      }
+
+      if (item.run && item.run.state === "queued" && !byId.has(item.run.id)) {
+        byId.set(item.run.id, {
+          id: item.run.id,
+          agent_id: agentId,
+          conversation_id: item.conversation_id,
+          input: item.run.input || item.title || "Queued task",
+          state: "queued",
+          created_at: item.run.created_at ?? item.last_activity_at,
+          queue_position: item.run.queue_position ?? null,
+          can_move_up: Boolean(item.run.can_move_up),
+          can_move_down: Boolean(item.run.can_move_down),
+          threadTitle,
+        });
+      }
+    }
+  }
+
+  for (const run of activeRuns) {
+    if (run.state !== "queued") continue;
+    const matchesAgent = agentId ? run.agent_id === agentId : false;
+    const matchesConv =
+      openConversationId && run.conversation_id === openConversationId;
+    if (!matchesAgent && !matchesConv) continue;
+    if (!byId.has(run.id)) {
+      byId.set(run.id, {
+        id: run.id,
+        agent_id: run.agent_id,
+        conversation_id: run.conversation_id,
+        input: run.input || "Queued task",
+        state: "queued",
+        created_at: run.created_at,
+        queue_position: null,
+        can_move_up: false,
+        can_move_down: false,
+      });
+    }
+  }
+
+  return Array.from(byId.values()).sort((a, b) => {
+    const aPos = a.queue_position;
+    const bPos = b.queue_position;
+    if (aPos !== null && bPos !== null && aPos !== bPos) {
+      return aPos - bPos;
+    }
+    if (aPos !== null && bPos === null) return -1;
+    if (aPos === null && bPos !== null) return 1;
+    return a.created_at - b.created_at;
+  });
 }
 
 export function extractLiveStreamEvents(raw: unknown): LiveStreamEvent[] {
@@ -388,6 +555,7 @@ export function applyLiveStreamEvent(
               : prev?.activity,
       state: event.state,
       revision: prev?.revision,
+      byteEnd: prev?.byteEnd,
       gapped: prev?.gapped,
       updatedAt: now,
     };
@@ -401,6 +569,7 @@ export function applyLiveStreamEvent(
       activity: event.label,
       state: prev?.state ?? "running",
       revision: prev?.revision,
+      byteEnd: prev?.byteEnd,
       gapped: prev?.gapped,
       updatedAt: now,
     };
@@ -410,6 +579,7 @@ export function applyLiveStreamEvent(
   const sameMessage =
     !prev?.messageId || !event.messageId || prev.messageId === event.messageId;
   const runId = event.runId ?? prev?.runId;
+  const eventBytes = utf8ByteLength(event.text);
 
   if (event.replace) {
     const bounded =
@@ -423,6 +593,7 @@ export function applyLiveStreamEvent(
       activity: prev?.activity ?? "Streaming response…",
       state: prev?.state ?? "running",
       revision: event.revision,
+      byteEnd: eventBytes,
       gapped: false,
       updatedAt: now,
     };
@@ -439,11 +610,14 @@ export function applyLiveStreamEvent(
 
   const baseText = sameMessage ? (prev?.text ?? "") : "";
   const prevGapped = sameMessage ? Boolean(prev?.gapped) : false;
+  const prevByteEnd = sameMessage
+    ? (prev?.byteEnd ?? (baseText ? utf8ByteLength(baseText) : undefined))
+    : undefined;
 
-  // When explicit byte/char offset is provided, guard against missed chunks (gaps)
-  // and deduplicate overlapping replays instead of blindly concatenating garbled text.
+  // Server `message.delta` offsets are UTF-8 byte offsets (see `src/shared/transcript-projection.ts`).
   if (event.offset !== undefined) {
-    if (event.offset === 0) {
+    // Starting from offset 0 or joining a stream mid-reply (no prior text for this message).
+    if (event.offset === 0 || prevByteEnd === undefined) {
       const bounded =
         event.text.length > MAX_STREAM_TEXT_CHARS
           ? event.text.slice(event.text.length - MAX_STREAM_TEXT_CHARS)
@@ -455,11 +629,13 @@ export function applyLiveStreamEvent(
         activity: prev?.activity ?? "Streaming response…",
         state: prev?.state ?? "running",
         revision: event.revision ?? prev?.revision,
+        byteEnd: event.offset + eventBytes,
         gapped: false,
         updatedAt: now,
       };
     }
-    if (prevGapped || event.offset > baseText.length) {
+
+    if (prevGapped) {
       return {
         runId,
         text: baseText,
@@ -467,23 +643,80 @@ export function applyLiveStreamEvent(
         activity: prev?.activity ?? "Streaming response…",
         state: prev?.state ?? "running",
         revision: event.revision ?? prev?.revision,
+        byteEnd: prevByteEnd,
         gapped: true,
         updatedAt: now,
       };
     }
-    const merged = baseText.slice(0, event.offset) + event.text;
-    const bounded =
-      merged.length > MAX_STREAM_TEXT_CHARS
-        ? merged.slice(merged.length - MAX_STREAM_TEXT_CHARS)
-        : merged;
+
+    // Exact UTF-8 byte continuation (still accurate past MAX_STREAM_TEXT_CHARS truncation).
+    if (event.offset === prevByteEnd) {
+      const combined = baseText + event.text;
+      const bounded =
+        combined.length > MAX_STREAM_TEXT_CHARS
+          ? combined.slice(combined.length - MAX_STREAM_TEXT_CHARS)
+          : combined;
+      return {
+        runId,
+        text: bounded,
+        messageId: event.messageId ?? prev?.messageId,
+        activity: prev?.activity ?? "Streaming response…",
+        state: prev?.state ?? "running",
+        revision: event.revision ?? prev?.revision,
+        byteEnd: prevByteEnd + eventBytes,
+        gapped: false,
+        updatedAt: now,
+      };
+    }
+
+    // Overlapping or duplicate replay: skip already-received prefix by UTF-8 byte count.
+    if (event.offset < prevByteEnd) {
+      const overlapBytes = prevByteEnd - event.offset;
+      if (overlapBytes >= eventBytes) {
+        return prev!;
+      }
+      const suffix = sliceAfterUtf8Bytes(event.text, overlapBytes);
+      if (suffix === null) {
+        return {
+          runId,
+          text: baseText,
+          messageId: event.messageId ?? prev?.messageId,
+          activity: prev?.activity ?? "Streaming response…",
+          state: prev?.state ?? "running",
+          revision: event.revision ?? prev?.revision,
+          byteEnd: prevByteEnd,
+          gapped: true,
+          updatedAt: now,
+        };
+      }
+      const combined = baseText + suffix;
+      const bounded =
+        combined.length > MAX_STREAM_TEXT_CHARS
+          ? combined.slice(combined.length - MAX_STREAM_TEXT_CHARS)
+          : combined;
+      return {
+        runId,
+        text: bounded,
+        messageId: event.messageId ?? prev?.messageId,
+        activity: prev?.activity ?? "Streaming response…",
+        state: prev?.state ?? "running",
+        revision: event.revision ?? prev?.revision,
+        byteEnd: event.offset + eventBytes,
+        gapped: false,
+        updatedAt: now,
+      };
+    }
+
+    // event.offset > prevByteEnd: genuine missed chunk -> mark gapped until next full upsert.
     return {
       runId,
-      text: bounded,
+      text: baseText,
       messageId: event.messageId ?? prev?.messageId,
       activity: prev?.activity ?? "Streaming response…",
       state: prev?.state ?? "running",
       revision: event.revision ?? prev?.revision,
-      gapped: false,
+      byteEnd: prevByteEnd,
+      gapped: true,
       updatedAt: now,
     };
   }
@@ -496,6 +729,7 @@ export function applyLiveStreamEvent(
       activity: prev?.activity ?? "Streaming response…",
       state: prev?.state ?? "running",
       revision: event.revision ?? prev?.revision,
+      byteEnd: prevByteEnd,
       gapped: true,
       updatedAt: now,
     };
@@ -513,6 +747,7 @@ export function applyLiveStreamEvent(
     activity: prev?.activity ?? "Streaming response…",
     state: prev?.state ?? "running",
     revision: event.revision ?? prev?.revision,
+    byteEnd: (prevByteEnd ?? 0) + eventBytes,
     gapped: false,
     updatedAt: now,
   };
@@ -582,6 +817,25 @@ export function applyLiveStreamBatch(
           changed = true;
         }
       }
+      continue;
+    }
+
+    // Ignore late delta/activity events (e.g. a stale message.upsert) belonging to an older
+    // non-active run when we know another run is currently active in the same conversation.
+    if (
+      (ev.kind === "delta" || ev.kind === "activity") &&
+      ev.runId &&
+      convId &&
+      activeRuns.some(
+        (r) =>
+          r.conversation_id === convId &&
+          r.id !== ev.runId &&
+          ACTIVE_STREAM_STATES.has(r.state),
+      ) &&
+      !activeRuns.some(
+        (r) => r.id === ev.runId && ACTIVE_STREAM_STATES.has(r.state),
+      )
+    ) {
       continue;
     }
 

@@ -68,10 +68,21 @@ export type ApiFeedMessage = {
   saved?: boolean;
 };
 
+export type ApiQueuedRunSummary = {
+  id: string;
+  input: string;
+  created_at: number;
+  queue_position: number | null;
+  can_edit?: boolean;
+  can_move_up: boolean;
+  can_move_down: boolean;
+};
+
 export type ApiFeedRun = {
   id: string;
   state: string;
   input?: string;
+  connection_id?: string | null;
   model?: string | null;
   resolved_model?: string | null;
   error?: string | null;
@@ -96,6 +107,7 @@ export type ApiFeedItem = {
   last_activity_at: number;
   last_message: ApiFeedMessage | null;
   run: ApiFeedRun | null;
+  queued_runs?: ApiQueuedRunSummary[];
   live_preview?: string | null;
   pending_approvals: number;
   reply?: {

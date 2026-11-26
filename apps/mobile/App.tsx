@@ -27,7 +27,11 @@ import {
   SafeAreaProvider,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
-import { isUncertainOutcomeError, LoopClient } from "./src/api/client";
+import {
+  isUncertainOutcomeError,
+  LoopClient,
+  randomUuid,
+} from "./src/api/client";
 import {
   guessMimeFromName,
   type LoopFileTarget,
@@ -36,6 +40,7 @@ import {
 import { clearPairedSession, loadPairedSession } from "./src/api/pairing";
 import {
   applyLiveStreamBatch,
+  buildAgentQueuedRuns,
   canPauseRun,
   clearRunFromLiveStreams,
   LoopEventSocket,
@@ -261,6 +266,7 @@ function LoopShell() {
   const loadCoordRef = useRef(new WorkspaceLoadCoordinator());
   // Durable per-target idempotency/command keys so retries after uncertain timeouts reuse the same key
   const actionKeysRef = useRef(new ActionKeyStore());
+  const inFlightRunActionsRef = useRef<Set<string>>(new Set());
 
   const loadWorkspace = useCallback(
     async (options?: { silent?: boolean }) => {
@@ -276,6 +282,7 @@ function LoopShell() {
             doneCardItems,
             replyPage,
             queuedPage,
+            workingPage,
             appList,
             decList,
             snipList,
@@ -286,6 +293,7 @@ function LoopShell() {
             client.doneCards().catch(() => null),
             client.feed("replies").catch(() => null),
             client.feed("queued").catch(() => null),
+            client.feed("working").catch(() => null),
             client.approvals().catch(() => [] as ApiApproval[]),
             client.nativeDecisions().catch(() => [] as ApiNativeDecision[]),
             client.snippets().catch(() => [] as ApiSnippet[]),
@@ -306,7 +314,10 @@ function LoopShell() {
           setLiveCards(
             mergeUnifiedFeedCards(doneSource, replyPage?.items ?? []),
           );
-          setQueuedFeedItems(queuedPage?.items ?? []);
+          setQueuedFeedItems([
+            ...(queuedPage?.items ?? []),
+            ...(workingPage?.items ?? []),
+          ]);
           setApprovals(appList);
           setDecisions(decList);
           setSnippets(snipList);
@@ -341,6 +352,7 @@ function LoopShell() {
   useEffect(() => {
     workspaceGenRef.current = loadCoordRef.current.reset();
     actionKeysRef.current.clear();
+    inFlightRunActionsRef.current.clear();
     // Clear stale Undo toasts from the previous workspace while preserving status toasts (expiry/pair/sign-out)
     setToast((prev) => (prev?.undo ? null : prev));
     setRefreshing(false);
@@ -834,8 +846,20 @@ function LoopShell() {
         return;
       }
       const gen = workspaceGenRef.current;
-      const scopeKey = actionKeysRef.current.scopeForRunAction(runId, action);
-      const idempotencyKey = actionKeysRef.current.getOrCreate(scopeKey);
+      const flightKey = `${action}:${runId}`;
+      if (inFlightRunActionsRef.current.has(flightKey)) return;
+      inFlightRunActionsRef.current.add(flightKey);
+
+      // `retry` creates a new run and keeps one durable key across uncertain retries;
+      // state-transition controls (`pause`, `resume`, `cancel`) use a fresh key per tap
+      // so later separate actions (e.g. pause -> resume -> pause) never collide on an old key.
+      const retryScopeKey =
+        action === "retry"
+          ? actionKeysRef.current.scopeForRunAction(runId, "retry")
+          : null;
+      const idempotencyKey = retryScopeKey
+        ? actionKeysRef.current.getOrCreate(retryScopeKey)
+        : randomUuid();
       const priorRun = activeRuns.find((r) => r.id === runId);
       if (action === "cancel") {
         setActiveRuns((prev) => prev.filter((r) => r.id !== runId));
@@ -868,12 +892,17 @@ function LoopShell() {
         ) {
           setLiveStreams(new Map(liveStreamsRef.current));
         }
+      } else if (action === "retry") {
+        // Hide the failed/interrupted Retry control immediately so a quick second tap
+        // before refresh cannot submit a duplicate retry.
+        setActiveRuns((prev) => prev.filter((r) => r.id !== runId));
       }
       void client
         .runAction(runId, action, idempotencyKey)
         .then(() => {
+          inFlightRunActionsRef.current.delete(flightKey);
           if (gen === workspaceGenRef.current) {
-            actionKeysRef.current.delete(scopeKey);
+            if (retryScopeKey) actionKeysRef.current.delete(retryScopeKey);
             showToast(
               action === "pause"
                 ? "Pausing run…"
@@ -887,13 +916,14 @@ function LoopShell() {
           }
         })
         .catch((err) => {
+          inFlightRunActionsRef.current.delete(flightKey);
           if (gen !== workspaceGenRef.current) return;
           if (isUncertainOutcomeError(err)) {
             showToast("Run action timed out — checking status…");
             scheduleSilentRefresh(500, gen);
             return;
           }
-          actionKeysRef.current.delete(scopeKey);
+          if (retryScopeKey) actionKeysRef.current.delete(retryScopeKey);
           if (priorRun) {
             setActiveRuns((prev) => {
               const exists = prev.some((r) => r.id === runId);
@@ -913,27 +943,25 @@ function LoopShell() {
     (runId: string, direction: "up" | "down") => {
       if (!client) return;
       const gen = workspaceGenRef.current;
-      const scopeKey = actionKeysRef.current.scopeForRunReorder(
-        runId,
-        direction,
-      );
-      const idempotencyKey = actionKeysRef.current.getOrCreate(scopeKey);
+      const flightKey = `reorder:${runId}`;
+      if (inFlightRunActionsRef.current.has(flightKey)) return;
+      inFlightRunActionsRef.current.add(flightKey);
       void client
-        .reorderRun(runId, direction, idempotencyKey)
+        .reorderRun(runId, direction, randomUuid())
         .then(() => {
+          inFlightRunActionsRef.current.delete(flightKey);
           if (gen === workspaceGenRef.current) {
-            actionKeysRef.current.delete(scopeKey);
             scheduleSilentRefresh(200, gen);
           }
         })
         .catch((err) => {
+          inFlightRunActionsRef.current.delete(flightKey);
           if (gen !== workspaceGenRef.current) return;
           if (isUncertainOutcomeError(err)) {
             showToast("Reorder timed out — syncing queue…");
             scheduleSilentRefresh(500, gen);
             return;
           }
-          actionKeysRef.current.delete(scopeKey);
           showToast((err as Error).message);
         });
     },
@@ -1161,37 +1189,12 @@ function LoopShell() {
     if (!openConversationId || openCarouselCards.length === 0) return [];
     const agentId =
       openCarouselCards[0]?.agentId || openCarouselActiveRun?.agent_id || null;
-    // Prefer server-ordered queued feed items for this agent so `can_move_up` / `can_move_down`
-    // reflect `canSwapQueuedRuns` (cross-thread swaps only) and displayed order matches `queue_key`.
-    if (client && agentId && queuedFeedItems.length > 0) {
-      const serverQueued: AgentRunSummary[] = [];
-      for (const item of queuedFeedItems) {
-        if (item.agent_id !== agentId || !item.run) continue;
-        if (item.run.state !== "queued") continue;
-        serverQueued.push({
-          id: item.run.id,
-          agent_id: agentId,
-          conversation_id: item.conversation_id,
-          input: item.run.input || item.title || "Queued task",
-          state: item.run.state,
-          created_at: item.run.created_at ?? item.last_activity_at,
-          queue_position: item.run.queue_position ?? null,
-          can_move_up: Boolean(item.run.can_move_up),
-          can_move_down: Boolean(item.run.can_move_down),
-          threadTitle:
-            item.conversation_id !== openConversationId
-              ? item.title
-              : undefined,
-        });
-      }
-      if (serverQueued.length > 0) return serverQueued;
-    }
-    return effectiveActiveRuns
-      .filter(
-        (r) => r.state === "queued" && r.conversation_id === openConversationId,
-      )
-      .sort((a, b) => a.created_at - b.created_at)
-      .map((r) => ({ ...r, can_move_up: false, can_move_down: false }));
+    return buildAgentQueuedRuns(
+      agentId,
+      openConversationId,
+      client ? queuedFeedItems : [],
+      effectiveActiveRuns,
+    );
   }, [
     client,
     effectiveActiveRuns,

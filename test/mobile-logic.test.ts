@@ -15,12 +15,14 @@ import {
 import {
   applyLiveStreamBatch,
   applyLiveStreamEvent,
+  buildAgentQueuedRuns,
   canPauseRun,
   clearRunFromLiveStreams,
   extractLiveStreamEvents,
   isNativeHarnessConnection,
   pruneLiveStreams,
   shouldRefreshForFrame,
+  utf8ByteLength,
   type LiveStreamOverlay,
 } from "../apps/mobile/src/api/socket.js";
 import {
@@ -1082,6 +1084,7 @@ describe("mobile live run streaming & run controls", () => {
       activity: "Running tool…",
       state: "running",
       revision: undefined,
+      byteEnd: 12,
       gapped: false,
       updatedAt: 1000,
     });
@@ -1321,6 +1324,230 @@ describe("mobile live run streaming & run controls", () => {
     expect(
       canPauseRun({ state: "paused", agent_id: "a-api" }, agents, connections),
     ).toBe(false);
+    // Run-level connection_id overrides agent's current connection_id
+    expect(
+      canPauseRun(
+        { state: "running", agent_id: "a-api", connection_id: "conn-native" },
+        agents,
+        connections,
+      ),
+    ).toBe(false);
+  });
+
+  it("tracks UTF-8 byte offsets accurately across multi-byte text, mid-reply joins, and >80k streams", () => {
+    // Em-dash (3 bytes), accented é (2 bytes), rocket emoji 🚀 (4 bytes)
+    expect(utf8ByteLength("café — 🚀")).toBe(
+      Buffer.byteLength("café — 🚀", "utf8"),
+    );
+
+    // Multi-byte continuation uses UTF-8 bytes, never UTF-16 code units
+    const chunk1 = "café — 🚀 ";
+    const chunk1Bytes = Buffer.byteLength(chunk1, "utf8"); // 13 bytes vs 10 UTF-16 chars
+    let ov: LiveStreamOverlay | undefined;
+    ov =
+      applyLiveStreamEvent(
+        ov,
+        {
+          kind: "delta",
+          runId: "r-utf8",
+          messageId: "m-utf8",
+          text: chunk1,
+          offset: 0,
+          revision: 1,
+        },
+        1,
+      ) ?? undefined;
+    expect(ov?.byteEnd).toBe(chunk1Bytes);
+    ov =
+      applyLiveStreamEvent(
+        ov,
+        {
+          kind: "delta",
+          runId: "r-utf8",
+          messageId: "m-utf8",
+          text: "done!",
+          offset: chunk1Bytes,
+          revision: 2,
+        },
+        2,
+      ) ?? undefined;
+    expect(ov?.gapped).toBe(false);
+    expect(ov?.text).toBe("café — 🚀 done!");
+
+    // Joining mid-reply (offset > 0 with no prior text) streams cleanly without marking gapped
+    let mid: LiveStreamOverlay | undefined;
+    mid =
+      applyLiveStreamEvent(
+        mid,
+        {
+          kind: "delta",
+          runId: "r-mid",
+          messageId: "m-mid",
+          text: "tail part 1 ",
+          offset: 400,
+          revision: 10,
+        },
+        10,
+      ) ?? undefined;
+    expect(mid?.gapped).toBe(false);
+    expect(mid?.byteEnd).toBe(400 + Buffer.byteLength("tail part 1 ", "utf8"));
+    mid =
+      applyLiveStreamEvent(
+        mid,
+        {
+          kind: "delta",
+          runId: "r-mid",
+          messageId: "m-mid",
+          text: "tail part 2",
+          offset: 412,
+          revision: 11,
+        },
+        11,
+      ) ?? undefined;
+    expect(mid?.gapped).toBe(false);
+    expect(mid?.text).toBe("tail part 1 tail part 2");
+
+    // Streams past 80,000 chars keep advancing byteEnd without falsely setting gapped
+    const big = "a".repeat(80_010);
+    let longOv: LiveStreamOverlay | undefined;
+    longOv =
+      applyLiveStreamEvent(
+        longOv,
+        {
+          kind: "delta",
+          runId: "r-big",
+          messageId: "m-big",
+          text: big,
+          offset: 0,
+          revision: 1,
+        },
+        1,
+      ) ?? undefined;
+    expect(longOv?.text.length).toBe(80_000);
+    expect(longOv?.byteEnd).toBe(80_010);
+    longOv =
+      applyLiveStreamEvent(
+        longOv,
+        {
+          kind: "delta",
+          runId: "r-big",
+          messageId: "m-big",
+          text: "XYZ",
+          offset: 80_010,
+          revision: 2,
+        },
+        2,
+      ) ?? undefined;
+    expect(longOv?.gapped).toBe(false);
+    expect(longOv?.text.endsWith("XYZ")).toBe(true);
+    expect(longOv?.byteEnd).toBe(80_013);
+  });
+
+  it("merges item.queued_runs, item.run, and activeRuns in server queue_position order and ignores stale run upserts", () => {
+    const feedItems: ApiFeedItem[] = [
+      makeFeedItem({
+        conversation_id: "conv-open",
+        title: "Open thread",
+        agent_id: "a1",
+        run: { id: "r-running", state: "running", input: "Working" },
+        queued_runs: [
+          {
+            id: "q-1",
+            input: "Follow-up 1 on open thread",
+            created_at: 200,
+            queue_position: 1,
+            can_move_up: false,
+            can_move_down: true,
+          },
+        ],
+      }),
+      makeFeedItem({
+        conversation_id: "conv-other",
+        title: "Other thread",
+        agent_id: "a1",
+        run: {
+          id: "q-2",
+          state: "queued",
+          input: "Task on other thread",
+          created_at: 100,
+          queue_position: 2,
+          can_move_up: true,
+          can_move_down: false,
+        },
+      }),
+    ];
+    const activeRuns = [
+      {
+        id: "r-running",
+        agent_id: "a1",
+        conversation_id: "conv-open",
+        input: "Working",
+        state: "running",
+        created_at: 50,
+      },
+      {
+        id: "q-1",
+        agent_id: "a1",
+        conversation_id: "conv-open",
+        input: "Follow-up 1 on open thread",
+        state: "queued",
+        created_at: 200,
+      },
+      {
+        id: "q-3",
+        agent_id: "a1",
+        conversation_id: "conv-open",
+        input: "Brand new queued follow-up",
+        state: "queued",
+        created_at: 300,
+      },
+    ];
+
+    const queued = buildAgentQueuedRuns(
+      "a1",
+      "conv-open",
+      feedItems,
+      activeRuns,
+    );
+    expect(queued.map((q) => q.id)).toEqual(["q-1", "q-2", "q-3"]);
+    expect(queued[0]).toMatchObject({
+      can_move_up: false,
+      can_move_down: true,
+      threadTitle: undefined,
+    });
+    expect(queued[1]).toMatchObject({
+      can_move_up: true,
+      can_move_down: false,
+      threadTitle: "Other thread",
+    });
+    expect(queued[2]).toMatchObject({
+      can_move_up: false,
+      can_move_down: false,
+    });
+
+    // Late message.upsert from an older non-active run does not overwrite the active run's stream
+    const map = new Map<string, LiveStreamOverlay>();
+    applyLiveStreamBatch(
+      map,
+      [
+        {
+          kind: "delta",
+          runId: "r-running",
+          conversationId: "conv-open",
+          text: "Live answer",
+        },
+        {
+          kind: "delta",
+          runId: "r-old-finished",
+          conversationId: "conv-open",
+          text: "Stale upsert",
+          replace: true,
+        },
+      ],
+      activeRuns,
+      500,
+    );
+    expect(map.get("conv:conv-open")?.text).toBe("Live answer");
   });
 
   it("submits steer vs queue flags, pause/resume/retry actions, and queue reorders with durable keys", async () => {

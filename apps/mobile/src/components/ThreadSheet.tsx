@@ -24,7 +24,11 @@ import {
   Square,
 } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { randomUuid, type LoopClient } from "../api/client";
+import {
+  isUncertainOutcomeError,
+  randomUuid,
+  type LoopClient,
+} from "../api/client";
 import type { LoopFileTarget, PublishedFileItem } from "../api/files";
 import type { LiveStreamOverlay } from "../api/socket";
 import type { ApiMessage } from "../api/types";
@@ -265,6 +269,9 @@ export function ThreadSheet({
         setTimeout(() => void load(), 500);
       }
     } catch (err) {
+      if (!isUncertainOutcomeError(err)) {
+        pendingSendRef.current = null;
+      }
       haptics.warning();
       setError(err instanceof Error ? err.message : "Could not send reply.");
     } finally {
