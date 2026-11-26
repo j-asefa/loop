@@ -24,6 +24,7 @@ import { randomUuid, type LoopClient } from "../api/client";
 import type { LoopFileTarget, PublishedFileItem } from "../api/files";
 import type { ApiMessage } from "../api/types";
 import { relativeTime, type NativeResultCard } from "../fixtures";
+import { ThreadRefreshGate } from "../workspace-runtime";
 import { haptics } from "../haptics";
 import type { LoopTheme } from "../theme";
 import {
@@ -41,6 +42,7 @@ export function ThreadSheet({
   agentId,
   client,
   fallbackCards,
+  refreshKey,
   theme,
   onClose,
   onOpenFile,
@@ -54,6 +56,8 @@ export function ThreadSheet({
   agentId?: string | null;
   client: LoopClient | null;
   fallbackCards?: NativeResultCard[];
+  /** Changes when the workspace has new data; the open thread then refreshes in place. */
+  refreshKey?: number;
   theme: LoopTheme;
   onClose: () => void;
   onOpenFile?: (file: PublishedFileItem) => void;
@@ -85,6 +89,11 @@ export function ThreadSheet({
   const [error, setError] = useState("");
   const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
   const sendKeyRef = useRef<string | null>(null);
+  const refreshGateRef = useRef(new ThreadRefreshGate());
+  // The parent rebuilds this array on every render. Read it through a ref so a
+  // parent re-render does not reload the thread.
+  const fallbackCardsRef = useRef(fallbackCards);
+  fallbackCardsRef.current = fallbackCards;
   const replyAttachments = useAttachments(client, {
     agentId: resolvedAgentId,
   });
@@ -97,7 +106,7 @@ export function ThreadSheet({
   const load = useCallback(async () => {
     if (!client) {
       // Build chronological messages from local demo cards
-      const chron = [...(fallbackCards ?? [])].reverse();
+      const chron = [...(fallbackCardsRef.current ?? [])].reverse();
       const built: ApiMessage[] = [];
       const saved = new Set<string>();
       for (const c of chron) {
@@ -125,10 +134,16 @@ export function ThreadSheet({
       return;
     }
 
-    setLoading(true);
-    setError("");
+    const gate = refreshGateRef.current;
+    const { token, showSpinner } = gate.begin(conversationId);
+    if (showSpinner) {
+      setLoading(true);
+      setError("");
+    }
     try {
       const page = await client.conversation(conversationId);
+      if (!gate.accept(token, conversationId)) return;
+      setError("");
       setMessages(page.messages);
       setSavedIds(new Set(page.saved));
       setWorking(page.working);
@@ -137,17 +152,18 @@ export function ThreadSheet({
         setResolvedAgentId(page.conversation.agent_id);
       }
     } catch (err) {
+      if (!gate.showError(token, conversationId)) return;
       setError(
         err instanceof Error ? err.message : "Could not load conversation.",
       );
     } finally {
-      setLoading(false);
+      if (gate.isLatest(token)) setLoading(false);
     }
-  }, [client, conversationId, fallbackCards]);
+  }, [client, conversationId]);
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, refreshKey]);
 
   // Fetch published files for runs present in this thread
   useEffect(() => {

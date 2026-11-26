@@ -173,3 +173,40 @@ export class WorkspaceLoadCoordinator {
     }
   }
 }
+
+/**
+ * Decides how an open thread reloads. Only the first load for a conversation
+ * replaces the messages with a spinner; later refreshes (after a send or a
+ * workspace update) swap content in place and keep the last good messages if
+ * they fail. Responses for an earlier request or another conversation are
+ * dropped.
+ */
+export class ThreadRefreshGate {
+  private loadedConversationId: string | null = null;
+  private seq = 0;
+
+  begin(conversationId: string): { token: number; showSpinner: boolean } {
+    this.seq += 1;
+    return {
+      token: this.seq,
+      showSpinner: this.loadedConversationId !== conversationId,
+    };
+  }
+
+  /** True when the response for `token` should be applied. */
+  accept(token: number, conversationId: string): boolean {
+    if (token !== this.seq) return false;
+    this.loadedConversationId = conversationId;
+    return true;
+  }
+
+  /** True when a failed request should replace the thread with its error. */
+  showError(token: number, conversationId: string): boolean {
+    return token === this.seq && this.loadedConversationId !== conversationId;
+  }
+
+  /** True when the request for `token` is still the latest one. */
+  isLatest(token: number): boolean {
+    return token === this.seq;
+  }
+}
