@@ -151,6 +151,8 @@ function LoopShell() {
   const [activeRuns, setActiveRuns] = useState<AgentRunSummary[]>([]);
   const [environmentName, setEnvironmentName] = useState<string>("");
   const [refreshing, setRefreshing] = useState(false);
+  // Bumped after each workspace load so an open thread refreshes in place.
+  const [workspaceVersion, setWorkspaceVersion] = useState(0);
 
   // Overlays & modals
   const [openConversationId, setOpenConversationId] = useState<string | null>(
@@ -281,6 +283,7 @@ function LoopShell() {
           setDecisions(decList);
           setSnippets(snipList);
           setActiveRuns(runList);
+          setWorkspaceVersion((v) => v + 1);
         },
         onError: (err) => {
           if (err instanceof Error && !err.message.includes("401")) {
@@ -1220,6 +1223,7 @@ function LoopShell() {
           fallbackCards={activeCards.filter(
             (c) => c.conversationId === threadOverlay.conversationId,
           )}
+          refreshKey={workspaceVersion}
           theme={theme}
           onClose={() => setThreadOverlay(null)}
           onOpenFile={handleOpenFile}

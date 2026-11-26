@@ -30,6 +30,7 @@ import {
 import {
   ActionKeyStore,
   runSaveToggle,
+  ThreadRefreshGate,
   WorkspaceLoadCoordinator,
 } from "../apps/mobile/src/workspace-runtime.js";
 import {
@@ -1006,5 +1007,41 @@ describe("mobile agent-published file resolution, metadata, and client APIs", ()
       ),
     ).toThrow(/unsupported/i);
     expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("mobile open thread refresh", () => {
+  it("shows the spinner only on a conversation's first load", () => {
+    const gate = new ThreadRefreshGate();
+    const first = gate.begin("conv-1");
+    expect(first.showSpinner).toBe(true);
+    expect(gate.accept(first.token, "conv-1")).toBe(true);
+
+    // Workspace refreshes and post-send reloads swap content in place.
+    const again = gate.begin("conv-1");
+    expect(again.showSpinner).toBe(false);
+    expect(gate.accept(again.token, "conv-1")).toBe(true);
+
+    expect(gate.begin("conv-2").showSpinner).toBe(true);
+  });
+
+  it("keeps loaded messages when a background refresh fails", () => {
+    const gate = new ThreadRefreshGate();
+    const first = gate.begin("conv-1");
+    expect(gate.showError(first.token, "conv-1")).toBe(true);
+
+    const retry = gate.begin("conv-1");
+    gate.accept(retry.token, "conv-1");
+    const background = gate.begin("conv-1");
+    expect(gate.showError(background.token, "conv-1")).toBe(false);
+  });
+
+  it("drops a response that an overlapping refresh superseded", () => {
+    const gate = new ThreadRefreshGate();
+    const older = gate.begin("conv-1");
+    const newer = gate.begin("conv-1");
+    expect(gate.accept(older.token, "conv-1")).toBe(false);
+    expect(gate.isLatest(older.token)).toBe(false);
+    expect(gate.accept(newer.token, "conv-1")).toBe(true);
   });
 });
