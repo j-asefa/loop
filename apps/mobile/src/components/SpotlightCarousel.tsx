@@ -132,8 +132,8 @@ export function SpotlightCarousel({
   const snapInterval = cardWidth + CARD_GAP;
   const sidePadding = Math.max(12, Math.round((screenWidth - cardWidth) / 2));
 
-  // Pin initial order so newly arriving replies never yank you off the card
-  // you're reading; instead a "New result arrived" pill lets you jump to #1.
+  // Pin the order so a refresh never reshuffles the stack; a newly arriving
+  // card re-pins it and takes you to that card (#1).
   const [pinnedIds, setPinnedIds] = useState<string[]>(() =>
     cards.map((c) => c.id),
   );
@@ -703,11 +703,12 @@ export function SpotlightCarousel({
     openSearch();
   }, [openSearch]);
 
-  const viewNewestArrival = useCallback(() => {
-    haptics.medium();
+  useEffect(() => {
+    if (!hasNewArrival) return;
+    haptics.light();
     setPinnedIds(cards.map((c) => c.id));
     requestAnimationFrame(() => scrollToSlide(0, true));
-  }, [cards, scrollToSlide]);
+  }, [hasNewArrival, cards, scrollToSlide]);
 
   if (!slides.length) return null;
 
@@ -897,29 +898,6 @@ export function SpotlightCarousel({
                   @{agentName} is writing a new card…
                 </Text>
               </View>
-            </View>
-          )}
-
-          {!searchOpen && hasNewArrival && (
-            <View style={styles.statusBannerWrap}>
-              <Pressable
-                onPress={viewNewestArrival}
-                style={({ pressed }) => [
-                  styles.statusBannerPill,
-                  {
-                    backgroundColor: theme.attention,
-                    borderColor: theme.attentionLine,
-                    opacity: pressed ? 0.85 : 1,
-                  },
-                ]}
-              >
-                <Text
-                  style={[styles.statusBannerText, { color: theme.brassText }]}
-                >
-                  New result arrived · View newest
-                </Text>
-                <ArrowUpRight size={14} color={theme.brassText} />
-              </Pressable>
             </View>
           )}
 
