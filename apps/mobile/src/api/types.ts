@@ -19,6 +19,16 @@ export type ApiAgent = {
   retired_at?: number | null;
 };
 
+/** A harness or API account. `models` and `metadata` are JSON text. */
+export type ApiConnection = {
+  id: string;
+  provider: string;
+  label: string;
+  status: string;
+  models: string;
+  metadata: string;
+};
+
 export type ApiFolder = {
   id: string;
   name: string;
@@ -38,6 +48,7 @@ export type ApiTeam = {
 
 export type ApiBootstrap = {
   agents: ApiAgent[];
+  connections?: ApiConnection[];
   folders: ApiFolder[];
   teams: ApiTeam[];
   environmentName: string;

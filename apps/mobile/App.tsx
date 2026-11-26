@@ -20,7 +20,6 @@ import {
   Folder,
   GitPullRequest,
   Inbox,
-  Plus,
   Search,
   UserRound,
 } from "lucide-react-native";
@@ -42,6 +41,7 @@ import type {
   ApiFeedSummary,
   ApiFolder,
   ApiNativeDecision,
+  ApiConnection,
   ApiSnippet,
   PairedSession,
 } from "./src/api/types";
@@ -49,7 +49,11 @@ import {
   AgentProfileSheet,
   type AgentRunSummary,
 } from "./src/components/AgentProfileSheet";
-import { ComposeSheet } from "./src/components/ComposeSheet";
+import {
+  ComposeSheet,
+  type ComposeSubmit,
+  type ComposeTarget,
+} from "./src/components/ComposeSheet";
 import { FeedScreen } from "./src/components/FeedScreen";
 import { PairingModal } from "./src/components/PairingModal";
 import { ProfileScreen } from "./src/components/ProfileScreen";
@@ -140,6 +144,7 @@ function LoopShell() {
   const [agents, setAgents] = useState<ApiAgent[]>(DEMO_AGENTS);
   const [folders, setFolders] = useState<ApiFolder[]>([]);
   const [snippets, setSnippets] = useState<ApiSnippet[]>([]);
+  const [connections, setConnections] = useState<ApiConnection[]>([]);
   const [approvals, setApprovals] = useState<ApiApproval[]>([]);
   const [decisions, setDecisions] = useState<ApiNativeDecision[]>([]);
   const [activeRuns, setActiveRuns] = useState<AgentRunSummary[]>([]);
@@ -160,11 +165,10 @@ function LoopShell() {
     agentName: string;
     agentId?: string | null;
   } | null>(null);
-  const [composeOpen, setComposeOpen] = useState(false);
-  const [composeAgentId, setComposeAgentId] = useState<string | undefined>(
-    undefined,
+  const [composeTarget, setComposeTarget] = useState<ComposeTarget | null>(
+    null,
   );
-  const [composeFolderId, setComposeFolderId] = useState<string | null>(null);
+  const composeOpen = composeTarget !== null;
   const [remindCard, setRemindCard] = useState<NativeResultCard | null>(null);
 
   // Toast with optional Undo
@@ -257,6 +261,7 @@ function LoopShell() {
           // Drop stale results if workspace switched or signed out mid-flight
           if (gen !== loadCoordRef.current.currentGeneration) return;
           setAgents(boot.agents);
+          setConnections(boot.connections ?? []);
           setFolders(boot.folders);
           setEnvironmentName(boot.environmentName || "");
           setSummary(feedPage.summary);
@@ -306,6 +311,7 @@ function LoopShell() {
     setApprovals([]);
     setDecisions([]);
     setSnippets([]);
+    setConnections([]);
     setActiveRuns([]);
     setSummary(null);
     setEnvironmentName("");
@@ -313,7 +319,7 @@ function LoopShell() {
     setCarouselOverrideCards(null);
     setProfileAgent(null);
     setThreadOverlay(null);
-    setComposeOpen(false);
+    setComposeTarget(null);
     setRemindCard(null);
     if (!client) {
       setAgents(DEMO_AGENTS);
@@ -602,36 +608,69 @@ function LoopShell() {
     [client, agents, scheduleSilentRefresh, showToast],
   );
 
-  const handleComposeSend = useCallback(
-    async (input: {
-      agentId: string;
-      agentName: string;
-      folderId?: string | null;
-      text: string;
-      attachmentIds?: string[];
-      idempotencyKey?: string;
-    }) => {
+  const handleComposeMessage = useCallback(
+    async (agent: ApiAgent, input: ComposeSubmit) => {
       if (client) {
         const gen = workspaceGenRef.current;
         await client.submitRun({
-          agentId: input.agentId,
-          folderId: input.folderId,
+          agentId: agent.id,
+          folderId: agent.folder_id ?? null,
           input: input.text,
           attachmentIds: input.attachmentIds,
           idempotencyKey: input.idempotencyKey,
         });
         showToast(
           input.attachmentIds?.length
-            ? `Sent to @${input.agentName} with ${input.attachmentIds.length} ${input.attachmentIds.length === 1 ? "file" : "files"}`
-            : `Sent to @${input.agentName}`,
+            ? `Sent to @${agent.name} with ${input.attachmentIds.length} ${input.attachmentIds.length === 1 ? "file" : "files"}`
+            : `Sent to @${agent.name}`,
         );
         setAppTab("feed");
         scheduleSilentRefresh(400, gen);
         return;
       }
       const nextCard = buildSimulatedReply(
-        `conv-${input.agentName}`,
-        input.agentName,
+        `conv-${agent.name}`,
+        agent.name,
+        "Loop Mobile",
+        agent.model,
+        input.text,
+      );
+      setDemoCards((prev) => [nextCard, ...prev]);
+      setAppTab("feed");
+      haptics.success();
+      showToast(`@${agent.name} answered`);
+    },
+    [client, scheduleSilentRefresh, showToast],
+  );
+
+  const handleComposeCreate = useCallback(
+    async (
+      input: ComposeSubmit & {
+        name: string;
+        connectionId: string;
+        model: string;
+        folderId?: string | null;
+      },
+    ) => {
+      if (client) {
+        const gen = workspaceGenRef.current;
+        const created = await client.createAgent({
+          name: input.name,
+          connectionId: input.connectionId,
+          model: input.model,
+          initialPrompt: input.text,
+          attachmentIds: input.attachmentIds,
+          folderId: input.folderId,
+          idempotencyKey: input.idempotencyKey,
+        });
+        showToast(`Started @${created.name}`);
+        setAppTab("feed");
+        scheduleSilentRefresh(400, gen);
+        return;
+      }
+      const nextCard = buildSimulatedReply(
+        `conv-${input.name}`,
+        input.name,
         "Loop Mobile",
         "claude-sonnet-4",
         input.text,
@@ -639,7 +678,7 @@ function LoopShell() {
       setDemoCards((prev) => [nextCard, ...prev]);
       setAppTab("feed");
       haptics.success();
-      showToast(`@${input.agentName} answered`);
+      showToast(`@${input.name} answered`);
     },
     [client, scheduleSilentRefresh, showToast],
   );
@@ -925,6 +964,7 @@ function LoopShell() {
         <FeedScreen
           cards={activeCards}
           agents={agents}
+          connections={connections}
           activeRuns={effectiveActiveRuns}
           approvals={approvals}
           decisions={decisions}
@@ -944,11 +984,7 @@ function LoopShell() {
           onOpenPairing={() => setPairingOpen(true)}
           onOpenAgent={handleOpenAgent}
           onOpenAgentByName={openAgentByName}
-          onNewAgent={() => {
-            setComposeAgentId(undefined);
-            setComposeFolderId(null);
-            setComposeOpen(true);
-          }}
+          onNewAgent={() => setComposeTarget({ kind: "new" })}
           onOpenStack={(conversationId) => {
             setCarouselOverrideCards(null);
             setOpenConversationId(conversationId);
@@ -971,11 +1007,13 @@ function LoopShell() {
           theme={theme}
           onOpenConversation={(conv) => setThreadOverlay(conv)}
           onOpenAgent={(agent) => setProfileAgent(agent)}
-          onNewTaskInProject={(folderId) => {
-            setComposeAgentId(undefined);
-            setComposeFolderId(folderId);
-            setComposeOpen(true);
-          }}
+          onNewTaskInProject={(folderId) =>
+            setComposeTarget({
+              kind: "new",
+              folderId,
+              folderName: folders.find((f) => f.id === folderId)?.name,
+            })
+          }
         />
       )}
 
@@ -1011,33 +1049,6 @@ function LoopShell() {
           onOpenConversation={(conv) => setThreadOverlay(conv)}
         />
       )}
-
-      {/* Floating + New Task Button */}
-      {!isCarouselOpen &&
-        !profileAgent &&
-        !threadOverlay &&
-        !composeOpen &&
-        !pairingOpen && (
-          <Pressable
-            accessibilityLabel="New task"
-            onPress={() => {
-              haptics.medium();
-              setComposeAgentId(undefined);
-              setComposeFolderId(null);
-              setComposeOpen(true);
-            }}
-            style={({ pressed }) => [
-              styles.fab,
-              {
-                bottom: Math.max(insets.bottom + 72, 82),
-                backgroundColor: theme.brass,
-                transform: [{ scale: pressed ? 0.92 : 1 }],
-              },
-            ]}
-          >
-            <Plus size={24} color={theme.onBrass} strokeWidth={2.5} />
-          </Pressable>
-        )}
 
       {/* Frosted Native 5-Tab Bottom Bar (hidden while Spotlight Carousel is open) */}
       {!isCarouselOpen && (
@@ -1230,6 +1241,7 @@ function LoopShell() {
       {profileAgent && (
         <AgentProfileSheet
           agent={profileAgent}
+          connections={connections}
           client={client}
           folders={folders}
           activeRuns={effectiveActiveRuns}
@@ -1238,9 +1250,7 @@ function LoopShell() {
           onClose={() => setProfileAgent(null)}
           onMessageAgent={(agent) => {
             setProfileAgent(null);
-            setComposeAgentId(agent.id);
-            setComposeFolderId(agent.folder_id ?? null);
-            setComposeOpen(true);
+            setComposeTarget({ kind: "agent", agent });
           }}
           onOpenStack={(conversationId, seedCard) => {
             setProfileAgent(null);
@@ -1255,17 +1265,15 @@ function LoopShell() {
       )}
 
       {/* New Task / Compose Sheet */}
-      {composeOpen && (
+      {composeTarget && (
         <ComposeSheet
           theme={theme}
           client={client}
-          agents={agents}
-          folders={folders}
-          snippets={snippets}
-          defaultAgentId={composeAgentId}
-          defaultFolderId={composeFolderId}
-          onClose={() => setComposeOpen(false)}
-          onSend={handleComposeSend}
+          connections={connections}
+          target={composeTarget}
+          onClose={() => setComposeTarget(null)}
+          onMessage={handleComposeMessage}
+          onCreate={handleComposeCreate}
         />
       )}
 
@@ -1382,21 +1390,6 @@ function BottomTabButton({
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  fab: {
-    position: "absolute",
-    right: 18,
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.36,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 8,
-    zIndex: 18,
-  },
   tabBarOuter: {
     position: "absolute",
     left: 0,

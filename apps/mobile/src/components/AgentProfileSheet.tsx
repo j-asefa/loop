@@ -28,7 +28,8 @@ import {
 } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { LoopClient } from "../api/client";
-import type { ApiAgent, ApiFolder } from "../api/types";
+import type { ApiAgent, ApiConnection, ApiFolder } from "../api/types";
+import { agentModelLabel, harnessLabel } from "../models";
 import { relativeTime, type NativeResultCard } from "../fixtures";
 import { haptics } from "../haptics";
 import type { LoopTheme } from "../theme";
@@ -51,6 +52,7 @@ export type AgentRunSummary = {
 
 export function AgentProfileSheet({
   agent,
+  connections,
   client,
   folders,
   activeRuns,
@@ -62,6 +64,7 @@ export function AgentProfileSheet({
   onOpenThread,
 }: {
   agent: ApiAgent;
+  connections: ApiConnection[];
   client: LoopClient | null;
   folders: ApiFolder[];
   activeRuns: AgentRunSummary[];
@@ -294,7 +297,13 @@ export function AgentProfileSheet({
     };
   }, [tab, client, agent.id, traceQuery]);
 
-  const cleanModel = (agent.model || "").replace(/^Claude /, "");
+  const connection = connections.find((c) => c.id === agent.connection_id);
+  const harness = harnessLabel(connection);
+  const modelLabel = agentModelLabel(agent, connections);
+  const cleanModel =
+    harness && !modelLabel.startsWith(harness)
+      ? `${harness} · ${modelLabel}`
+      : modelLabel;
 
   return (
     <View

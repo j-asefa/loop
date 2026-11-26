@@ -68,6 +68,7 @@ import {
   type NativeResultCard,
 } from "../fixtures";
 import { haptics } from "../haptics";
+import { runModelLabel } from "../models";
 import type { LoopTheme } from "../theme";
 import {
   AttachmentChipStrip,
@@ -1891,7 +1892,7 @@ const FloatingCarouselCard = React.memo(function FloatingCarouselCard({
           </Text>
         </View>
         <Text style={[styles.cardModelTag, { color: theme.muted }]}>
-          {slide.model}
+          {runModelLabel(slide.model)}
         </Text>
       </Pressable>
 

@@ -1,5 +1,6 @@
 import { assertSameOriginResponse } from "./pairing-url";
 import type {
+  ApiAgent,
   ApiApproval,
   ApiBootstrap,
   ApiConversationPage,
@@ -385,6 +386,43 @@ export class LoopClient {
       throw new LoopApiError(res.status, msg);
     }
     return parsed as UploadedAttachment;
+  }
+
+  async suggestAgentName(): Promise<string> {
+    const data = await this.request<{ name: string }>(
+      "GET",
+      "/api/agents/suggest-name",
+    );
+    return data.name;
+  }
+
+  /** Create an agent with its first task. The idempotency key and name must be
+   * reused on retry so an uncertain create returns the same agent. */
+  createAgent(input: {
+    name: string;
+    connectionId: string;
+    model: string;
+    initialPrompt: string;
+    attachmentIds?: string[];
+    folderId?: string | null;
+    idempotencyKey: string;
+  }): Promise<
+    ApiAgent & { initialRun?: { id: string; conversation_id: string | null } }
+  > {
+    return this.request(
+      "POST",
+      "/api/agents",
+      {
+        name: input.name,
+        connectionId: input.connectionId,
+        model: input.model,
+        initialPrompt: input.initialPrompt,
+        attachmentIds: input.attachmentIds ?? [],
+        ...(input.folderId ? { folderId: input.folderId } : {}),
+        idempotencyKey: input.idempotencyKey,
+      },
+      RUN_REQUEST_TIMEOUT_MS,
+    );
   }
 
   submitRun(input: {

@@ -33,7 +33,13 @@ import {
   type StackedCardEntry,
 } from "../../../../src/shared/done-stack";
 import type { SocketStatus } from "../api/socket";
-import type { ApiAgent, ApiApproval, ApiNativeDecision } from "../api/types";
+import type {
+  ApiAgent,
+  ApiApproval,
+  ApiConnection,
+  ApiNativeDecision,
+} from "../api/types";
+import { agentModelLabel } from "../models";
 import type { AgentRunSummary } from "./AgentProfileSheet";
 import { relativeTime, type NativeResultCard } from "../fixtures";
 import { haptics } from "../haptics";
@@ -49,6 +55,7 @@ const SWIPE_THRESHOLD = 82;
 type FeedScreenProps = {
   cards: NativeResultCard[];
   agents: ApiAgent[];
+  connections: ApiConnection[];
   activeRuns: AgentRunSummary[];
   approvals: ApiApproval[];
   decisions: ApiNativeDecision[];
@@ -84,6 +91,7 @@ const NEEDS_STATES = new Set([
 export function FeedScreen({
   cards,
   agents,
+  connections,
   activeRuns,
   approvals,
   decisions,
@@ -270,6 +278,8 @@ export function FeedScreen({
             contentContainerStyle={styles.agentsStripRow}
           >
             <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="New agent"
               onPress={() => {
                 haptics.light();
                 onNewAgent();
@@ -291,15 +301,6 @@ export function FeedScreen({
               >
                 <Plus size={22} color={theme.brassText} />
               </View>
-              <Text
-                style={[styles.shortcutName, { color: theme.text }]}
-                numberOfLines={1}
-              >
-                New task
-              </Text>
-              <Text style={[styles.shortcutStatus, { color: theme.muted }]}>
-                Start chat
-              </Text>
             </Pressable>
 
             {orderedAgents.map(({ agent, status, workingRun, queuedCount }) => {
@@ -311,10 +312,10 @@ export function FeedScreen({
                     : status === "Queued"
                       ? theme.brass
                       : theme.green;
-              const shortModel = (agent.model || "")
-                .replace(/^Claude /i, "")
-                .replace(/^claude-/i, "")
-                .slice(0, 14);
+              const shortModel = agentModelLabel(agent, connections).replace(
+                /^Claude /,
+                "",
+              );
               const statusCaption =
                 status === "Working" && queuedCount > 0
                   ? `Working · ${queuedCount}q`
@@ -565,7 +566,7 @@ export function FeedScreen({
             </Text>
             <Text style={[styles.emptyBody, { color: theme.muted }]}>
               {isLive
-                ? "Pull down to refresh or tap + to start a new task."
+                ? "Pull down to refresh or tap + to start a new agent."
                 : "Tap + to ask an agent or pair your live Loop workspace above."}
             </Text>
           </View>
