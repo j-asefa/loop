@@ -200,6 +200,10 @@ export function SpotlightCarousel({
   >(() => new Map());
   const fetchedRunsRef = useRef(new Set<string>());
   const conversationId = cards[0]?.conversationId;
+  // Read slide metadata through a ref so mark-read/save/silent reloads do not re-fire
+  // `client.conversation(conversationId)` on every `cards` array identity change.
+  const baseCardRef = useRef(cards[0]);
+  baseCardRef.current = cards[0];
 
   const parseConversationPageToSlides = useCallback(
     (
@@ -217,7 +221,7 @@ export function SpotlightCarousel({
       const savedSet = new Set(page.saved);
       const extra: NativeResultCard[] = [];
       let lastPrompt = "";
-      const base = cards[0];
+      const base = baseCardRef.current;
       for (const msg of page.messages) {
         if (msg.role === "user") {
           lastPrompt = msg.content;
@@ -249,7 +253,7 @@ export function SpotlightCarousel({
       extra.reverse();
       return { promptMap, bodyMap, runIdMap, slides: extra };
     },
-    [cards],
+    [],
   );
 
   useEffect(() => {

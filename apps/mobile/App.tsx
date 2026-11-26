@@ -166,6 +166,9 @@ function LoopShell() {
   );
   const [loadingMoreFeed, setLoadingMoreFeed] = useState(false);
   const hasLoadedOlderFeedRef = useRef(false);
+  const feedPageEpochRef = useRef(0);
+  const liveCardsRef = useRef<NativeResultCard[]>([]);
+  liveCardsRef.current = liveCards;
   const [summary, setSummary] = useState<ApiFeedSummary | null>(null);
   const [agents, setAgents] = useState<ApiAgent[]>(DEMO_AGENTS);
   const [folders, setFolders] = useState<ApiFolder[]>([]);
@@ -323,14 +326,37 @@ function LoopShell() {
           const doneSource = useCardsSource
             ? doneCardPage!.items
             : feedPage.items;
-          setLiveCards(
-            mergeUnifiedFeedCards(doneSource, replyPage?.items ?? []),
+          const nextTopCards = mergeUnifiedFeedCards(
+            doneSource,
+            replyPage?.items ?? [],
           );
           if (options?.silent === false) {
+            feedPageEpochRef.current += 1;
             hasLoadedOlderFeedRef.current = false;
             setOlderFeedCards([]);
-          }
-          if (!hasLoadedOlderFeedRef.current || options?.silent === false) {
+            setLoadingMoreFeed(false);
+            setFeedCursorSource(useCardsSource ? "cards" : "feed");
+            setFeedNextCursor(
+              useCardsSource
+                ? (doneCardPage?.next ?? null)
+                : (feedPage.next ?? null),
+            );
+          } else if (hasLoadedOlderFeedRef.current) {
+            // Preserve cards pushed past page 1 so no gap opens between page 1 and loaded older pages.
+            const freshIds = new Set(nextTopCards.map((c) => c.id));
+            const pushedDown = liveCardsRef.current.filter(
+              (c) => !freshIds.has(c.id),
+            );
+            if (pushedDown.length > 0) {
+              setOlderFeedCards((prev) => {
+                const existingIds = new Set(prev.map((c) => c.id));
+                const additions = pushedDown.filter(
+                  (c) => !existingIds.has(c.id),
+                );
+                return additions.length > 0 ? [...additions, ...prev] : prev;
+              });
+            }
+          } else {
             setFeedCursorSource(useCardsSource ? "cards" : "feed");
             setFeedNextCursor(
               useCardsSource
@@ -338,6 +364,7 @@ function LoopShell() {
                 : (feedPage.next ?? null),
             );
           }
+          setLiveCards(nextTopCards);
           if (queuedPage || workingPage) {
             setQueuedFeedItems([
               ...(queuedPage?.items ?? []),
@@ -402,6 +429,7 @@ function LoopShell() {
     setFeedNextCursor(null);
     setLoadingMoreFeed(false);
     hasLoadedOlderFeedRef.current = false;
+    feedPageEpochRef.current += 1;
     setFolders([]);
     setApprovals([]);
     setDecisions([]);
@@ -469,6 +497,7 @@ function LoopShell() {
   const handleLoadMoreFeed = useCallback(async () => {
     if (!client || !feedNextCursor || loadingMoreFeed) return;
     const gen = loadCoordRef.current.currentGeneration;
+    const epoch = feedPageEpochRef.current;
     const cursor = feedNextCursor;
     const source = feedCursorSource;
     setLoadingMoreFeed(true);
@@ -477,7 +506,12 @@ function LoopShell() {
         source === "cards"
           ? await client.doneCardsPage({ before: cursor })
           : await client.feed("done", { before: cursor });
-      if (gen !== loadCoordRef.current.currentGeneration) return;
+      if (
+        gen !== loadCoordRef.current.currentGeneration ||
+        epoch !== feedPageEpochRef.current
+      ) {
+        return;
+      }
       const mapped = mergeUnifiedFeedCards(page.items, []);
       hasLoadedOlderFeedRef.current = true;
       setOlderFeedCards((prev) => {
@@ -487,13 +521,19 @@ function LoopShell() {
       });
       setFeedNextCursor(page.next ?? null);
     } catch (err) {
-      if (gen === loadCoordRef.current.currentGeneration) {
+      if (
+        gen === loadCoordRef.current.currentGeneration &&
+        epoch === feedPageEpochRef.current
+      ) {
         showToast(
           err instanceof Error ? err.message : "Could not load older cards.",
         );
       }
     } finally {
-      if (gen === loadCoordRef.current.currentGeneration) {
+      if (
+        gen === loadCoordRef.current.currentGeneration &&
+        epoch === feedPageEpochRef.current
+      ) {
         setLoadingMoreFeed(false);
       }
     }
@@ -670,6 +710,11 @@ function LoopShell() {
         showToast(doneKey ? "Marked done" : "Archived reply", () => {
           if (gen !== workspaceGenRef.current) return;
           haptics.light();
+          // Restore immediately into olderFeedCards as well so undoing a paginated card
+          // brings it back even if it sits below page 1.
+          setOlderFeedCards((prev) =>
+            prev.some((c) => c.id === card.id) ? prev : [card, ...prev],
+          );
           const restores: Promise<unknown>[] = [];
           if (doneKey) {
             restores.push(

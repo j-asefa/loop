@@ -57,11 +57,23 @@ export function SearchScreen({
   const [category, setCategory] =
     useState<(typeof CATEGORIES)[number]["id"]>("all");
   const [results, setResults] = useState<ApiSearchItem[]>([]);
-  const [nextCursor, setNextCursor] = useState<number | null>(null);
+  const [nextCursor, setNextCursor] = useState<{
+    q: string;
+    category: string;
+    before: number;
+  } | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [prompts, setPrompts] = useState<ApiPersonalPrompt[]>([]);
   const [loading, setLoading] = useState(false);
   const searchSeqRef = useRef(0);
+
+  // Immediately invalidate any in-flight search or load-more cursor whenever query,
+  // category, or workspace client changes — before the 220 ms search debounce fires.
+  useEffect(() => {
+    searchSeqRef.current += 1;
+    setNextCursor(null);
+    setLoadingMore(false);
+  }, [client, query, category]);
 
   const matchingAgents = useMemo(() => {
     const clean = query.trim().replace(/^@/, "").toLowerCase();
@@ -151,7 +163,11 @@ export function SearchScreen({
       const res = await client.search(q, category);
       if (seq === searchSeqRef.current) {
         setResults(res.items);
-        setNextCursor(res.next ?? null);
+        setNextCursor(
+          res.next !== null && res.next !== undefined
+            ? { q, category, before: res.next }
+            : null,
+        );
       }
     } catch {
       if (seq === searchSeqRef.current) {
@@ -165,18 +181,33 @@ export function SearchScreen({
 
   const loadMoreResults = useCallback(async () => {
     const q = query.trim();
-    if (!client || !q || nextCursor === null || loadingMore || loading) return;
+    if (
+      !client ||
+      !q ||
+      !nextCursor ||
+      nextCursor.q !== q ||
+      nextCursor.category !== category ||
+      loadingMore ||
+      loading
+    ) {
+      return;
+    }
     const seq = searchSeqRef.current;
+    const cursorBefore = nextCursor.before;
     setLoadingMore(true);
     try {
-      const res = await client.search(q, category, nextCursor);
+      const res = await client.search(q, category, cursorBefore);
       if (seq !== searchSeqRef.current) return;
       setResults((prev) => {
         const seen = new Set(prev.map((item) => item.id));
         const extra = res.items.filter((item) => !seen.has(item.id));
         return extra.length > 0 ? [...prev, ...extra] : prev;
       });
-      setNextCursor(res.next ?? null);
+      setNextCursor(
+        res.next !== null && res.next !== undefined
+          ? { q, category, before: res.next }
+          : null,
+      );
     } catch {
       // keep existing results
     } finally {

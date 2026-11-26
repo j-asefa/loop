@@ -18,14 +18,60 @@ export {
 
 const WRITE_DEBOUNCE_MS = 350;
 
+type PendingOps = {
+  saves: Map<string, string>;
+  deletes: Set<string>;
+};
+
 const memoryBuckets = new Map<string, DraftMap>();
 const loadedBuckets = new Set<string>();
 const pendingLoads = new Map<string, Promise<DraftMap>>();
+const pendingOpsByBucket = new Map<string, PendingOps>();
 const flushTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const bucketEpoch = new Map<string, number>();
 
 function draftFileForBucket(bucket: string): ExpoFile {
   return new ExpoFile(Paths.cache, `loop-drafts-${bucket}.json`);
+}
+
+function getOrCreatePendingOps(bucket: string): PendingOps {
+  let ops = pendingOpsByBucket.get(bucket);
+  if (!ops) {
+    ops = { saves: new Map(), deletes: new Set() };
+    pendingOpsByBucket.set(bucket, ops);
+  }
+  return ops;
+}
+
+function flushBucketNow(bucket: string): void {
+  const timer = flushTimers.get(bucket);
+  if (timer) {
+    clearTimeout(timer);
+    flushTimers.delete(bucket);
+  }
+  if (!loadedBuckets.has(bucket)) return;
+  try {
+    const map = memoryBuckets.get(bucket) ?? createEmptyDraftMap();
+    const file = draftFileForBucket(bucket);
+    if (Object.keys(map).length === 0) {
+      if (file.exists) file.delete();
+      return;
+    }
+    file.write(serializeDraftStore(map));
+  } catch {
+    // Cache persistence is best-effort; never disrupt typing or sending.
+  }
+}
+
+function scheduleBucketFlush(bucket: string): void {
+  if (!loadedBuckets.has(bucket)) return;
+  const existing = flushTimers.get(bucket);
+  if (existing) clearTimeout(existing);
+  const timer = setTimeout(() => {
+    flushTimers.delete(bucket);
+    flushBucketNow(bucket);
+  }, WRITE_DEBOUNCE_MS);
+  flushTimers.set(bucket, timer);
 }
 
 async function ensureBucketLoaded(bucket: string): Promise<DraftMap> {
@@ -47,17 +93,31 @@ async function ensureBucketLoaded(bucket: string): Promise<DraftMap> {
     } catch {
       loaded = createEmptyDraftMap();
     }
-    // If the bucket was cleared or written to while loading, merge safely without
-    // resurrecting cleared drafts or overwriting newer in-memory edits.
+    // If `clearWorkspaceDrafts` bumped the epoch while reading disk, discard the stale read.
     if ((bucketEpoch.get(bucket) ?? 0) !== epochAtStart) {
       return memoryBuckets.get(bucket) ?? createEmptyDraftMap();
     }
-    const inMemory = memoryBuckets.get(bucket);
-    const merged = inMemory
-      ? Object.assign(createEmptyDraftMap(), loaded, inMemory)
-      : loaded;
+    // Replay any saves/deletes queued while the initial disk read was in flight so we
+    // never overwrite unrelated scopes on disk or resurrect a just-sent draft.
+    const ops = pendingOpsByBucket.get(bucket);
+    pendingOpsByBucket.delete(bucket);
+    let merged = loaded;
+    let dirty = false;
+    if (ops) {
+      for (const scope of ops.deletes) {
+        merged = deleteDraftFromStore(merged, scope);
+        dirty = true;
+      }
+      for (const [scope, text] of ops.saves) {
+        merged = setDraftInStore(merged, scope, text);
+        dirty = true;
+      }
+    }
     memoryBuckets.set(bucket, merged);
     loadedBuckets.add(bucket);
+    if (dirty) {
+      flushBucketNow(bucket);
+    }
     return merged;
   })().finally(() => {
     if (pendingLoads.get(bucket) === loadPromise) {
@@ -67,35 +127,6 @@ async function ensureBucketLoaded(bucket: string): Promise<DraftMap> {
 
   pendingLoads.set(bucket, loadPromise);
   return loadPromise;
-}
-
-function flushBucketNow(bucket: string): void {
-  const timer = flushTimers.get(bucket);
-  if (timer) {
-    clearTimeout(timer);
-    flushTimers.delete(bucket);
-  }
-  try {
-    const map = memoryBuckets.get(bucket) ?? createEmptyDraftMap();
-    const file = draftFileForBucket(bucket);
-    if (Object.keys(map).length === 0) {
-      if (file.exists) file.delete();
-      return;
-    }
-    file.write(serializeDraftStore(map));
-  } catch {
-    // Cache persistence is best-effort; never disrupt typing or sending.
-  }
-}
-
-function scheduleBucketFlush(bucket: string): void {
-  const existing = flushTimers.get(bucket);
-  if (existing) clearTimeout(existing);
-  const timer = setTimeout(() => {
-    flushTimers.delete(bucket);
-    flushBucketNow(bucket);
-  }, WRITE_DEBOUNCE_MS);
-  flushTimers.set(bucket, timer);
 }
 
 export async function loadDraft(
@@ -113,10 +144,21 @@ export function saveDraft(
   text: string,
 ): void {
   const bucket = draftWorkspaceBucket(origin);
+  if (!loadedBuckets.has(bucket)) {
+    const ops = getOrCreatePendingOps(bucket);
+    if (text.trim()) {
+      ops.deletes.delete(scope);
+      ops.saves.set(scope, text);
+    } else {
+      ops.saves.delete(scope);
+      ops.deletes.add(scope);
+    }
+    void ensureBucketLoaded(bucket);
+    return;
+  }
   const current = memoryBuckets.get(bucket) ?? createEmptyDraftMap();
   const next = setDraftInStore(current, scope, text);
   memoryBuckets.set(bucket, next);
-  loadedBuckets.add(bucket);
   scheduleBucketFlush(bucket);
 }
 
@@ -125,10 +167,16 @@ export function clearDraft(
   scope: string,
 ): void {
   const bucket = draftWorkspaceBucket(origin);
+  if (!loadedBuckets.has(bucket)) {
+    const ops = getOrCreatePendingOps(bucket);
+    ops.saves.delete(scope);
+    ops.deletes.add(scope);
+    void ensureBucketLoaded(bucket);
+    return;
+  }
   const current = memoryBuckets.get(bucket) ?? createEmptyDraftMap();
   const next = deleteDraftFromStore(current, scope);
   memoryBuckets.set(bucket, next);
-  loadedBuckets.add(bucket);
   flushBucketNow(bucket);
 }
 
@@ -136,6 +184,7 @@ export function clearDraft(
 export function clearWorkspaceDrafts(origin: string | null | undefined): void {
   const bucket = draftWorkspaceBucket(origin);
   bucketEpoch.set(bucket, (bucketEpoch.get(bucket) ?? 0) + 1);
+  pendingOpsByBucket.delete(bucket);
   const timer = flushTimers.get(bucket);
   if (timer) {
     clearTimeout(timer);

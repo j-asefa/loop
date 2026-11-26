@@ -122,7 +122,9 @@ export function ThreadSheet({
   const [loadingMore, setLoadingMore] = useState(false);
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const skipAutoScrollRef = useRef(false);
+  // Suppress auto-scroll-to-bottom briefly after prepending earlier history so multi-pass
+  // rich-content layout does not jump the reader back to the bottom.
+  const suppressAutoScrollUntilRef = useRef(0);
   const hasLoadedHistoryRef = useRef(false);
   const [draft, setDraft] = useState("");
   const draftScope = draftScopeForThread(conversationId);
@@ -235,7 +237,13 @@ export function ThreadSheet({
       }
       setSavedIds((prev) => {
         if (!hasLoadedHistoryRef.current) return new Set(page.saved);
-        const merged = new Set(prev);
+        // Replace bookmark state authoritatively for refreshed page messages while keeping
+        // bookmarks for earlier paginated messages not included in this page.
+        const pageMsgIds = new Set(page.messages.map((m) => m.id));
+        const merged = new Set<string>();
+        for (const id of prev) {
+          if (!pageMsgIds.has(id)) merged.add(id);
+        }
         for (const id of page.saved) merged.add(id);
         return merged;
       });
@@ -264,11 +272,14 @@ export function ThreadSheet({
       const page = await client.conversation(targetConv, cursor);
       if (targetConv !== conversationId) return;
       hasLoadedHistoryRef.current = true;
-      skipAutoScrollRef.current = true;
       setMessages((prev) => {
         const existingIds = new Set(prev.map((m) => m.id));
         const older = page.messages.filter((m) => !existingIds.has(m.id));
-        return older.length > 0 ? [...older, ...prev] : prev;
+        if (older.length > 0) {
+          suppressAutoScrollUntilRef.current = Date.now() + 800;
+          return [...older, ...prev];
+        }
+        return prev;
       });
       setSavedIds((prev) => {
         const merged = new Set(prev);
@@ -626,8 +637,7 @@ export function ThreadSheet({
           style={styles.flex}
           contentContainerStyle={styles.messagesContent}
           onContentSizeChange={() => {
-            if (skipAutoScrollRef.current) {
-              skipAutoScrollRef.current = false;
+            if (Date.now() < suppressAutoScrollUntilRef.current) {
               return;
             }
             scrollRef.current?.scrollToEnd({ animated: false });

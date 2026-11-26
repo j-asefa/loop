@@ -14,18 +14,22 @@ export function createEmptyDraftMap(): DraftMap {
 }
 
 /**
- * Derive an isolated, filesystem-safe bucket name from the workspace origin so drafts
+ * Derive an isolated, filesystem-safe 64-bit bucket name from the workspace origin so drafts
  * from one workspace never leak into another workspace or Demo mode.
  */
 export function draftWorkspaceBucket(origin?: string | null): string {
   const normalized = (origin ?? "").trim().replace(/\/+$/, "").toLowerCase();
   if (!normalized) return "demo";
-  let hash = 0x811c9dc5;
+  let h1 = 0x811c9dc5;
+  let h2 = 0x9e3779b9;
   for (let i = 0; i < normalized.length; i += 1) {
-    hash ^= normalized.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
+    const code = normalized.charCodeAt(i);
+    h1 ^= code;
+    h1 = Math.imul(h1, 0x01000193);
+    h2 ^= code + i;
+    h2 = Math.imul(h2, 0x85ebca6b);
   }
-  return `ws_${(hash >>> 0).toString(16).padStart(8, "0")}`;
+  return `ws_${(h1 >>> 0).toString(16).padStart(8, "0")}${(h2 >>> 0).toString(16).padStart(8, "0")}`;
 }
 
 export function draftScopeForCarousel(conversationId: string): string {
