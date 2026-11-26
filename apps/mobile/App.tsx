@@ -263,6 +263,9 @@ function LoopShell() {
   // Durable per-target idempotency/command keys so retries after uncertain timeouts reuse the same key
   const actionKeysRef = useRef(new ActionKeyStore());
   const inFlightRunActionsRef = useRef<Set<string>>(new Set());
+  // Maps `runId -> timedOutAt` for reorders whose outcome is uncertain; released only by a
+  // queue refresh started after `timedOutAt` (or after 15s fallback so offline never wedges).
+  const uncertainReordersRef = useRef<Map<string, number>>(new Map());
 
   const loadWorkspace = useCallback(
     async (options?: { silent?: boolean }) => {
@@ -316,10 +319,13 @@ function LoopShell() {
               ...(queuedPage?.items ?? []),
               ...(workingPage?.items ?? []),
             ]);
-            // Release any pending uncertain-reorder locks once the queue has synced from server
-            for (const key of Array.from(inFlightRunActionsRef.current)) {
-              if (key.startsWith("reorder:")) {
-                inFlightRunActionsRef.current.delete(key);
+            // Release uncertain-reorder locks only for timeouts that occurred BEFORE this
+            // refresh started — never releasing an actively in-flight reorder request.
+            for (const [id, timedOutAt] of Array.from(
+              uncertainReordersRef.current.entries(),
+            )) {
+              if (fetchStartedAt > timedOutAt) {
+                uncertainReordersRef.current.delete(id);
               }
             }
           }
@@ -363,6 +369,7 @@ function LoopShell() {
     workspaceGenRef.current = loadCoordRef.current.reset();
     actionKeysRef.current.clear();
     inFlightRunActionsRef.current.clear();
+    uncertainReordersRef.current.clear();
     // Clear stale Undo toasts from the previous workspace while preserving status toasts (expiry/pair/sign-out)
     setToast((prev) => (prev?.undo ? null : prev));
     setRefreshing(false);
@@ -987,7 +994,14 @@ function LoopShell() {
       if (!client) return;
       const gen = workspaceGenRef.current;
       const flightKey = `reorder:${runId}`;
-      if (inFlightRunActionsRef.current.has(flightKey)) return;
+      const uncertainAt = uncertainReordersRef.current.get(runId);
+      if (
+        inFlightRunActionsRef.current.has(flightKey) ||
+        (uncertainAt !== undefined && Date.now() - uncertainAt < 15_000)
+      ) {
+        return;
+      }
+      uncertainReordersRef.current.delete(runId);
       inFlightRunActionsRef.current.add(flightKey);
       void client
         .reorderRun(runId, direction)
@@ -998,14 +1012,13 @@ function LoopShell() {
         })
         .catch((err) => {
           if (gen !== workspaceGenRef.current) return;
+          inFlightRunActionsRef.current.delete(flightKey);
           if (isUncertainOutcomeError(err)) {
-            // Keep `flightKey` locked until the queue refresh confirms the new order so
-            // a repeated tap after timeout cannot swap the run a second time.
+            uncertainReordersRef.current.set(runId, Date.now());
             showToast("Reorder timed out — syncing queue…");
             scheduleSilentRefresh(500, gen);
             return;
           }
-          inFlightRunActionsRef.current.delete(flightKey);
           showToast((err as Error).message);
           scheduleSilentRefresh(100, gen);
         });

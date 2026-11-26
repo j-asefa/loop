@@ -265,17 +265,19 @@ export function SpotlightCarousel({
       const resolvedRunId =
         card.runId || (msgId ? historyRunIds.get(msgId) : undefined);
       const streamedBody =
-        card.tab === "working" &&
-        liveStream?.text &&
-        !liveStream.gapped &&
-        !liveStream.truncated
+        card.tab === "working" && liveStream?.text && !liveStream.gapped
           ? liveStream.text
           : undefined;
       return {
         ...card,
         ...(exactPrompt ? { prompt: exactPrompt } : {}),
         ...(fullBody ? { body: fullBody, bodyTruncated: false } : {}),
-        ...(streamedBody ? { body: streamedBody, bodyTruncated: false } : {}),
+        ...(streamedBody
+          ? {
+              body: streamedBody,
+              bodyTruncated: Boolean(liveStream?.truncated),
+            }
+          : {}),
         ...(resolvedRunId ? { runId: resolvedRunId } : {}),
       };
     };

@@ -625,7 +625,7 @@ export function ThreadSheet({
                 liveStream &&
                 !liveStream.gapped &&
                 (liveStream.text.trim().length > 0 || liveStream.activity) &&
-                !messages.some((m) => {
+                !messages.some((m, idx) => {
                   if (m.role !== "assistant") return false;
                   const trimmedStream = liveStream.text.trim();
                   if (liveStream.messageId) {
@@ -635,22 +635,20 @@ export function ThreadSheet({
                     ) {
                       return true;
                     }
+                    // Only compare text against the latest persisted message of this run so
+                    // an identical earlier reply (e.g. "Done") never hides a new live turn.
                     return (
+                      idx === messages.length - 1 &&
+                      Boolean(activeRun && m.run_id === activeRun.id) &&
                       trimmedStream.length > 0 &&
                       m.content.trim() === trimmedStream
                     );
                   }
-                  if (
-                    activeRun &&
+                  return (
+                    activeRun !== null &&
                     m.run_id === activeRun.id &&
                     trimmedStream.length > 0 &&
                     m.content.trim().length >= trimmedStream.length
-                  ) {
-                    return true;
-                  }
-                  return (
-                    trimmedStream.length > 0 &&
-                    m.content.trim() === trimmedStream
                   );
                 }) && (
                   <View
