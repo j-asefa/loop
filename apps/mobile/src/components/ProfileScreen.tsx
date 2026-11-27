@@ -521,8 +521,8 @@ export function ProfileScreen({
         {section === "saved" &&
           (saved.length === 0 ? (
             <Text style={[styles.emptyHint, { color: theme.muted }]}>
-              No saved cards yet. Swipe left on any Feed card or tap Save inside
-              the carousel.
+              No saved cards yet. Swipe right on any Feed card or tap Save
+              inside the carousel.
             </Text>
           ) : (
             saved.map((entry) => {
