@@ -20,6 +20,8 @@ export type DraftPendingMeta = {
   queue?: boolean;
   schedule?: PendingScheduleDraft;
   share?: PendingShareDraft;
+  /** Snippet text picked to seed this draft so reopening keeps attribution after edits. */
+  snippetContent?: string;
 };
 
 export type DraftEntry = {
@@ -33,6 +35,8 @@ export type DraftEntry = {
   pendingSchedule?: PendingScheduleDraft;
   /** Durable share identity + routing/upload metadata persisted before dispatch / across uncertain timeouts. */
   pendingShare?: PendingShareDraft;
+  /** Snippet text picked to seed this draft so reopening keeps attribution after edits. */
+  snippetContent?: string;
 };
 
 function sanitizePendingShare(raw: unknown): PendingShareDraft | undefined {
@@ -179,6 +183,11 @@ export function draftScopeForCompose(
   return `compose:new:${folderId || "root"}`;
 }
 
+function sanitizeSnippetContent(raw: unknown): string | undefined {
+  if (typeof raw !== "string" || !raw.trim()) return undefined;
+  return raw.length > MAX_DRAFT_CHARS ? raw.slice(0, MAX_DRAFT_CHARS) : raw;
+}
+
 export function pruneDraftStore(input: DraftMap, now = Date.now()): DraftMap {
   const valid: Array<[string, DraftEntry]> = [];
   for (const key of Object.keys(input)) {
@@ -194,6 +203,7 @@ export function pruneDraftStore(input: DraftMap, now = Date.now()): DraftMap {
     }
     const pendingSchedule = sanitizePendingSchedule(entry.pendingSchedule);
     const pendingShare = sanitizePendingShare(entry.pendingShare);
+    const snippetContent = sanitizeSnippetContent(entry.snippetContent);
     const normalized: DraftEntry = {
       text:
         entry.text.length > MAX_DRAFT_CHARS
@@ -208,6 +218,7 @@ export function pruneDraftStore(input: DraftMap, now = Date.now()): DraftMap {
         : {}),
       ...(pendingSchedule ? { pendingSchedule } : {}),
       ...(pendingShare ? { pendingShare } : {}),
+      ...(snippetContent ? { snippetContent } : {}),
     };
     if (isDraftEntryExpired(normalized, now)) {
       continue;
@@ -256,6 +267,7 @@ export function parseDraftStore(raw: string, now = Date.now()): DraftMap {
         pendingQueue?: unknown;
         pendingSchedule?: unknown;
         pendingShare?: unknown;
+        snippetContent?: unknown;
       };
       if (
         item &&
@@ -265,6 +277,7 @@ export function parseDraftStore(raw: string, now = Date.now()): DraftMap {
       ) {
         const pendingSchedule = sanitizePendingSchedule(item.pendingSchedule);
         const pendingShare = sanitizePendingShare(item.pendingShare);
+        const snippetContent = sanitizeSnippetContent(item.snippetContent);
         loaded[key] = {
           text: item.text,
           updatedAt: item.updatedAt,
@@ -276,6 +289,7 @@ export function parseDraftStore(raw: string, now = Date.now()): DraftMap {
             : {}),
           ...(pendingSchedule ? { pendingSchedule } : {}),
           ...(pendingShare ? { pendingShare } : {}),
+          ...(snippetContent ? { snippetContent } : {}),
         };
       }
     }
@@ -304,6 +318,7 @@ export function setDraftInStore(
   }
   const pendingSchedule = sanitizePendingSchedule(pending?.schedule);
   const pendingShare = sanitizePendingShare(pending?.share);
+  const snippetContent = sanitizeSnippetContent(pending?.snippetContent);
   next[scope] = {
     text: text.length > MAX_DRAFT_CHARS ? text.slice(0, MAX_DRAFT_CHARS) : text,
     updatedAt: now,
@@ -311,6 +326,7 @@ export function setDraftInStore(
     ...(pending?.queue !== undefined ? { pendingQueue: pending.queue } : {}),
     ...(pendingSchedule ? { pendingSchedule } : {}),
     ...(pendingShare ? { pendingShare } : {}),
+    ...(snippetContent ? { snippetContent } : {}),
   };
   return pruneDraftStore(next, now);
 }

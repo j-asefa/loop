@@ -1862,80 +1862,105 @@ function LoopShell() {
       )}
 
       {/* Spotlight Stage Floating Carousel */}
-      {openConversationId && openCarouselCards.length > 0 && (
-        <SpotlightCarousel
-          key={openConversationId}
-          cards={openCarouselCards}
-          queuedRuns={openCarouselQueuedRuns}
-          activeRun={openCarouselActiveRun}
-          canPause={openCarouselCanPause}
-          liveStream={openCarouselLiveStream}
-          client={client}
-          snippets={sortedSnippets}
-          onUseSnippet={(snip, opts) => {
-            if (opts?.persistPending) {
-              if (session?.origin) {
-                const next = recordSnippetUse(
-                  session.origin,
-                  snip.content,
-                  snip.use_count,
+      {openConversationId &&
+        openCarouselCards.length > 0 &&
+        (() => {
+          const renderWorkspaceGen = workspaceGenRef.current;
+          const renderSessionOrigin = session?.origin ?? null;
+          return (
+            <SpotlightCarousel
+              key={openConversationId}
+              cards={openCarouselCards}
+              queuedRuns={openCarouselQueuedRuns}
+              activeRun={openCarouselActiveRun}
+              canPause={openCarouselCanPause}
+              liveStream={openCarouselLiveStream}
+              client={client}
+              snippets={sortedSnippets}
+              onUseSnippet={(snip, opts) => {
+                if (
+                  renderWorkspaceGen !== workspaceGenRef.current ||
+                  (activeSessionRef.current?.origin ?? null) !==
+                    renderSessionOrigin
+                ) {
+                  return;
+                }
+                if (opts?.persistPending) {
+                  if (renderSessionOrigin) {
+                    const next = recordSnippetUse(
+                      renderSessionOrigin,
+                      snip.content,
+                      snip.use_count,
+                      Date.now(),
+                      opts.persistPending,
+                    );
+                    setSnippetUsage(next);
+                  } else {
+                    const kind = opts.persistPending;
+                    setSnippetUsage((prev) =>
+                      recordSnippetUseInStore(
+                        prev,
+                        snip.content,
+                        snip.use_count,
+                        Date.now(),
+                        kind,
+                      ),
+                    );
+                  }
+                  return;
+                }
+                const usedKey = snippetUsageKey(snip.content);
+                const usedAt = Date.now();
+                setSnippets((prev) =>
+                  prev.map((item) =>
+                    snippetUsageKey(item.content) === usedKey
+                      ? {
+                          ...item,
+                          use_count: (item.use_count ?? 0) + 1,
+                          last_used_at: Math.max(
+                            item.last_used_at ?? 0,
+                            usedAt,
+                          ),
+                        }
+                      : item,
+                  ),
                 );
-                setSnippetUsage(next);
-              } else {
-                setSnippetUsage((prev) =>
-                  recordSnippetUseInStore(prev, snip.content, snip.use_count),
-                );
-              }
-              return;
-            }
-            const usedKey = snippetUsageKey(snip.content);
-            const usedAt = Date.now();
-            setSnippets((prev) =>
-              prev.map((item) =>
-                snippetUsageKey(item.content) === usedKey
-                  ? {
-                      ...item,
-                      use_count: (item.use_count ?? 0) + 1,
-                      last_used_at: Math.max(item.last_used_at ?? 0, usedAt),
-                    }
-                  : item,
-              ),
-            );
-          }}
-          theme={theme}
-          onCancelQueuedRun={handleCancelQueuedRun}
-          onReorderQueuedRun={handleReorderQueuedRun}
-          onControlRun={handleControlRun}
-          onClose={() => {
-            setOpenConversationId(null);
-            setCarouselOverrideCards(null);
-          }}
-          onOpenAgent={(agentId, agentName) => {
-            setOpenConversationId(null);
-            setCarouselOverrideCards(null);
-            openAgentByName(agentId, agentName);
-          }}
-          onOpenThread={(card) => {
-            setOpenConversationId(null);
-            setCarouselOverrideCards(null);
-            setThreadOverlay({
-              conversationId: card.conversationId,
-              title: card.fallbackTitle,
-              agentName: card.agentName,
-              agentId: card.agentId,
-            });
-          }}
-          onOpenFile={handleOpenFile}
-          onOpenFileTarget={handleOpenFileTarget}
-          onMarkRead={handleMarkRead}
-          onToggleSaved={handleToggleSaved}
-          onRemind={(card) => setRemindCard(card)}
-          onDismissCard={handleDismissCard}
-          onNotify={showToast}
-          onSendReply={handleCarouselReply}
-          onScheduleReply={handleCarouselSchedule}
-        />
-      )}
+              }}
+              theme={theme}
+              onCancelQueuedRun={handleCancelQueuedRun}
+              onReorderQueuedRun={handleReorderQueuedRun}
+              onControlRun={handleControlRun}
+              onClose={() => {
+                setOpenConversationId(null);
+                setCarouselOverrideCards(null);
+              }}
+              onOpenAgent={(agentId, agentName) => {
+                setOpenConversationId(null);
+                setCarouselOverrideCards(null);
+                openAgentByName(agentId, agentName);
+              }}
+              onOpenThread={(card) => {
+                setOpenConversationId(null);
+                setCarouselOverrideCards(null);
+                setThreadOverlay({
+                  conversationId: card.conversationId,
+                  title: card.fallbackTitle,
+                  agentName: card.agentName,
+                  agentId: card.agentId,
+                });
+              }}
+              onOpenFile={handleOpenFile}
+              onOpenFileTarget={handleOpenFileTarget}
+              onMarkRead={handleMarkRead}
+              onToggleSaved={handleToggleSaved}
+              onRemind={(card) => setRemindCard(card)}
+              onDismissCard={handleDismissCard}
+              onNotify={showToast}
+              onSendReply={handleCarouselReply}
+              onScheduleReply={handleCarouselSchedule}
+            />
+          );
+        })()}
 
       {/* Full Chronological Thread Sheet */}
       {threadOverlay && (

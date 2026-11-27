@@ -85,6 +85,7 @@ import {
   loadDraftEntry,
   saveDraft,
   saveDraftAndFlush,
+  type DraftPendingMeta,
 } from "../drafts";
 import { haptics } from "../haptics";
 import { runModelLabel } from "../models";
@@ -101,7 +102,9 @@ import { VoiceRecorderButton } from "./VoiceRecorder";
 import {
   computeKeyboardInset,
   computeQuickSheetLayout,
+  resolveSentSnippetAttribution,
   snippetUsageKey,
+  type SnippetUseKind,
 } from "../snippet-usage-codec";
 
 const CARD_GAP = 10;
@@ -118,7 +121,7 @@ type SpotlightCarouselProps = {
   snippets?: ApiSnippet[];
   onUseSnippet?: (
     snippet: ApiSnippet,
-    opts?: { persistPending?: boolean },
+    opts?: { persistPending?: SnippetUseKind },
   ) => void;
   theme: LoopTheme;
   onClose: () => void;
@@ -480,8 +483,16 @@ export function SpotlightCarousel({
     if (!draftScope) return;
     let cancelled = false;
     draftTouchedRef.current = false;
+    activeSnippetRef.current = null;
     void loadDraftEntry(client?.origin, draftScope).then((entry) => {
       if (cancelled || !entry?.text) return;
+      const restoredSnippet =
+        entry.snippetContent &&
+        snippetUsageKey(entry.text).includes(
+          snippetUsageKey(entry.snippetContent),
+        )
+          ? ({ id: "", title: "", content: entry.snippetContent } as ApiSnippet)
+          : null;
       if (entry.pendingSchedule) {
         const restored = {
           idempotencyKey: entry.pendingSchedule.key,
@@ -493,6 +504,7 @@ export function SpotlightCarousel({
           locked: true,
         };
         restoredPendingScheduleRef.current = restored;
+        activeSnippetRef.current = restoredSnippet;
         setPendingSchedule(restored);
         setDraft(entry.text);
         return;
@@ -507,6 +519,7 @@ export function SpotlightCarousel({
             setDeliveryMode(entry.pendingQueue ? "queue" : "steer");
           }
         }
+        activeSnippetRef.current = restoredSnippet;
         setDraft(entry.text);
       }
     });
@@ -923,6 +936,20 @@ export function SpotlightCarousel({
     setTimeout(() => replyInputRef.current?.focus(), 60);
   }, []);
 
+  const draftSnippetMeta = useCallback(
+    (text: string): DraftPendingMeta | undefined => {
+      const picked = activeSnippetRef.current;
+      if (!picked) return undefined;
+      const pickedKey = snippetUsageKey(picked.content);
+      if (!pickedKey || !snippetUsageKey(text).includes(pickedKey)) {
+        activeSnippetRef.current = null;
+        return undefined;
+      }
+      return { snippetContent: picked.content };
+    },
+    [],
+  );
+
   const prefillReply = useCallback(
     (prompt: string) => {
       if (scheduleLocked) return;
@@ -930,11 +957,13 @@ export function SpotlightCarousel({
       pendingReplyRef.current = null;
       setReplyError("");
       setDraft(prompt);
-      if (draftScope) saveDraft(client?.origin, draftScope, prompt);
+      if (draftScope) {
+        saveDraft(client?.origin, draftScope, prompt, draftSnippetMeta(prompt));
+      }
       setQuickReplyOpen(false);
       setTimeout(() => replyInputRef.current?.focus(), 60);
     },
-    [client?.origin, draftScope, scheduleLocked],
+    [client?.origin, draftScope, draftSnippetMeta, scheduleLocked],
   );
 
   const handleSlideToggleSaved = useCallback(
@@ -999,20 +1028,20 @@ export function SpotlightCarousel({
       await Promise.resolve(
         onSendReply(targetCard, finalPrompt, readyIds, idempotencyKey, queue),
       );
-      const trimmedFinal = snippetUsageKey(finalPrompt);
-      const picked = activeSnippetRef.current;
-      const pickedMatches =
-        picked && trimmedFinal.includes(snippetUsageKey(picked.content))
-          ? picked
-          : null;
-      const sentSnippet =
-        pickedMatches ??
-        snippets.find((s) => snippetUsageKey(s.content) === trimmedFinal) ??
-        null;
+      const attributed = resolveSentSnippetAttribution(
+        finalPrompt,
+        activeSnippetRef.current?.content,
+        snippets,
+        activeSnippetRef.current,
+      );
       activeSnippetRef.current = null;
-      if (sentSnippet) {
-        const edited = trimmedFinal !== snippetUsageKey(sentSnippet.content);
-        onUseSnippet?.(sentSnippet, { persistPending: edited });
+      if (attributed) {
+        onUseSnippet?.(
+          attributed.snippet,
+          attributed.persistPending === "bonus"
+            ? { persistPending: "bonus" }
+            : undefined,
+        );
       }
       pendingReplyRef.current = null;
       setRetryModeLocked(false);
@@ -1030,6 +1059,7 @@ export function SpotlightCarousel({
           saveDraft(client?.origin, draftScope, draft, {
             key: idempotencyKey,
             queue,
+            ...draftSnippetMeta(draft),
           });
         }
       }
@@ -1055,6 +1085,7 @@ export function SpotlightCarousel({
     canSteerActiveRun,
     deliveryMode,
     draftScope,
+    draftSnippetMeta,
   ]);
 
   const submitScheduledReply = useCallback(
@@ -1097,6 +1128,7 @@ export function SpotlightCarousel({
             draftScope,
             trimmed || finalPrompt,
             {
+              ...draftSnippetMeta(trimmed || finalPrompt),
               schedule: {
                 key: nextPending.idempotencyKey,
                 sendAt: nextPending.sendAt,
@@ -1131,19 +1163,17 @@ export function SpotlightCarousel({
           nextPending.idempotencyKey,
           nextPending.sendAt,
         );
-        const scheduledText = snippetUsageKey(nextPending.input);
-        const picked = activeSnippetRef.current;
-        const pickedMatches =
-          picked && scheduledText.includes(snippetUsageKey(picked.content))
-            ? picked
-            : null;
-        const scheduledSnippet =
-          pickedMatches ??
-          snippets.find((s) => snippetUsageKey(s.content) === scheduledText) ??
-          null;
+        const attributed = resolveSentSnippetAttribution(
+          nextPending.input,
+          activeSnippetRef.current?.content,
+          snippets,
+          activeSnippetRef.current,
+        );
         activeSnippetRef.current = null;
-        if (scheduledSnippet) {
-          onUseSnippet?.(scheduledSnippet, { persistPending: true });
+        if (attributed) {
+          onUseSnippet?.(attributed.snippet, {
+            persistPending: attributed.persistPending,
+          });
         }
         setPendingSchedule(null);
         setScheduleOpen(false);
@@ -1175,8 +1205,16 @@ export function SpotlightCarousel({
         } else {
           setPendingSchedule(null);
           if (draftScope) {
-            if (draft.trim()) saveDraft(client?.origin, draftScope, draft);
-            else clearDraft(client?.origin, draftScope);
+            if (draft.trim()) {
+              saveDraft(
+                client?.origin,
+                draftScope,
+                draft,
+                draftSnippetMeta(draft),
+              );
+            } else {
+              clearDraft(client?.origin, draftScope);
+            }
           }
         }
         haptics.warning();
@@ -1194,11 +1232,14 @@ export function SpotlightCarousel({
       client?.origin,
       draft,
       draftScope,
+      draftSnippetMeta,
       onScheduleReply,
+      onUseSnippet,
       pendingSchedule,
       replyAttachments,
       scheduleBusy,
       sending,
+      snippets,
     ],
   );
 
@@ -2109,7 +2150,14 @@ export function SpotlightCarousel({
                   pendingReplyRef.current = null;
                   if (replyError) setReplyError("");
                   setDraft(next);
-                  if (draftScope) saveDraft(client?.origin, draftScope, next);
+                  if (draftScope) {
+                    saveDraft(
+                      client?.origin,
+                      draftScope,
+                      next,
+                      draftSnippetMeta(next),
+                    );
+                  }
                 }}
                 placeholder={`Reply to @${agentName}…`}
                 placeholderTextColor={theme.muted}
@@ -2238,8 +2286,16 @@ export function SpotlightCarousel({
           setScheduleError("");
           setScheduleOpen(false);
           if (draftScope) {
-            if (draft.trim()) saveDraft(client?.origin, draftScope, draft);
-            else clearDraft(client?.origin, draftScope);
+            if (draft.trim()) {
+              saveDraft(
+                client?.origin,
+                draftScope,
+                draft,
+                draftSnippetMeta(draft),
+              );
+            } else {
+              clearDraft(client?.origin, draftScope);
+            }
           }
         }}
       />

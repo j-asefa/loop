@@ -135,6 +135,7 @@ import {
   PENDING_SNIPPET_TAP_TTL_MS,
   reconcileSnippetUsageWithServer,
   recordSnippetUseInStore,
+  resolveSentSnippetAttribution,
   serializeSnippetUsageStore,
   snippetUsageKey,
   sortSnippetsByUsage,
@@ -4138,5 +4139,103 @@ describe("mobile snippet usage sorting and quick-reply keyboard layout", () => {
     const loaded = await loadPromise;
     expect(loaded["Synced snippet"]).toBeUndefined();
     expect(files.has(bucket)).toBe(false);
+  });
+
+  it("preserves edited-snippet localBonus across unrelated server exact sends and draft reloads", () => {
+    const now = 10_000;
+    // Edited send is recorded as a 'bonus' use on top of server count 0.
+    let map = recordSnippetUseInStore(
+      createEmptySnippetUsageMap(),
+      "Review this PR",
+      0,
+      now,
+      "bonus",
+    );
+    expect(map["Review this PR"]).toEqual({
+      pending: 0,
+      localBonus: 1,
+      baseServerCount: 0,
+      lastUsedAt: now,
+    });
+
+    // Another device sends "Review this PR" verbatim so server use_count rises to 1:
+    // the local edited-send bonus must survive reconciliation and total 2 (1 + 1).
+    const reconciled = reconcileSnippetUsageWithServer(
+      map,
+      [{ content: "Review this PR", use_count: 1 }],
+      now + 500,
+    );
+    expect(reconciled.changed).toBe(true);
+    expect(reconciled.map["Review this PR"]).toEqual({
+      pending: 0,
+      localBonus: 1,
+      baseServerCount: 1,
+      lastUsedAt: now,
+    });
+
+    const sorted = sortSnippetsByUsage(
+      [
+        {
+          id: "other",
+          title: "Other",
+          content: "Other prompt",
+          use_count: 1,
+          last_used_at: now + 900,
+        },
+        {
+          id: "review",
+          title: "Review",
+          content: "Review this PR",
+          use_count: 1,
+          last_used_at: now + 100,
+        },
+      ],
+      reconciled.map,
+      now + 1000,
+    );
+    expect(sorted.map((s) => s.id)).toEqual(["review", "other"]);
+
+    // Round-tripping through JSON preserves localBonus and draft snippet attribution.
+    const reparsed = parseSnippetUsageStore(
+      serializeSnippetUsageStore(reconciled.map, now + 1000),
+      now + 1000,
+    );
+    expect(reparsed["Review this PR"]?.localBonus).toBe(1);
+
+    const draftMap = setDraftInStore(
+      createEmptyDraftMap(),
+      draftScopeForCarousel("conv-1"),
+      "Review this PR\nFocus on auth",
+      now,
+      { snippetContent: "Review this PR" },
+    );
+    const reloadedDraft = parseDraftStore(
+      serializeDraftStore(draftMap, now),
+      now,
+    );
+    const restoredEntry = readDraftEntryFromStore(
+      reloadedDraft,
+      draftScopeForCarousel("conv-1"),
+      now,
+    );
+    expect(restoredEntry?.snippetContent).toBe("Review this PR");
+    const attributed = resolveSentSnippetAttribution(
+      restoredEntry!.text,
+      restoredEntry!.snippetContent,
+      [{ id: "review", content: "Review this PR", use_count: 1 }],
+    );
+    expect(attributed).toEqual({
+      snippet: { id: "review", content: "Review this PR", use_count: 1 },
+      persistPending: "bonus",
+    });
+
+    // Clearing the snippet text before sending drops attribution.
+    expect(
+      resolveSentSnippetAttribution(
+        "Unrelated message",
+        restoredEntry!.snippetContent,
+        [{ id: "review", content: "Review this PR", use_count: 1 }],
+      ),
+    ).toBeNull();
   });
 });

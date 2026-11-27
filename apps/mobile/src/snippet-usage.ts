@@ -12,6 +12,7 @@ export {
   sortSnippetsByUsage,
   type SnippetUsageEntry,
   type SnippetUsageMap,
+  type SnippetUseKind,
 } from "./snippet-usage-codec";
 
 function usageFileForBucket(bucket: string): ExpoFile {
