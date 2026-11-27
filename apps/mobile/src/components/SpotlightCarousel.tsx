@@ -679,8 +679,6 @@ export function SpotlightCarousel({
       (historyLoaded && holdHistoryUpdates)
     )
       return;
-    appliedHistoryRef.current = page;
-    setHistoryLoaded(true);
     const {
       promptMap,
       bodyMap,
@@ -689,6 +687,17 @@ export function SpotlightCarousel({
     } = parseConversationPageToSlides(page, baseCardRef.current);
     const keepOlder =
       loadingOlderRef.current || hasLoadedOlderHistoryRef.current;
+    const incoming = { cards: extra, next: page.next ?? null };
+    const mode = keepOlder ? "refresh" : "replace";
+    const protectedKey =
+      holdSelection && activeCard ? carouselCardKey(activeCard) : undefined;
+    if (
+      mergeCarouselHistoryPage(history, incoming, mode, protectedKey) ===
+      history
+    )
+      return;
+    appliedHistoryRef.current = page;
+    setHistoryLoaded(true);
     setHistoryPrompts((prev) =>
       keepOlder ? new Map([...prev, ...promptMap]) : promptMap,
     );
@@ -697,13 +706,17 @@ export function SpotlightCarousel({
     );
     setFullBodies((prev) => new Map([...prev, ...bodyMap]));
     setHistory((prev) =>
-      mergeCarouselHistoryPage(
-        prev,
-        { cards: extra, next: page.next ?? null },
-        keepOlder ? "refresh" : "replace",
-      ),
+      mergeCarouselHistoryPage(prev, incoming, mode, protectedKey),
     );
-  }, [waitingForDraft, fetchedHistory, historyLoaded, holdHistoryUpdates]);
+  }, [
+    waitingForDraft,
+    fetchedHistory,
+    historyLoaded,
+    holdHistoryUpdates,
+    holdSelection,
+    activeCard,
+    history,
+  ]);
 
   // Authoritative server capability: only show Steer/Queue toggle when the server reports
   // `steerable_run_id` matching the active run (harnesses with `midTurn: "steer"` / active live input).

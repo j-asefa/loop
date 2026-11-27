@@ -1,4 +1,5 @@
 import { File as ExpoFile, Paths } from "expo-file-system";
+import { Alert } from "react-native";
 import {
   UnreadableDraftStore,
   createEmptyDraftMap,
@@ -42,6 +43,7 @@ type PendingOps = {
 const memoryBuckets = new Map<string, DraftMap>();
 const loadedBuckets = new Set<string>();
 const pendingLoads = new Map<string, Promise<DraftMap>>();
+const resetPrompts = new Map<string, Promise<boolean>>();
 const pendingOpsByBucket = new Map<string, PendingOps>();
 const flushTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const bucketEpoch = new Map<string, number>();
@@ -122,7 +124,10 @@ function scheduleBucketFlush(bucket: string): void {
   flushTimers.set(bucket, timer);
 }
 
-async function ensureBucketLoaded(bucket: string): Promise<DraftMap> {
+async function ensureBucketLoaded(
+  bucket: string,
+  resetUnreadable = false,
+): Promise<DraftMap> {
   if (loadedBuckets.has(bucket)) {
     return memoryBuckets.get(bucket) ?? createEmptyDraftMap();
   }
@@ -133,6 +138,8 @@ async function ensureBucketLoaded(bucket: string): Promise<DraftMap> {
   const loadPromise = (async () => {
     let loaded = createEmptyDraftMap();
     let recovered = false;
+    let foundReadable = false;
+    const unreadable: ExpoFile[] = [];
     const candidates = [
       draftFileForBucket(bucket),
       previousDraftFileForBucket(bucket),
@@ -146,23 +153,30 @@ async function ensureBucketLoaded(bucket: string): Promise<DraftMap> {
       if ((bucketEpoch.get(bucket) ?? 0) !== epochAtStart) break;
       try {
         loaded = parseDraftStore(raw);
-        recovered ||= index > 0;
+        foundReadable = true;
+        recovered = index > 0;
         break;
       } catch (error) {
         if (!(error instanceof UnreadableDraftStore)) throw error;
-        const suffix = `${Date.now()}-${index}-${Math.random().toString(36).slice(2)}`;
+        unreadable.push(file);
+      }
+    }
+    // If `clearWorkspaceDrafts` bumped the epoch while reading disk, discard the stale read.
+    if ((bucketEpoch.get(bucket) ?? 0) !== epochAtStart) {
+      return memoryBuckets.get(bucket) ?? createEmptyDraftMap();
+    }
+    if (unreadable.length > 0) {
+      if (!foundReadable && !resetUnreadable) throw new UnreadableDraftStore();
+      for (const file of unreadable) {
+        const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
         file.moveSync(
           new ExpoFile(
             Paths.document,
             `loop-drafts-${bucket}.unreadable-${suffix}.json`,
           ),
         );
-        recovered = true;
       }
-    }
-    // If `clearWorkspaceDrafts` bumped the epoch while reading disk, discard the stale read.
-    if ((bucketEpoch.get(bucket) ?? 0) !== epochAtStart) {
-      return memoryBuckets.get(bucket) ?? createEmptyDraftMap();
+      recovered = true;
     }
     // Replay any saves/deletes queued while the initial disk read was in flight so we
     // never overwrite unrelated scopes on disk or resurrect a just-sent draft.
@@ -221,13 +235,47 @@ async function ensureBucketLoaded(bucket: string): Promise<DraftMap> {
   return loadPromise;
 }
 
+function confirmDraftStoreReset(bucket: string): Promise<boolean> {
+  const pending = resetPrompts.get(bucket);
+  if (pending) return pending;
+  const confirmation = new Promise<boolean>((resolve) => {
+    Alert.alert(
+      "Saved drafts are unreadable",
+      "Loop can keep a copy of the damaged files and start a fresh draft store. Check your conversation first if an earlier send may have gone through.",
+      [
+        { text: "Keep drafts", style: "cancel", onPress: () => resolve(false) },
+        {
+          text: "Start fresh",
+          style: "destructive",
+          onPress: () => resolve(true),
+        },
+      ],
+      { cancelable: true, onDismiss: () => resolve(false) },
+    );
+  }).finally(() => resetPrompts.delete(bucket));
+  resetPrompts.set(bucket, confirmation);
+  return confirmation;
+}
+
 export async function loadDraftEntry(
   origin: string | null | undefined,
   scope: string,
 ): Promise<DraftEntry | null> {
   const bucket = draftWorkspaceBucket(origin);
-  const map = await ensureBucketLoaded(bucket);
-  return readDraftEntryFromStore(map, scope);
+  const epoch = bucketEpoch.get(bucket);
+  try {
+    const map = await ensureBucketLoaded(bucket);
+    return readDraftEntryFromStore(map, scope);
+  } catch (error) {
+    if (
+      !(error instanceof UnreadableDraftStore) ||
+      !(await confirmDraftStoreReset(bucket)) ||
+      bucketEpoch.get(bucket) !== epoch
+    )
+      throw error;
+    const recovered = await ensureBucketLoaded(bucket, true);
+    return readDraftEntryFromStore(recovered, scope);
+  }
 }
 
 export async function loadDraft(

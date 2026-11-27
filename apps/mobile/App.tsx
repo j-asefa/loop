@@ -334,6 +334,7 @@ function LoopShell() {
 
   const activeSessionRef = useRef<PairedSession | null>(null);
   const pairingInProgressRef = useRef(false);
+  const rememberedRecoveryClientRef = useRef<LoopClient | null>(null);
   const deferredUnauthorizedRef = useRef<PairedSession | null>(null);
   activeSessionRef.current = session;
 
@@ -346,6 +347,7 @@ function LoopShell() {
         return;
       }
       activeSessionRef.current = null;
+      rememberedRecoveryClientRef.current = null;
       // Invalidate any in-flight workspace loads BEFORE deleting local files so a
       // sibling fetchAll cannot recreate cache or fire notifications after expiry.
       workspaceGenRef.current = loadCoordRef.current.reset();
@@ -385,12 +387,22 @@ function LoopShell() {
         setRefreshing,
         refreshSession: async () => {
           const refreshed = await client.refreshSession();
-          if (gen === workspaceGenRef.current) {
-            await rememberRecoveryScope(
-              client.origin,
-              refreshed.workspaceIdentity,
-              client.localDataScope,
-            ).catch(() => {});
+          if (
+            gen === workspaceGenRef.current &&
+            refreshed.workspaceIdentity &&
+            rememberedRecoveryClientRef.current !== client
+          ) {
+            try {
+              await rememberRecoveryScope(
+                client.origin,
+                refreshed.workspaceIdentity,
+                client.localDataScope,
+              );
+              if (gen === workspaceGenRef.current)
+                rememberedRecoveryClientRef.current = client;
+            } catch {
+              // A later refresh can retry the local alias without blocking the workspace load.
+            }
           }
         },
         fetchAll: async () => {
@@ -1418,6 +1430,7 @@ function LoopShell() {
     )
       return;
     activeSessionRef.current = null;
+    rememberedRecoveryClientRef.current = null;
     workspaceGenRef.current = loadCoordRef.current.reset();
     const scope = localDataScope(session);
     clearWorkspaceDrafts(scope);

@@ -308,8 +308,13 @@ export function mergeCarouselHistoryPage(
   current: CarouselHistoryPage,
   incoming: CarouselHistoryPage,
   mode: "replace" | "refresh" | { before: string },
+  protectedKey?: string,
 ): CarouselHistoryPage {
-  if (mode === "replace") return incoming;
+  const wouldRemoveProtectedCard =
+    protectedKey !== undefined &&
+    current.cards.some((card) => carouselCardKey(card) === protectedKey) &&
+    !incoming.cards.some((card) => carouselCardKey(card) === protectedKey);
+  if (mode === "replace") return wouldRemoveProtectedCard ? current : incoming;
   if (typeof mode === "object" && mode.before !== current.next) return current;
   const [first, rest] =
     mode === "refresh"
@@ -319,7 +324,9 @@ export function mergeCarouselHistoryPage(
   const distinct = rest.filter((card) => !seen.has(carouselCardKey(card)));
   // With no overlap there is no proof that the old cursor covers the
   // gap. Restart from the incoming cursor so every intervening card is reachable.
-  if (mode === "refresh" && distinct.length === rest.length) return incoming;
+  if (mode === "refresh" && distinct.length === rest.length) {
+    return wouldRemoveProtectedCard ? current : incoming;
+  }
   return {
     cards: [...first, ...distinct],
     next: mode === "refresh" ? current.next : incoming.next,

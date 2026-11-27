@@ -892,6 +892,9 @@ it("pages the carousel by three answer cards with the matching prompts", async (
   expect(resumed.data.messages.at(-1).id).toBe(answers[1]);
   const anchored = await request(`${path}?view=carousel&message=${answers[3]}`);
   expect(anchored.data.messages.at(-1).id).toBe(answers[3]);
+  expect(
+    (await request(`${path}?view=carousel&message=${prompts[3]}`)).status,
+  ).toBe(404);
 
   const foreign = fixture("another-owner");
   expect(

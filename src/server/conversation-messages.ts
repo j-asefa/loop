@@ -64,6 +64,13 @@ export function conversationMessages(
         ...cursor,
         TRANSCRIPT_PAGE_ITEMS + 1,
       );
+  if (
+    carousel &&
+    anchor &&
+    !items.some((item) => item.id === anchor && item.role === "assistant")
+  ) {
+    throw new Problem(404, "Answer card not found");
+  }
   const hasMore = carousel
     ? carousel[0]?.has_more === 1
     : items.length > TRANSCRIPT_PAGE_ITEMS;
