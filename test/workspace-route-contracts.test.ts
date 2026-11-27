@@ -820,20 +820,27 @@ it("pages the carousel by three answer cards with the matching prompts", async (
     role: "user" | "assistant",
     content: string,
     order: number,
+    metadata = "{}",
   ) => {
+    const messageId = id();
     seedMessage(db, {
-      id: id(),
+      id: messageId,
       owner_id: owner,
       conversation_id: conversationId,
       role,
       content,
       created_at: order,
+      metadata,
     });
+    return messageId;
   };
+  const answers: string[] = [];
+  const prompts: string[] = [];
   for (let n = 1; n <= 7; n++) {
-    message("user", `Prompt ${n}`, n * 4);
+    prompts.push(message("user", `Prompt ${n}`, n * 4));
     message("assistant", "\n\t \u00a0\u202f", n * 4 + 1);
-    message("assistant", `Answer ${n}`, n * 4 + 2);
+    message("assistant", `Progress ${n}`, n * 4 + 2, '{"progress":true}');
+    answers.push(message("assistant", `Answer ${n}`, n * 4 + 3));
   }
   message("user", "Still waiting for an answer", 50);
   const path = `/conversations/${conversationId}`;
@@ -843,6 +850,9 @@ it("pages the carousel by three answer cards with the matching prompts", async (
   expect(
     ordinary.messages.filter(({ content }) => content.startsWith("Answer ")),
   ).toHaveLength(7);
+  expect(
+    ordinary.messages.some(({ content }) => content === "Progress 7"),
+  ).toBe(true);
   let before: string | null = null;
   for (const expected of [[5, 6, 7], [2, 3, 4], [1]]) {
     const query = new URLSearchParams({ view: "carousel" });
@@ -856,6 +866,33 @@ it("pages the carousel by three answer cards with the matching prompts", async (
     before = page.next;
     expect(Boolean(before)).toBe(expected.length === 3);
   }
+  expect(
+    (
+      await request(
+        `${path}/position`,
+        { positionMessageId: prompts[1] },
+        "PUT",
+      )
+    ).status,
+  ).toBe(200);
+  const unresumed = await request(`${path}?view=carousel&resume=1`);
+  expect(unresumed.data.resumed).toBe(false);
+  expect(unresumed.data.messages.at(-1).id).toBe(answers[6]);
+  expect(
+    (
+      await request(
+        `${path}/position`,
+        { positionMessageId: answers[1] },
+        "PUT",
+      )
+    ).status,
+  ).toBe(200);
+  const resumed = await request(`${path}?view=carousel&resume=1`);
+  expect(resumed.data.resumed).toBe(true);
+  expect(resumed.data.messages.at(-1).id).toBe(answers[1]);
+  const anchored = await request(`${path}?view=carousel&message=${answers[3]}`);
+  expect(anchored.data.messages.at(-1).id).toBe(answers[3]);
+
   const foreign = fixture("another-owner");
   expect(
     (

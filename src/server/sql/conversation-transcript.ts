@@ -3,6 +3,7 @@ import { z } from "zod";
 import { QueryRecords } from "../query-records.js";
 import { parseRecord } from "../row-schemas.js";
 import { statement } from "./statement.js";
+import { answerPredicate } from "../feed-answers.js";
 import { CAROUSEL_PAGE_CARDS } from "../../shared/done-stack.js";
 import { STARTED_RUN_DISPLAY_STATES } from "../../shared/run-state.js";
 // Order/eligibility is maintained transactionally by migrations 065/073. Materialize
@@ -20,9 +21,6 @@ export const transcriptPageSql = `WITH page AS MATERIALIZED (
   ORDER BY position DESC,phase DESC,ordinal DESC LIMIT ?
 ) ${projectPageSql}`;
 
-// Match ECMAScript trim() used by Expo to decide whether a message is a card.
-const hasCardBody =
-  "length(trim(m.content, char(9,10,11,12,13,32,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288,65279)))>0";
 // Read one extra assistant position for the cursor. Join full message bodies
 // only for the selected cards and the immediately preceding applicable prompts.
 const carouselPageStatement = statement(`WITH candidates AS MATERIALIZED (
@@ -30,7 +28,7 @@ const carouselPageStatement = statement(`WITH candidates AS MATERIALIZED (
   FROM conversation_transcript t
   JOIN messages m ON m.id=t.message_id AND m.owner_id=t.owner_id
   WHERE t.owner_id=? AND t.conversation_id=? AND (t.position,t.phase,t.ordinal)<(?,?,?)
-    AND m.role='assistant' AND ${hasCardBody}
+    AND ${answerPredicate("m")}
   ORDER BY t.position DESC,t.phase DESC,t.ordinal DESC LIMIT ${CAROUSEL_PAGE_CARDS + 1}
 ), cards AS (
   SELECT * FROM candidates ORDER BY position DESC,phase DESC,ordinal DESC LIMIT ${CAROUSEL_PAGE_CARDS}
@@ -43,7 +41,7 @@ const carouselPageStatement = statement(`WITH candidates AS MATERIALIZED (
     JOIN messages m ON m.id=t.message_id AND m.owner_id=t.owner_id
     WHERE t.owner_id=c.owner_id AND t.conversation_id=c.conversation_id
       AND (t.position,t.phase,t.ordinal)<(c.position,c.phase,c.ordinal)
-      AND (m.role='user' OR (m.role='assistant' AND ${hasCardBody}))
+      AND (m.role='user' OR (${answerPredicate("m")}))
     ORDER BY t.position DESC,t.phase DESC,t.ordinal DESC LIMIT 1
   )
   JOIN messages prompt ON prompt.id=p.message_id AND prompt.owner_id=p.owner_id AND prompt.role='user'

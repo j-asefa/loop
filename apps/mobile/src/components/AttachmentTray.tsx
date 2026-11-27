@@ -347,6 +347,22 @@ export function useAttachments(
     [client, opts?.agentId, opts?.folderId, updateAttachments],
   );
 
+  const restoreUploadedAttachments = useCallback(
+    (ids: string[]) => {
+      updateAttachments(() =>
+        ids.map((id, index) => ({
+          localId: `restored:${id}`,
+          name: `Attachment ${index + 1}`,
+          mime: "application/octet-stream",
+          isImage: false,
+          status: "ready",
+          uploadedId: id,
+        })),
+      );
+    },
+    [updateAttachments],
+  );
+
   const clearAttachments = useCallback(() => {
     for (const att of attachmentsRef.current) {
       if (att.deleteAfterUpload && att.status !== "ready") {
@@ -394,6 +410,7 @@ export function useAttachments(
     pickDocument,
     removeAttachment,
     retryAttachment,
+    restoreUploadedAttachments,
     clearAttachments,
   };
 }

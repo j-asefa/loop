@@ -142,6 +142,14 @@ export function ComposeSheet({
     locked: boolean;
   } | null>(null);
 
+  const sendKeyRef = useRef<string | null>(null);
+  const composeAttachments = useAttachments(client, {
+    agentId: agent?.id,
+    folderId,
+  });
+
+  const { restoreUploadedAttachments } = composeAttachments;
+
   useEffect(() => {
     let cancelled = false;
     draftTouchedRef.current = false;
@@ -152,6 +160,7 @@ export function ComposeSheet({
       if (!agentId && entry.pendingAgentCreate) {
         const pending = entry.pendingAgentCreate;
         setPendingCreate(pending);
+        restoreUploadedAttachments(pending.attachmentIds);
         setName(pending.name);
         setModelSelection({
           connectionId: pending.connectionId,
@@ -187,7 +196,13 @@ export function ComposeSheet({
     return () => {
       cancelled = true;
     };
-  }, [agentId, agent?.folder_id, client?.origin, draftScope]);
+  }, [
+    agentId,
+    agent?.folder_id,
+    client?.origin,
+    draftScope,
+    restoreUploadedAttachments,
+  ]);
 
   useEffect(() => {
     if (agent || !client) return;
@@ -204,12 +219,6 @@ export function ComposeSheet({
       cancelled = true;
     };
   }, [agent, client]);
-
-  const sendKeyRef = useRef<string | null>(null);
-  const composeAttachments = useAttachments(client, {
-    agentId: agent?.id,
-    folderId,
-  });
 
   const attSig = composeAttachments.readyIds.join(",");
   useEffect(() => {
@@ -420,10 +429,17 @@ export function ComposeSheet({
       }
       sendKeyRef.current = null;
       if (!agent && client) {
-        if (
-          !settlePendingAgentCreate(client.origin, draftScope, idempotencyKey)
-        )
-          return;
+        const settled = settlePendingAgentCreate(
+          client.origin,
+          draftScope,
+          idempotencyKey,
+        );
+        if (settled === "write-failed") {
+          setError(
+            "Agent started, but the recovery record could not be cleared. Retry to confirm the same request.",
+          );
+        }
+        if (settled !== "settled") return;
       } else {
         clearDraft(client?.origin, draftScope);
       }
@@ -440,16 +456,20 @@ export function ComposeSheet({
         sendKeyRef.current = null;
         setHasPendingSend(false);
         if (!agent) {
-          if (
-            client &&
-            !settlePendingAgentCreate(
+          if (client) {
+            const settled = settlePendingAgentCreate(
               client.origin,
               draftScope,
               idempotencyKey,
               text.trim() || finalText,
-            )
-          )
-            return;
+            );
+            if (settled === "write-failed") {
+              setError(
+                "Could not update the recovery record. Retry to check the same request.",
+              );
+            }
+            if (settled !== "settled") return;
+          }
           setPendingCreate(null);
         }
       }

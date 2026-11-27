@@ -287,20 +287,24 @@ export function settlePendingAgentCreate(
   scope: string,
   idempotencyKey: string,
   text?: string,
-): boolean {
+): "settled" | "stale" | "write-failed" {
   const bucket = draftWorkspaceBucket(origin);
   const current = memoryBuckets.get(bucket);
-  if (!current) return false;
+  if (!current) return "stale";
   const next = settlePendingAgentCreateInStore(
     current,
     scope,
     idempotencyKey,
     text,
   );
-  if (next === current) return false;
+  if (next === current) return "stale";
+  try {
+    writeBucketFile(bucket, next);
+  } catch {
+    return "write-failed";
+  }
   memoryBuckets.set(bucket, next);
-  flushBucketNow(bucket);
-  return true;
+  return "settled";
 }
 
 export function clearDraft(

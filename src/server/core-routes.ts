@@ -755,14 +755,22 @@ routes.on(
       // Only an initial open opts into the saved position. Subsequent refreshes
       // still read the latest page; explicit anchors/cursors retain precedence.
       try {
-        page = conversationMessages(
+        const candidate = conversationMessages(
           res.locals.owner,
           req.params.id,
           undefined,
           returned.position_message_id,
           req.query.view,
         );
-        resumed = true;
+        if (
+          req.query.view !== "carousel" ||
+          candidate.messages.some(
+            (message) => message.id === returned.position_message_id,
+          )
+        ) {
+          page = candidate;
+          resumed = true;
+        }
       } catch (error) {
         // Saved positions can outlive deleted messages. Explicit anchors still
         // report 404, but a stale automatic resume keeps the latest page.

@@ -283,6 +283,7 @@ export function SpotlightCarousel({
   const { cards: historySlides, next: historyNextCursor } = history;
   const [loadingMoreHistory, setLoadingMoreHistory] = useState(false);
   const [historyUnavailable, setHistoryUnavailable] = useState(false);
+  const [historyLoaded, setHistoryLoaded] = useState(Boolean(initialHistory));
   const [historyRetry, setHistoryRetry] = useState(0);
   const hasLoadedOlderHistoryRef = useRef(false);
   const loadingOlderRef = useRef(false);
@@ -310,6 +311,7 @@ export function SpotlightCarousel({
       .then((page) => {
         if (cancelled) return;
         setHistoryUnavailable(false);
+        setHistoryLoaded(true);
         const {
           promptMap,
           bodyMap,
@@ -437,7 +439,7 @@ export function SpotlightCarousel({
         ordered.push(feedCard ? hydrate(feedCard) : hist);
       }
     }
-    if (historyUnavailable) {
+    if (historyUnavailable || (historyLoaded && !historyNextCursor)) {
       const listed = new Set(ordered.map((card) => card.id));
       for (const card of cards) {
         if (
@@ -453,6 +455,8 @@ export function SpotlightCarousel({
     pinnedIds,
     cards,
     historyUnavailable,
+    historyLoaded,
+    historyNextCursor,
     cardsById,
     cardsByMessageId,
     recentCards,
