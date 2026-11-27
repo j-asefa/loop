@@ -80,13 +80,15 @@ export function isSafeHttpUrl(raw: string): boolean {
 export function isSafeLocalShareFileUri(raw: string): boolean {
   const trimmed = raw.trim();
   if (!trimmed) return false;
-  let decoded: string;
-  try {
-    decoded = decodeURIComponent(trimmed);
-  } catch {
-    return false;
+  const candidates = [trimmed];
+  if (!trimmed.startsWith("/")) {
+    try {
+      candidates.push(decodeURIComponent(trimmed));
+    } catch {
+      return false;
+    }
   }
-  for (const candidate of [trimmed, decoded]) {
+  for (const candidate of candidates) {
     if (/(?:^|[\\/])\.\.(?:[\\/]|$)/.test(candidate)) return false;
     if (/loop-(?:cache|drafts|notif-prefs|snippet-usage)-/i.test(candidate))
       return false;

@@ -275,6 +275,10 @@ export function createSnippetUsageStore(storage: SnippetUsageStorage) {
   const loadedBuckets = new Set<string>();
   const pendingLoads = new Map<string, Promise<SnippetUsageMap>>();
   const pendingOpsByBucket = new Map<string, PendingUseOp[]>();
+  const latestServerItems = new Map<
+    string,
+    ReadonlyArray<{ content: string; use_count?: number }>
+  >();
   const bucketEpoch = new Map<string, number>();
 
   function writeBucketFile(
@@ -330,6 +334,17 @@ export function createSnippetUsageStore(storage: SnippetUsageStorage) {
         }
         dirty = true;
       }
+      const serverSnapshot = latestServerItems.get(bucket);
+      if (serverSnapshot) {
+        const reconciled = reconcileSnippetUsageWithServer(
+          merged,
+          serverSnapshot,
+        );
+        if (reconciled.changed) {
+          merged = reconciled.map;
+          dirty = true;
+        }
+      }
       memoryBuckets.set(bucket, merged);
       loadedBuckets.add(bucket);
       if (dirty) {
@@ -381,6 +396,7 @@ export function createSnippetUsageStore(storage: SnippetUsageStorage) {
   ): SnippetUsageMap {
     if (!origin) return createEmptySnippetUsageMap();
     const bucket = draftWorkspaceBucket(origin);
+    latestServerItems.set(bucket, items);
     const current = memoryBuckets.get(bucket) ?? createEmptySnippetUsageMap();
     const { map: next, changed } = reconcileSnippetUsageWithServer(
       current,
@@ -403,6 +419,7 @@ export function createSnippetUsageStore(storage: SnippetUsageStorage) {
     loadedBuckets.delete(bucket);
     pendingLoads.delete(bucket);
     pendingOpsByBucket.delete(bucket);
+    latestServerItems.delete(bucket);
     try {
       storage.deleteFile(bucket);
     } catch {

@@ -8,6 +8,7 @@ export {
   PENDING_SNIPPET_TAP_TTL_MS,
   reconcileSnippetUsageWithServer,
   recordSnippetUseInStore,
+  snippetUsageKey,
   sortSnippetsByUsage,
   type SnippetUsageEntry,
   type SnippetUsageMap,

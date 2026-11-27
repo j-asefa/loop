@@ -101,6 +101,7 @@ import { VoiceRecorderButton } from "./VoiceRecorder";
 import {
   computeKeyboardInset,
   computeQuickSheetLayout,
+  snippetUsageKey,
 } from "../snippet-usage-codec";
 
 const CARD_GAP = 10;
@@ -115,7 +116,10 @@ type SpotlightCarouselProps = {
   liveStream?: LiveStreamOverlay | null;
   client?: LoopClient | null;
   snippets?: ApiSnippet[];
-  onUseSnippet?: (snippet: ApiSnippet) => void;
+  onUseSnippet?: (
+    snippet: ApiSnippet,
+    opts?: { persistPending?: boolean },
+  ) => void;
   theme: LoopTheme;
   onClose: () => void;
   onCancelQueuedRun?: (runId: string) => void;
@@ -456,6 +460,7 @@ export function SpotlightCarousel({
     ? draftScopeForCarousel(conversationId)
     : "";
   const draftTouchedRef = useRef(false);
+  const activeSnippetRef = useRef<ApiSnippet | null>(null);
   const restoredPendingReplyRef = useRef<{
     idempotencyKey: string;
     queue?: boolean;
@@ -994,6 +999,21 @@ export function SpotlightCarousel({
       await Promise.resolve(
         onSendReply(targetCard, finalPrompt, readyIds, idempotencyKey, queue),
       );
+      const trimmedFinal = snippetUsageKey(finalPrompt);
+      const picked = activeSnippetRef.current;
+      const pickedMatches =
+        picked && trimmedFinal.includes(snippetUsageKey(picked.content))
+          ? picked
+          : null;
+      const sentSnippet =
+        pickedMatches ??
+        snippets.find((s) => snippetUsageKey(s.content) === trimmedFinal) ??
+        null;
+      activeSnippetRef.current = null;
+      if (sentSnippet) {
+        const edited = trimmedFinal !== snippetUsageKey(sentSnippet.content);
+        onUseSnippet?.(sentSnippet, { persistPending: edited });
+      }
       pendingReplyRef.current = null;
       setRetryModeLocked(false);
       if (draftScope) clearDraft(client?.origin, draftScope);
@@ -1028,6 +1048,8 @@ export function SpotlightCarousel({
     pendingSchedule,
     activeCard,
     onSendReply,
+    onUseSnippet,
+    snippets,
     client,
     replyAttachments,
     canSteerActiveRun,
@@ -1109,6 +1131,20 @@ export function SpotlightCarousel({
           nextPending.idempotencyKey,
           nextPending.sendAt,
         );
+        const scheduledText = snippetUsageKey(nextPending.input);
+        const picked = activeSnippetRef.current;
+        const pickedMatches =
+          picked && scheduledText.includes(snippetUsageKey(picked.content))
+            ? picked
+            : null;
+        const scheduledSnippet =
+          pickedMatches ??
+          snippets.find((s) => snippetUsageKey(s.content) === scheduledText) ??
+          null;
+        activeSnippetRef.current = null;
+        if (scheduledSnippet) {
+          onUseSnippet?.(scheduledSnippet, { persistPending: true });
+        }
         setPendingSchedule(null);
         setScheduleOpen(false);
         pendingReplyRef.current = null;
@@ -2700,6 +2736,7 @@ export function SpotlightCarousel({
                       key={opt.id}
                       onPress={() => {
                         haptics.light();
+                        activeSnippetRef.current = null;
                         prefillReply(opt.instruction);
                       }}
                       style={({ pressed }) => [
@@ -2741,7 +2778,7 @@ export function SpotlightCarousel({
                       onPress={() => {
                         haptics.light();
                         if (!scheduleLocked) {
-                          onUseSnippet?.(snip);
+                          activeSnippetRef.current = snip;
                         }
                         prefillReply(snip.content);
                       }}

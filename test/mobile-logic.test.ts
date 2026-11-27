@@ -3943,7 +3943,8 @@ describe("mobile snippet usage sorting and quick-reply keyboard layout", () => {
       ).map((s) => s.id),
     ).toEqual(["b", "a"]);
 
-    // Share-intake blocklist rejects the snippet usage cache file (raw, percent-encoded, and malformed %).
+    // Share-intake blocklist rejects the snippet usage cache file (raw, percent-encoded, and malformed URI %),
+    // while continuing to accept legitimate local paths containing literal '%'.
     expect(
       isSafeLocalShareFileUri(
         "file:///var/mobile/Library/Caches/loop-snippet-usage-abc123.json",
@@ -3957,6 +3958,8 @@ describe("mobile snippet usage sorting and quick-reply keyboard layout", () => {
     expect(isSafeLocalShareFileUri("file:///cache/bad%ZZpath.json")).toBe(
       false,
     );
+    expect(isSafeLocalShareFileUri("/var/tmp/50% off.pdf")).toBe(true);
+    expect(isSafeLocalShareFileUri("/var/tmp/100%.png")).toBe(true);
 
     let crowded = parsed;
     for (let i = 0; i < MAX_TRACKED_SNIPPETS + 10; i++) {
@@ -4087,5 +4090,53 @@ describe("mobile snippet usage sorting and quick-reply keyboard layout", () => {
     const persisted = parseSnippetUsageStore(files.get(bucket)!, now + 1);
     expect(persisted["Brand new snippet"]?.pending).toBe(1);
     expect(persisted["Existing snippet"]?.pending).toBe(2);
+  });
+
+  it("applies server reconciliation that arrives while the usage file is still loading", async () => {
+    const origin = "https://loop.reconcile.test";
+    const bucket = draftWorkspaceBucket(origin);
+    const now = Date.now();
+    const files = new Map<string, string>([
+      [
+        bucket,
+        serializeSnippetUsageStore(
+          {
+            "Synced snippet": {
+              pending: 1,
+              baseServerCount: 2,
+              lastUsedAt: now - 1000,
+            },
+          },
+          now,
+        ),
+      ],
+    ]);
+    let resolveRead!: (value: string | null) => void;
+    const store = createSnippetUsageStore({
+      readText: (b) =>
+        new Promise((resolve) => {
+          resolveRead = () => resolve(files.get(b) ?? null);
+        }),
+      writeText: (b, raw) => {
+        files.set(b, raw);
+      },
+      deleteFile: (b) => {
+        files.delete(b);
+      },
+    });
+
+    const loadPromise = store.loadSnippetUsage(origin);
+
+    // Server refresh resolves BEFORE disk hydration finishes, confirming Synced snippet reached count 3.
+    store.reconcileSnippetUsage(
+      origin,
+      [{ content: "Synced snippet", use_count: 3 }],
+      now,
+    );
+
+    resolveRead(files.get(bucket) ?? null);
+    const loaded = await loadPromise;
+    expect(loaded["Synced snippet"]).toBeUndefined();
+    expect(files.has(bucket)).toBe(false);
   });
 });

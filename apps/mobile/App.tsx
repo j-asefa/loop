@@ -111,6 +111,7 @@ import {
   reconcileSnippetUsage,
   recordSnippetUse,
   recordSnippetUseInStore,
+  snippetUsageKey,
   sortSnippetsByUsage,
   type SnippetUsageMap,
 } from "./src/snippet-usage";
@@ -1871,19 +1872,35 @@ function LoopShell() {
           liveStream={openCarouselLiveStream}
           client={client}
           snippets={sortedSnippets}
-          onUseSnippet={(snip) => {
-            if (session?.origin) {
-              const next = recordSnippetUse(
-                session.origin,
-                snip.content,
-                snip.use_count,
-              );
-              setSnippetUsage(next);
-            } else {
-              setSnippetUsage((prev) =>
-                recordSnippetUseInStore(prev, snip.content, snip.use_count),
-              );
+          onUseSnippet={(snip, opts) => {
+            if (opts?.persistPending) {
+              if (session?.origin) {
+                const next = recordSnippetUse(
+                  session.origin,
+                  snip.content,
+                  snip.use_count,
+                );
+                setSnippetUsage(next);
+              } else {
+                setSnippetUsage((prev) =>
+                  recordSnippetUseInStore(prev, snip.content, snip.use_count),
+                );
+              }
+              return;
             }
+            const usedKey = snippetUsageKey(snip.content);
+            const usedAt = Date.now();
+            setSnippets((prev) =>
+              prev.map((item) =>
+                snippetUsageKey(item.content) === usedKey
+                  ? {
+                      ...item,
+                      use_count: (item.use_count ?? 0) + 1,
+                      last_used_at: Math.max(item.last_used_at ?? 0, usedAt),
+                    }
+                  : item,
+              ),
+            );
           }}
           theme={theme}
           onCancelQueuedRun={handleCancelQueuedRun}
