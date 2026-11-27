@@ -3,10 +3,7 @@ import { afterAll, expect, it } from "vitest";
 import { productionApp } from "./helpers/app.js";
 import { seedConnection, seedConversation } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
-import {
-  createEmptySnippetUsageMap,
-  sortSnippetsByUsage,
-} from "../apps/mobile/src/snippet-usage-codec.js";
+import { sortSnippetsByUsage } from "../apps/mobile/src/snippet-usage-codec.js";
 
 testDirectory();
 
@@ -176,13 +173,17 @@ it("keeps personal snippet usage accurate past 2,000 excluded messages and retai
   });
   expect(brandNew.status).toBe(201);
 
-  const items = (await api(owner, "/snippets")).data.items;
+  const items = (await api(owner, "/snippets")).data.items as Array<{
+    content: string;
+    use_count?: number;
+    last_used_at?: number;
+  }>;
   expect(items).toHaveLength(100);
   // Server keeps the exact newest 100 snippets (Bulk snippet 0..6 excluded, Bulk snippet 7..104 + Older real + Brand new).
   expect(items[0].content).toBe("Brand new unused snippet");
   expect(items.some((s: any) => s.content === "Bulk snippet 7")).toBe(true);
   expect(items.some((s: any) => s.content === "Bulk snippet 0")).toBe(false);
   expect(items.some((s: any) => s.content === "Older real snippet")).toBe(true);
-  const mobileSorted = sortSnippetsByUsage(items, createEmptySnippetUsageMap());
+  const mobileSorted = sortSnippetsByUsage(items);
   expect(mobileSorted[0].content).toBe("Older real snippet");
 });

@@ -85,7 +85,6 @@ import {
   loadDraftEntry,
   saveDraft,
   saveDraftAndFlush,
-  type DraftPendingMeta,
 } from "../drafts";
 import { haptics } from "../haptics";
 import { runModelLabel } from "../models";
@@ -102,9 +101,6 @@ import { VoiceRecorderButton } from "./VoiceRecorder";
 import {
   computeKeyboardInset,
   computeQuickSheetLayout,
-  resolveSentSnippetAttribution,
-  snippetUsageKey,
-  type SnippetUseKind,
 } from "../snippet-usage-codec";
 
 const CARD_GAP = 10;
@@ -119,10 +115,6 @@ type SpotlightCarouselProps = {
   liveStream?: LiveStreamOverlay | null;
   client?: LoopClient | null;
   snippets?: ApiSnippet[];
-  onUseSnippet?: (
-    snippet: ApiSnippet,
-    opts?: { persistPending?: SnippetUseKind; pendingAfter?: number },
-  ) => void;
   theme: LoopTheme;
   onClose: () => void;
   onCancelQueuedRun?: (runId: string) => void;
@@ -164,7 +156,6 @@ export function SpotlightCarousel({
   liveStream = null,
   client,
   snippets = [],
-  onUseSnippet,
   theme,
   onClose,
   onCancelQueuedRun,
@@ -463,7 +454,6 @@ export function SpotlightCarousel({
     ? draftScopeForCarousel(conversationId)
     : "";
   const draftTouchedRef = useRef(false);
-  const activeSnippetRef = useRef<ApiSnippet | null>(null);
   const restoredPendingReplyRef = useRef<{
     idempotencyKey: string;
     queue?: boolean;
@@ -483,16 +473,8 @@ export function SpotlightCarousel({
     if (!draftScope) return;
     let cancelled = false;
     draftTouchedRef.current = false;
-    activeSnippetRef.current = null;
     void loadDraftEntry(client?.origin, draftScope).then((entry) => {
       if (cancelled || !entry?.text) return;
-      const restoredSnippet =
-        entry.snippetContent &&
-        snippetUsageKey(entry.text).includes(
-          snippetUsageKey(entry.snippetContent),
-        )
-          ? ({ id: "", title: "", content: entry.snippetContent } as ApiSnippet)
-          : null;
       if (entry.pendingSchedule) {
         const restored = {
           idempotencyKey: entry.pendingSchedule.key,
@@ -504,7 +486,6 @@ export function SpotlightCarousel({
           locked: true,
         };
         restoredPendingScheduleRef.current = restored;
-        activeSnippetRef.current = restoredSnippet;
         setPendingSchedule(restored);
         setDraft(entry.text);
         return;
@@ -519,7 +500,6 @@ export function SpotlightCarousel({
             setDeliveryMode(entry.pendingQueue ? "queue" : "steer");
           }
         }
-        activeSnippetRef.current = restoredSnippet;
         setDraft(entry.text);
       }
     });
@@ -936,20 +916,6 @@ export function SpotlightCarousel({
     setTimeout(() => replyInputRef.current?.focus(), 60);
   }, []);
 
-  const draftSnippetMeta = useCallback(
-    (text: string): DraftPendingMeta | undefined => {
-      const picked = activeSnippetRef.current;
-      if (!picked) return undefined;
-      const pickedKey = snippetUsageKey(picked.content);
-      if (!pickedKey || !snippetUsageKey(text).includes(pickedKey)) {
-        activeSnippetRef.current = null;
-        return undefined;
-      }
-      return { snippetContent: picked.content };
-    },
-    [],
-  );
-
   const prefillReply = useCallback(
     (prompt: string) => {
       if (scheduleLocked) return;
@@ -957,13 +923,11 @@ export function SpotlightCarousel({
       pendingReplyRef.current = null;
       setReplyError("");
       setDraft(prompt);
-      if (draftScope) {
-        saveDraft(client?.origin, draftScope, prompt, draftSnippetMeta(prompt));
-      }
+      if (draftScope) saveDraft(client?.origin, draftScope, prompt);
       setQuickReplyOpen(false);
       setTimeout(() => replyInputRef.current?.focus(), 60);
     },
-    [client?.origin, draftScope, draftSnippetMeta, scheduleLocked],
+    [client?.origin, draftScope, scheduleLocked],
   );
 
   const handleSlideToggleSaved = useCallback(
@@ -1021,14 +985,6 @@ export function SpotlightCarousel({
       replyToMessageId === activeCard.messageId
         ? activeCard
         : { ...activeCard, messageId: replyToMessageId };
-    const pickedBeforeSend = activeSnippetRef.current;
-    const attributed = resolveSentSnippetAttribution(
-      finalPrompt,
-      pickedBeforeSend?.content,
-      snippets,
-      pickedBeforeSend,
-    );
-    activeSnippetRef.current = null;
     haptics.medium();
     setSending(true);
     setReplyError("");
@@ -1036,14 +992,6 @@ export function SpotlightCarousel({
       await Promise.resolve(
         onSendReply(targetCard, finalPrompt, readyIds, idempotencyKey, queue),
       );
-      if (attributed) {
-        onUseSnippet?.(
-          attributed.snippet,
-          attributed.persistPending === "bonus"
-            ? { persistPending: "bonus" }
-            : undefined,
-        );
-      }
       pendingReplyRef.current = null;
       setRetryModeLocked(false);
       if (draftScope) clearDraft(client?.origin, draftScope);
@@ -1051,9 +999,6 @@ export function SpotlightCarousel({
       clearAttachments();
       Keyboard.dismiss();
     } catch (err) {
-      if (!activeSnippetRef.current && pickedBeforeSend) {
-        activeSnippetRef.current = pickedBeforeSend;
-      }
       if (!isUncertainOutcomeError(err)) {
         pendingReplyRef.current = null;
         setRetryModeLocked(false);
@@ -1063,7 +1008,6 @@ export function SpotlightCarousel({
           saveDraft(client?.origin, draftScope, draft, {
             key: idempotencyKey,
             queue,
-            ...draftSnippetMeta(draft),
           });
         }
       }
@@ -1082,14 +1026,11 @@ export function SpotlightCarousel({
     pendingSchedule,
     activeCard,
     onSendReply,
-    onUseSnippet,
-    snippets,
     client,
     replyAttachments,
     canSteerActiveRun,
     deliveryMode,
     draftScope,
-    draftSnippetMeta,
   ]);
 
   const submitScheduledReply = useCallback(
@@ -1123,13 +1064,6 @@ export function SpotlightCarousel({
         ...(nextPending.agentId ? { agentId: nextPending.agentId } : {}),
         messageId: nextPending.replyToMessageId,
       };
-      const pickedBeforeSend = activeSnippetRef.current;
-      const attributed = resolveSentSnippetAttribution(
-        nextPending.input,
-        pickedBeforeSend?.content,
-        snippets,
-        pickedBeforeSend,
-      );
       setScheduleBusy(true);
       setScheduleError("");
       if (draftScope) {
@@ -1139,7 +1073,6 @@ export function SpotlightCarousel({
             draftScope,
             trimmed || finalPrompt,
             {
-              ...draftSnippetMeta(trimmed || finalPrompt),
               schedule: {
                 key: nextPending.idempotencyKey,
                 sendAt: nextPending.sendAt,
@@ -1165,7 +1098,6 @@ export function SpotlightCarousel({
           return;
         }
       }
-      activeSnippetRef.current = null;
       setPendingSchedule(nextPending);
       try {
         await onScheduleReply(
@@ -1175,14 +1107,6 @@ export function SpotlightCarousel({
           nextPending.idempotencyKey,
           nextPending.sendAt,
         );
-        if (attributed) {
-          onUseSnippet?.(attributed.snippet, {
-            persistPending: attributed.persistPending,
-            ...(attributed.persistPending === "exact"
-              ? { pendingAfter: nextPending.sendAt }
-              : {}),
-          });
-        }
         setPendingSchedule(null);
         setScheduleOpen(false);
         pendingReplyRef.current = null;
@@ -1192,9 +1116,6 @@ export function SpotlightCarousel({
         clearAttachments();
         Keyboard.dismiss();
       } catch (err) {
-        if (!activeSnippetRef.current && pickedBeforeSend) {
-          activeSnippetRef.current = pickedBeforeSend;
-        }
         if (err instanceof LoopApiError && err.status === 401) {
           setPendingSchedule(null);
           setScheduleBusy(false);
@@ -1216,16 +1137,8 @@ export function SpotlightCarousel({
         } else {
           setPendingSchedule(null);
           if (draftScope) {
-            if (draft.trim()) {
-              saveDraft(
-                client?.origin,
-                draftScope,
-                draft,
-                draftSnippetMeta(draft),
-              );
-            } else {
-              clearDraft(client?.origin, draftScope);
-            }
+            if (draft.trim()) saveDraft(client?.origin, draftScope, draft);
+            else clearDraft(client?.origin, draftScope);
           }
         }
         haptics.warning();
@@ -1243,14 +1156,11 @@ export function SpotlightCarousel({
       client?.origin,
       draft,
       draftScope,
-      draftSnippetMeta,
       onScheduleReply,
-      onUseSnippet,
       pendingSchedule,
       replyAttachments,
       scheduleBusy,
       sending,
-      snippets,
     ],
   );
 
@@ -2161,14 +2071,7 @@ export function SpotlightCarousel({
                   pendingReplyRef.current = null;
                   if (replyError) setReplyError("");
                   setDraft(next);
-                  if (draftScope) {
-                    saveDraft(
-                      client?.origin,
-                      draftScope,
-                      next,
-                      draftSnippetMeta(next),
-                    );
-                  }
+                  if (draftScope) saveDraft(client?.origin, draftScope, next);
                 }}
                 placeholder={`Reply to @${agentName}…`}
                 placeholderTextColor={theme.muted}
@@ -2297,16 +2200,8 @@ export function SpotlightCarousel({
           setScheduleError("");
           setScheduleOpen(false);
           if (draftScope) {
-            if (draft.trim()) {
-              saveDraft(
-                client?.origin,
-                draftScope,
-                draft,
-                draftSnippetMeta(draft),
-              );
-            } else {
-              clearDraft(client?.origin, draftScope);
-            }
+            if (draft.trim()) saveDraft(client?.origin, draftScope, draft);
+            else clearDraft(client?.origin, draftScope);
           }
         }}
       />
@@ -2803,7 +2698,6 @@ export function SpotlightCarousel({
                       key={opt.id}
                       onPress={() => {
                         haptics.light();
-                        activeSnippetRef.current = null;
                         prefillReply(opt.instruction);
                       }}
                       style={({ pressed }) => [
@@ -2844,9 +2738,6 @@ export function SpotlightCarousel({
                       key={snip.id}
                       onPress={() => {
                         haptics.light();
-                        if (!scheduleLocked) {
-                          activeSnippetRef.current = snip;
-                        }
                         prefillReply(snip.content);
                       }}
                       style={({ pressed }) => [

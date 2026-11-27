@@ -126,19 +126,8 @@ import {
 } from "../apps/mobile/src/theme.js";
 import { getAgentArt, PALETTES } from "../apps/mobile/src/agentArt.js";
 import {
-  applyImmediateSnippetUseInStore,
   computeKeyboardInset,
   computeQuickSheetLayout,
-  createEmptySnippetUsageMap,
-  createSnippetUsageStore,
-  MAX_TRACKED_SNIPPETS,
-  parseSnippetUsageStore,
-  PENDING_SNIPPET_TAP_TTL_MS,
-  reconcileSnippetUsageWithServer,
-  recordSnippetUseInStore,
-  resolveSentSnippetAttribution,
-  serializeSnippetUsageStore,
-  snippetUsageKey,
   sortSnippetsByUsage,
 } from "../apps/mobile/src/snippet-usage-codec.js";
 import type { ApiFeedItem } from "../apps/mobile/src/api/types.js";
@@ -3776,200 +3765,60 @@ describe("mobile text selection helpers", () => {
 });
 
 describe("mobile snippet usage sorting and quick-reply keyboard layout", () => {
-  it("puts most used snippets at the top without locking stale server counts or reversing server ties", () => {
+  it("puts most used snippets at the top, breaks ties by recency, and preserves server order on equal ties", () => {
     const snippets = [
       {
         id: "s1",
-        title: "Alpha",
-        content: "Alpha prompt",
-        use_count: 3,
-        last_used_at: 500,
+        title: "Unused newer",
+        content: "Unused",
+        use_count: 0,
+        last_used_at: 0,
       },
       {
         id: "s2",
-        title: "Beta",
-        content: "Beta prompt",
+        title: "Used once old",
+        content: "Once old",
         use_count: 1,
         last_used_at: 400,
       },
       {
         id: "s3",
-        title: "Gamma",
-        content: "Gamma prompt",
-        use_count: 0,
-        last_used_at: 0,
+        title: "Most used",
+        content: "Top",
+        use_count: 5,
+        last_used_at: 200,
       },
       {
         id: "s4",
-        title: "Delta",
-        content: "Delta prompt",
+        title: "Used once new",
+        content: "Once new",
+        use_count: 1,
+        last_used_at: 900,
+      },
+      {
+        id: "s5",
+        title: "Unused older",
+        content: "Unused 2",
         use_count: 0,
         last_used_at: 0,
       },
     ];
-
-    // Preserves server order before any local taps.
-    expect(sortSnippetsByUsage(snippets, {}, 1000).map((s) => s.id)).toEqual([
-      "s1",
-      "s2",
+    expect(sortSnippetsByUsage(snippets).map((s) => s.id)).toEqual([
       "s3",
       "s4",
+      "s2",
+      "s1",
+      "s5",
     ]);
-
-    // Tapping Gamma once promotes it above Delta, and ties Beta (count 1) by newer lastUsedAt (1000 > 400).
-    let usage = recordSnippetUseInStore({}, "Gamma prompt", 0, 1000);
-    expect(sortSnippetsByUsage(snippets, usage, 1000).map((s) => s.id)).toEqual(
-      ["s1", "s3", "s2", "s4"],
-    );
-
-    // If another device later uses Beta (last_used_at: 2000), server timestamp wins the tie over Gamma's tap at 1000.
-    const withNewerServerBeta = snippets.map((s) =>
-      s.id === "s2" ? { ...s, last_used_at: 2000 } : s,
-    );
+    // Input array is never mutated, and fractional/missing/negative counts are sanitized safely.
+    expect(snippets.map((s) => s.id)).toEqual(["s1", "s2", "s3", "s4", "s5"]);
     expect(
-      sortSnippetsByUsage(withNewerServerBeta, usage, 2100).map((s) => s.id),
-    ).toEqual(["s1", "s2", "s3", "s4"]);
-
-    // Tapping Gamma 3 more times raises pending to 4 and puts it first above Alpha (3).
-    usage = recordSnippetUseInStore(usage, "Gamma prompt", 0, 2000);
-    usage = recordSnippetUseInStore(usage, "Gamma prompt", 0, 3000);
-    usage = recordSnippetUseInStore(usage, "Gamma prompt", 0, 4000);
-    expect(sortSnippetsByUsage(snippets, usage, 4000).map((s) => s.id)).toEqual(
-      ["s3", "s1", "s2", "s4"],
-    );
-
-    // When server count rises to 4, reconciliation clears pending so there is no double-counting.
-    const confirmed = reconcileSnippetUsageWithServer(
-      usage,
-      [{ content: "Gamma prompt", use_count: 4 }],
-      5000,
-    );
-    expect(confirmed.changed).toBe(true);
-    expect(confirmed.map["Gamma prompt"]).toBeUndefined();
-
-    // Tapping a snippet with high server count (50) stores pending=1 (not absolute 51);
-    // if old server messages age out (server drops to 10), ranking reflects 10 (not locked at 51).
-    let highUsage = recordSnippetUseInStore({}, "Alpha prompt", 50, 6000);
-    expect(highUsage["Alpha prompt"]).toEqual({
-      pending: 1,
-      baseServerCount: 50,
-      lastUsedAt: 6000,
-    });
-    const aged = reconcileSnippetUsageWithServer(
-      highUsage,
-      [{ content: "Alpha prompt", use_count: 10 }],
-      7000,
-    );
-    expect(aged.map["Alpha prompt"]).toEqual({
-      pending: 1,
-      baseServerCount: 10,
-      lastUsedAt: 6000,
-    });
-    expect(
-      sortSnippetsByUsage(
-        [
-          {
-            id: "alpha",
-            title: "Alpha",
-            content: "Alpha prompt",
-            use_count: 10,
-            last_used_at: 6000,
-          },
-          {
-            id: "beta",
-            title: "Beta",
-            content: "Beta prompt",
-            use_count: 20,
-            last_used_at: 6500,
-          },
-        ],
-        aged.map,
-        7000,
-      ).map((s) => s.id),
-    ).toEqual(["beta", "alpha"]);
-
-    // Abandoned local pending taps expire after PENDING_SNIPPET_TAP_TTL_MS.
-    const expired = reconcileSnippetUsageWithServer(
-      aged.map,
-      [{ content: "Alpha prompt", use_count: 10 }],
-      6000 + PENDING_SNIPPET_TAP_TTL_MS + 1,
-    );
-    expect(expired.changed).toBe(true);
-    expect(expired.map["Alpha prompt"]).toBeUndefined();
-
-    // Round-tripping persisted JSON preserves pending entries and caps tracked entries.
-    const serialized = serializeSnippetUsageStore(usage, 4000);
-    const parsed = parseSnippetUsageStore(serialized, 4000);
-    expect(parsed["Gamma prompt"]).toEqual({
-      pending: 4,
-      baseServerCount: 0,
-      lastUsedAt: 4000,
-    });
-
-    // Prototype property names and SQL-matching trim whitespace behave safely.
-    expect(snippetUsageKey("  \t\n\rhello\u00a0\r\n ")).toBe("hello\u00a0");
-    let protoMap = createEmptySnippetUsageMap();
-    for (const protoKey of ["__proto__", "constructor", "toString"]) {
-      protoMap = recordSnippetUseInStore(protoMap, protoKey, 0, 9000);
-    }
-    const protoParsed = parseSnippetUsageStore(
-      serializeSnippetUsageStore(protoMap, 9000),
-      9000,
-    );
-    expect(Object.prototype.hasOwnProperty.call(protoParsed, "__proto__")).toBe(
-      true,
-    );
-    expect(protoParsed["__proto__"]).toEqual({
-      pending: 1,
-      baseServerCount: 0,
-      lastUsedAt: 9000,
-    });
-    expect(protoParsed["constructor"]).toEqual({
-      pending: 1,
-      baseServerCount: 0,
-      lastUsedAt: 9000,
-    });
-    expect(protoParsed["toString"]).toEqual({
-      pending: 1,
-      baseServerCount: 0,
-      lastUsedAt: 9000,
-    });
-    expect(
-      sortSnippetsByUsage(
-        [
-          { id: "a", title: "Normal", content: "Normal", use_count: 0 },
-          { id: "b", title: "Proto", content: "__proto__", use_count: 0 },
-        ],
-        protoParsed,
-        9000,
-      ).map((s) => s.id),
-    ).toEqual(["b", "a"]);
-
-    // Share-intake blocklist rejects the snippet usage cache file (raw, percent-encoded, and malformed URI %),
-    // while continuing to accept legitimate local paths containing literal '%'.
-    expect(
-      isSafeLocalShareFileUri(
-        "file:///var/mobile/Library/Caches/loop-snippet-usage-abc123.json",
-      ),
-    ).toBe(false);
-    expect(
-      isSafeLocalShareFileUri(
-        "file:///var/mobile/Library/Caches/loop%2dsnippet-usage-abc123.json",
-      ),
-    ).toBe(false);
-    expect(isSafeLocalShareFileUri("file:///cache/bad%ZZpath.json")).toBe(
-      false,
-    );
-    expect(isSafeLocalShareFileUri("/var/tmp/50% off.pdf")).toBe(true);
-    expect(isSafeLocalShareFileUri("/var/tmp/100%.png")).toBe(true);
-
-    let crowded = parsed;
-    for (let i = 0; i < MAX_TRACKED_SNIPPETS + 10; i++) {
-      crowded = recordSnippetUseInStore(crowded, `Extra ${i}`, 0, 5000 + i);
-    }
-    expect(Object.keys(crowded).length).toBeLessThanOrEqual(
-      MAX_TRACKED_SNIPPETS,
-    );
+      sortSnippetsByUsage([
+        { id: "a", use_count: -1, last_used_at: -5 },
+        { id: "b", use_count: Number.NaN },
+        { id: "c", use_count: 2.8, last_used_at: 10 },
+      ]).map((s) => s.id),
+    ).toEqual(["c", "a", "b"]);
   });
 
   it("sizes quick-reply sheet and scrollable area above an open keyboard", () => {
@@ -4036,313 +3885,5 @@ describe("mobile snippet usage sorting and quick-reply keyboard layout", () => {
     expect(closedLayout.maxScrollHeight).toBeGreaterThan(
       openLayout.maxScrollHeight,
     );
-  });
-
-  it("does not double-count taps made while the usage file is still loading", async () => {
-    const origin = "https://loop.example.test";
-    const bucket = draftWorkspaceBucket(origin);
-    const now = Date.now();
-    const files = new Map<string, string>([
-      [
-        bucket,
-        serializeSnippetUsageStore(
-          {
-            "Existing snippet": {
-              pending: 1,
-              baseServerCount: 3,
-              lastUsedAt: now - 1000,
-            },
-          },
-          now,
-        ),
-      ],
-    ]);
-    let resolveRead!: (value: string | null) => void;
-    const store = createSnippetUsageStore({
-      readText: (b) =>
-        new Promise((resolve) => {
-          resolveRead = () => resolve(files.get(b) ?? null);
-        }),
-      writeText: (b, raw) => {
-        files.set(b, raw);
-      },
-      deleteFile: (b) => {
-        files.delete(b);
-      },
-    });
-
-    const loadPromise = store.loadSnippetUsage(origin);
-
-    // Tap once on an uncached snippet and once on an existing snippet while disk load is in flight.
-    const early1 = store.recordSnippetUse(origin, "Brand new snippet", 0, now);
-    expect(early1["Brand new snippet"]?.pending).toBe(1);
-    const early2 = store.recordSnippetUse(
-      origin,
-      "Existing snippet",
-      3,
-      now + 1,
-    );
-    expect(early2["Existing snippet"]?.pending).toBe(1);
-
-    resolveRead(files.get(bucket) ?? null);
-    const loaded = await loadPromise;
-    expect(loaded["Brand new snippet"]?.pending).toBe(1);
-    expect(loaded["Existing snippet"]?.pending).toBe(2);
-
-    const persisted = parseSnippetUsageStore(files.get(bucket)!, now + 1);
-    expect(persisted["Brand new snippet"]?.pending).toBe(1);
-    expect(persisted["Existing snippet"]?.pending).toBe(2);
-  });
-
-  it("applies server reconciliation that arrives while the usage file is still loading", async () => {
-    const origin = "https://loop.reconcile.test";
-    const bucket = draftWorkspaceBucket(origin);
-    const now = Date.now();
-    const files = new Map<string, string>([
-      [
-        bucket,
-        serializeSnippetUsageStore(
-          {
-            "Synced snippet": {
-              pending: 1,
-              baseServerCount: 2,
-              lastUsedAt: now - 1000,
-            },
-          },
-          now,
-        ),
-      ],
-    ]);
-    let resolveRead!: (value: string | null) => void;
-    const store = createSnippetUsageStore({
-      readText: (b) =>
-        new Promise((resolve) => {
-          resolveRead = () => resolve(files.get(b) ?? null);
-        }),
-      writeText: (b, raw) => {
-        files.set(b, raw);
-      },
-      deleteFile: (b) => {
-        files.delete(b);
-      },
-    });
-
-    const loadPromise = store.loadSnippetUsage(origin);
-
-    // Server refresh resolves BEFORE disk hydration finishes, confirming Synced snippet reached count 3.
-    store.reconcileSnippetUsage(
-      origin,
-      [{ content: "Synced snippet", use_count: 3 }],
-      now,
-    );
-
-    resolveRead(files.get(bucket) ?? null);
-    const loaded = await loadPromise;
-    expect(loaded["Synced snippet"]).toBeUndefined();
-    expect(files.has(bucket)).toBe(false);
-  });
-
-  it("preserves edited-snippet localBonus across unrelated server exact sends and draft reloads", () => {
-    const now = 10_000;
-    // Edited send is recorded as a 'bonus' use on top of server count 0.
-    let map = recordSnippetUseInStore(
-      createEmptySnippetUsageMap(),
-      "Review this PR",
-      0,
-      now,
-      "bonus",
-    );
-    expect(map["Review this PR"]).toEqual({
-      pending: 0,
-      localBonus: 1,
-      baseServerCount: 0,
-      lastUsedAt: now,
-    });
-
-    // Another device sends "Review this PR" verbatim so server use_count rises to 1:
-    // the local edited-send bonus must survive reconciliation and total 2 (1 + 1).
-    const reconciled = reconcileSnippetUsageWithServer(
-      map,
-      [{ content: "Review this PR", use_count: 1 }],
-      now + 500,
-    );
-    expect(reconciled.changed).toBe(true);
-    expect(reconciled.map["Review this PR"]).toEqual({
-      pending: 0,
-      localBonus: 1,
-      baseServerCount: 1,
-      lastUsedAt: now,
-    });
-
-    const sorted = sortSnippetsByUsage(
-      [
-        {
-          id: "other",
-          title: "Other",
-          content: "Other prompt",
-          use_count: 1,
-          last_used_at: now + 900,
-        },
-        {
-          id: "review",
-          title: "Review",
-          content: "Review this PR",
-          use_count: 1,
-          last_used_at: now + 100,
-        },
-      ],
-      reconciled.map,
-      now + 1000,
-    );
-    expect(sorted.map((s) => s.id)).toEqual(["review", "other"]);
-
-    // Round-tripping through JSON preserves localBonus and draft snippet attribution.
-    const reparsed = parseSnippetUsageStore(
-      serializeSnippetUsageStore(reconciled.map, now + 1000),
-      now + 1000,
-    );
-    expect(reparsed["Review this PR"]?.localBonus).toBe(1);
-
-    const draftMap = setDraftInStore(
-      createEmptyDraftMap(),
-      draftScopeForCarousel("conv-1"),
-      "Review this PR\nFocus on auth",
-      now,
-      { snippetContent: "Review this PR" },
-    );
-    const reloadedDraft = parseDraftStore(
-      serializeDraftStore(draftMap, now),
-      now,
-    );
-    const restoredEntry = readDraftEntryFromStore(
-      reloadedDraft,
-      draftScopeForCarousel("conv-1"),
-      now,
-    );
-    expect(restoredEntry?.snippetContent).toBe("Review this PR");
-    const attributed = resolveSentSnippetAttribution(
-      restoredEntry!.text,
-      restoredEntry!.snippetContent,
-      [{ id: "review", content: "Review this PR", use_count: 1 }],
-    );
-    expect(attributed).toEqual({
-      snippet: { id: "review", content: "Review this PR", use_count: 1 },
-      persistPending: "bonus",
-    });
-
-    // Clearing the snippet text before sending drops attribution; editing into another snippet verbatim prefers exact match.
-    expect(
-      resolveSentSnippetAttribution(
-        "Unrelated message",
-        restoredEntry!.snippetContent,
-        [{ id: "review", content: "Review this PR", use_count: 1 }],
-      ),
-    ).toBeNull();
-    expect(
-      resolveSentSnippetAttribution("Check CI status", "Review this PR", [
-        { id: "review", content: "Review this PR", use_count: 1 },
-        { id: "ci", content: "Check CI status", use_count: 0 },
-      ]),
-    ).toEqual({
-      snippet: { id: "ci", content: "Check CI status", use_count: 0 },
-      persistPending: "exact",
-    });
-  });
-
-  it("defers scheduled pending reconciliation past sendAt and handles mixed immediate + overlapping sends", () => {
-    const now = 20_000;
-    const sendAt = now + 48 * 60 * 60 * 1000; // 48h out (> 24h TTL)
-    let map = recordSnippetUseInStore(
-      createEmptySnippetUsageMap(),
-      "Morning check-in",
-      0,
-      now,
-      "exact",
-      sendAt,
-    );
-    expect(map["Morning check-in"]).toEqual({
-      pending: 0,
-      scheduledSendAts: [sendAt],
-      baseServerCount: 0,
-      lastUsedAt: now,
-    });
-
-    // Immediate send of the same snippet BEFORE sendAt keeps pending=1 alongside scheduledSendAts=[sendAt].
-    map = recordSnippetUseInStore(
-      map,
-      "Morning check-in",
-      0,
-      now + 100,
-      "exact",
-    );
-    expect(map["Morning check-in"]).toEqual({
-      pending: 1,
-      scheduledSendAts: [sendAt],
-      baseServerCount: 0,
-      lastUsedAt: now + 100,
-    });
-
-    // When server count rises to 1 from that immediate send (still before sendAt),
-    // only pending is consumed (1 -> 0); scheduledSendAts=[sendAt] stays intact -> total = 2 (never 3).
-    const beforeSendAt = now + 30 * 60 * 60 * 1000;
-    const mid = reconcileSnippetUsageWithServer(
-      map,
-      [{ content: "Morning check-in", use_count: 1 }],
-      beforeSendAt,
-    );
-    expect(mid.map["Morning check-in"]).toEqual({
-      pending: 0,
-      scheduledSendAts: [sendAt],
-      baseServerCount: 1,
-      lastUsedAt: now + 100,
-    });
-    expect(
-      sortSnippetsByUsage(
-        [
-          { id: "a", content: "Other", use_count: 2, last_used_at: now + 9000 },
-          {
-            id: "b",
-            content: "Morning check-in",
-            use_count: 1,
-            last_used_at: now + 1000,
-          },
-          { id: "c", content: "High", use_count: 3, last_used_at: now + 5000 },
-        ],
-        mid.map,
-        beforeSendAt,
-      ).map((s) => s.id),
-    ).toEqual(["c", "a", "b"]); // b has server 1 + scheduled 1 = 2 (< a's newer 2, < c's 3)
-
-    // Overlapping workspace refresh that already incremented server count skips adding redundant pending.
-    const overlapped = applyImmediateSnippetUseInStore(
-      createEmptySnippetUsageMap(),
-      "Morning check-in",
-      1,
-      2,
-      beforeSendAt,
-    );
-    expect(overlapped.recorded).toBe(false);
-    expect(overlapped.map["Morning check-in"]).toBeUndefined();
-
-    // Non-overlapping immediate send records pending=1 cleanly on current count.
-    const recorded = applyImmediateSnippetUseInStore(
-      createEmptySnippetUsageMap(),
-      "Morning check-in",
-      1,
-      1,
-      beforeSendAt,
-    );
-    expect(recorded.recorded).toBe(true);
-    expect(recorded.map["Morning check-in"]?.pending).toBe(1);
-
-    // Once sendAt arrives and the scheduled send commits on server (use_count -> 2), scheduledSendAts clears cleanly.
-    const afterSendAt = sendAt + 1000;
-    const done = reconcileSnippetUsageWithServer(
-      mid.map,
-      [{ content: "Morning check-in", use_count: 2 }],
-      afterSendAt,
-    );
-    expect(done.changed).toBe(true);
-    expect(done.map["Morning check-in"]).toBeUndefined();
   });
 });

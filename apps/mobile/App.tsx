@@ -104,18 +104,7 @@ import {
   loadWorkspaceCache,
   saveWorkspaceCache,
 } from "./src/offline-cache";
-import {
-  applyImmediateSnippetUseInStore,
-  clearWorkspaceSnippetUsage,
-  createEmptySnippetUsageMap,
-  loadSnippetUsage,
-  reconcileSnippetUsage,
-  recordSnippetUse,
-  recordSnippetUseInStore,
-  snippetUsageKey,
-  sortSnippetsByUsage,
-  type SnippetUsageMap,
-} from "./src/snippet-usage";
+import { sortSnippetsByUsage } from "./src/snippet-usage-codec";
 import { formatScheduledTime } from "./src/schedule-utils";
 import {
   buildSimulatedReply,
@@ -209,14 +198,9 @@ function LoopShell() {
   const [agents, setAgents] = useState<ApiAgent[]>(DEMO_AGENTS);
   const [folders, setFolders] = useState<ApiFolder[]>([]);
   const [snippets, setSnippets] = useState<ApiSnippet[]>([]);
-  const snippetsRef = useRef<ApiSnippet[]>([]);
-  snippetsRef.current = snippets;
-  const [snippetUsage, setSnippetUsage] = useState<SnippetUsageMap>(() =>
-    createEmptySnippetUsageMap(),
-  );
   const sortedSnippets = useMemo(
-    () => sortSnippetsByUsage(snippets, snippetUsage),
-    [snippets, snippetUsage],
+    () => sortSnippetsByUsage(snippets),
+    [snippets],
   );
   const [connections, setConnections] = useState<ApiConnection[]>([]);
   const [approvals, setApprovals] = useState<ApiApproval[]>([]);
@@ -343,7 +327,6 @@ function LoopShell() {
       clearWorkspaceDrafts(expiredSession.origin);
       clearWorkspaceCache(expiredSession.origin);
       clearWorkspaceNotificationPrefs(expiredSession.origin);
-      clearWorkspaceSnippetUsage(expiredSession.origin);
       void clearPairedSession();
       setSession(null);
       setSocketStatus("offline");
@@ -455,7 +438,6 @@ function LoopShell() {
           if (appList !== null) setApprovals(appList);
           if (decList !== null) setDecisions(decList);
           setSnippets(snipList);
-          setSnippetUsage(reconcileSnippetUsage(client.origin, snipList));
           if (runList !== null) {
             setActiveRuns(runList);
             actionKeysRef.current.reconcileRunActions(runList);
@@ -537,7 +519,6 @@ function LoopShell() {
     setApprovals([]);
     setDecisions([]);
     setSnippets([]);
-    setSnippetUsage(createEmptySnippetUsageMap());
     setConnections([]);
     setActiveRuns([]);
     setQueuedFeedItems([]);
@@ -593,11 +574,6 @@ function LoopShell() {
       if (gen === workspaceGenRef.current) {
         setNotificationPrefs(prefs);
         setNotificationPrefsLoaded(true);
-      }
-    });
-    void loadSnippetUsage(origin).then((usage) => {
-      if (gen === workspaceGenRef.current) {
-        setSnippetUsage(usage);
       }
     });
     void loadWorkspaceCache(origin).then((snap) => {
@@ -975,6 +951,14 @@ function LoopShell() {
               ? `Sent to @${card.agentName} with ${attachmentIds.length} ${attachmentIds.length === 1 ? "file" : "files"}`
               : `Sent to @${card.agentName}`,
         );
+        void client
+          .snippets()
+          .then((list) => {
+            if (gen === loadCoordRef.current.currentGeneration) {
+              setSnippets(list);
+            }
+          })
+          .catch(() => {});
         scheduleSilentRefresh(450, gen);
         return;
       }
@@ -1399,7 +1383,6 @@ function LoopShell() {
     clearWorkspaceDrafts(signingOutSession?.origin);
     clearWorkspaceCache(signingOutSession?.origin);
     clearWorkspaceNotificationPrefs(signingOutSession?.origin);
-    clearWorkspaceSnippetUsage(signingOutSession?.origin);
     await clearPairedSession();
     if (activeSessionRef.current !== signingOutSession) return;
     setSession(null);
@@ -1865,123 +1848,50 @@ function LoopShell() {
       )}
 
       {/* Spotlight Stage Floating Carousel */}
-      {openConversationId &&
-        openCarouselCards.length > 0 &&
-        (() => {
-          const renderWorkspaceGen = workspaceGenRef.current;
-          const renderSessionOrigin = session?.origin ?? null;
-          return (
-            <SpotlightCarousel
-              key={openConversationId}
-              cards={openCarouselCards}
-              queuedRuns={openCarouselQueuedRuns}
-              activeRun={openCarouselActiveRun}
-              canPause={openCarouselCanPause}
-              liveStream={openCarouselLiveStream}
-              client={client}
-              snippets={sortedSnippets}
-              onUseSnippet={(snip, opts) => {
-                if (
-                  renderWorkspaceGen !== workspaceGenRef.current ||
-                  (activeSessionRef.current?.origin ?? null) !==
-                    renderSessionOrigin
-                ) {
-                  return;
-                }
-                if (opts?.persistPending) {
-                  if (renderSessionOrigin) {
-                    const next = recordSnippetUse(
-                      renderSessionOrigin,
-                      snip.content,
-                      snip.use_count,
-                      Date.now(),
-                      opts.persistPending,
-                      opts.pendingAfter,
-                    );
-                    setSnippetUsage(next);
-                  } else {
-                    const kind = opts.persistPending;
-                    const pendingAfter = opts.pendingAfter;
-                    setSnippetUsage((prev) =>
-                      recordSnippetUseInStore(
-                        prev,
-                        snip.content,
-                        snip.use_count,
-                        Date.now(),
-                        kind,
-                        pendingAfter,
-                      ),
-                    );
-                  }
-                  return;
-                }
-                const usedKey = snippetUsageKey(snip.content);
-                const latestServerCount =
-                  snippetsRef.current.find(
-                    (item) => snippetUsageKey(item.content) === usedKey,
-                  )?.use_count ??
-                  snip.use_count ??
-                  0;
-                const preSendServerCount = snip.use_count ?? 0;
-                if (latestServerCount > preSendServerCount) {
-                  return;
-                }
-                if (renderSessionOrigin) {
-                  const next = recordSnippetUse(
-                    renderSessionOrigin,
-                    snip.content,
-                    latestServerCount,
-                    Date.now(),
-                    "exact",
-                  );
-                  setSnippetUsage(next);
-                } else {
-                  setSnippetUsage(
-                    (prev) =>
-                      applyImmediateSnippetUseInStore(
-                        prev,
-                        snip.content,
-                        preSendServerCount,
-                        latestServerCount,
-                      ).map,
-                  );
-                }
-              }}
-              theme={theme}
-              onCancelQueuedRun={handleCancelQueuedRun}
-              onReorderQueuedRun={handleReorderQueuedRun}
-              onControlRun={handleControlRun}
-              onClose={() => {
-                setOpenConversationId(null);
-                setCarouselOverrideCards(null);
-              }}
-              onOpenAgent={(agentId, agentName) => {
-                setOpenConversationId(null);
-                setCarouselOverrideCards(null);
-                openAgentByName(agentId, agentName);
-              }}
-              onOpenThread={(card) => {
-                setOpenConversationId(null);
-                setCarouselOverrideCards(null);
-                setThreadOverlay({
-                  conversationId: card.conversationId,
-                  title: card.fallbackTitle,
-                  agentName: card.agentName,
-                  agentId: card.agentId,
-                });
-              }}
-              onOpenFile={handleOpenFile}
-              onOpenFileTarget={handleOpenFileTarget}
-              onMarkRead={handleMarkRead}
-              onToggleSaved={handleToggleSaved}
-              onRemind={(card) => setRemindCard(card)}
-              onDismissCard={handleDismissCard}
-              onNotify={showToast}
-              onSendReply={handleCarouselReply}
-              onScheduleReply={handleCarouselSchedule}
-            />
-          );
-        })()}
+      {openConversationId && openCarouselCards.length > 0 && (
+        <SpotlightCarousel
+          key={openConversationId}
+          cards={openCarouselCards}
+          queuedRuns={openCarouselQueuedRuns}
+          activeRun={openCarouselActiveRun}
+          canPause={openCarouselCanPause}
+          liveStream={openCarouselLiveStream}
+          client={client}
+          snippets={sortedSnippets}
+          theme={theme}
+          onCancelQueuedRun={handleCancelQueuedRun}
+          onReorderQueuedRun={handleReorderQueuedRun}
+          onControlRun={handleControlRun}
+          onClose={() => {
+            setOpenConversationId(null);
+            setCarouselOverrideCards(null);
+          }}
+          onOpenAgent={(agentId, agentName) => {
+            setOpenConversationId(null);
+            setCarouselOverrideCards(null);
+            openAgentByName(agentId, agentName);
+          }}
+          onOpenThread={(card) => {
+            setOpenConversationId(null);
+            setCarouselOverrideCards(null);
+            setThreadOverlay({
+              conversationId: card.conversationId,
+              title: card.fallbackTitle,
+              agentName: card.agentName,
+              agentId: card.agentId,
+            });
+          }}
+          onOpenFile={handleOpenFile}
+          onOpenFileTarget={handleOpenFileTarget}
+          onMarkRead={handleMarkRead}
+          onToggleSaved={handleToggleSaved}
+          onRemind={(card) => setRemindCard(card)}
+          onDismissCard={handleDismissCard}
+          onNotify={showToast}
+          onSendReply={handleCarouselReply}
+          onScheduleReply={handleCarouselSchedule}
+        />
+      )}
 
       {/* Full Chronological Thread Sheet */}
       {threadOverlay && (
@@ -2190,7 +2100,6 @@ function LoopShell() {
             const prevOrigin = activeSessionRef.current?.origin;
             if (prevOrigin && prevOrigin !== nextSession.origin) {
               clearWorkspaceCache(prevOrigin);
-              clearWorkspaceSnippetUsage(prevOrigin);
             }
             setSession(nextSession);
             setPairingOpen(false);

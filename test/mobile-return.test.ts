@@ -16,10 +16,7 @@ import {
   PERSONAL_DECISION_RESPONSE_LIMIT,
   PERSONAL_DECISIONS_PAGE_LIMIT,
 } from "../src/shared/personal-decisions";
-import {
-  createEmptySnippetUsageMap,
-  sortSnippetsByUsage,
-} from "../apps/mobile/src/snippet-usage-codec.js";
+import { sortSnippetsByUsage } from "../apps/mobile/src/snippet-usage-codec.js";
 const trace = vi.hoisted(() => ({
   observe: undefined as ((sql: string) => void) | undefined,
 }));
@@ -3500,12 +3497,10 @@ it("computes isolated per-owner snippet usage counts while preserving newest-fir
 
   // Mobile client sorts the returned items by usage count then last_used_at.
   expect(
-    sortSnippetsByUsage(ordered, createEmptySnippetUsageMap()).map(
-      (s: any) => ({
-        content: s.content,
-        use_count: s.use_count,
-      }),
-    ),
+    sortSnippetsByUsage(ordered).map((s: any) => ({
+      content: s.content,
+      use_count: s.use_count,
+    })),
   ).toEqual([
     { content: "Review this PR", use_count: 2 },
     { content: "Check CI status", use_count: 1 },
@@ -3570,12 +3565,10 @@ it("computes isolated per-owner snippet usage counts while preserving newest-fir
   );
   const afterExcluded = (await api(w.owner, "/snippets")).data.items;
   expect(
-    sortSnippetsByUsage(afterExcluded, createEmptySnippetUsageMap()).map(
-      (s: any) => ({
-        content: s.content,
-        use_count: s.use_count,
-      }),
-    ),
+    sortSnippetsByUsage(afterExcluded).map((s: any) => ({
+      content: s.content,
+      use_count: s.use_count,
+    })),
   ).toEqual([
     { content: "Review this PR", use_count: 2 },
     { content: "Check CI status", use_count: 1 },
@@ -3591,11 +3584,11 @@ it("computes isolated per-owner snippet usage counts while preserving newest-fir
     queue: true,
   });
   const afterTie = (await api(w.owner, "/snippets")).data.items;
-  expect(
-    sortSnippetsByUsage(afterTie, createEmptySnippetUsageMap()).map(
-      (s: any) => s.content,
-    ),
-  ).toEqual(["Check CI status", "Review this PR", "Summarize thread"]);
+  expect(sortSnippetsByUsage(afterTie).map((s: any) => s.content)).toEqual([
+    "Check CI status",
+    "Review this PR",
+    "Summarize thread",
+  ]);
 });
 
 it("keeps your profile per owner, with counts matching your prompt history", async () => {
