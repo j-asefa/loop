@@ -108,6 +108,7 @@ import {
   clearWorkspaceSnippetUsage,
   createEmptySnippetUsageMap,
   loadSnippetUsage,
+  reconcileSnippetUsage,
   recordSnippetUse,
   recordSnippetUseInStore,
   sortSnippetsByUsage,
@@ -450,6 +451,7 @@ function LoopShell() {
           if (appList !== null) setApprovals(appList);
           if (decList !== null) setDecisions(decList);
           setSnippets(snipList);
+          setSnippetUsage(reconcileSnippetUsage(client.origin, snipList));
           if (runList !== null) {
             setActiveRuns(runList);
             actionKeysRef.current.reconcileRunActions(runList);

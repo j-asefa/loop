@@ -1,9 +1,11 @@
 import { draftWorkspaceBucket } from "./drafts-codec";
 
 export const MAX_TRACKED_SNIPPETS = 200;
+export const PENDING_SNIPPET_TAP_TTL_MS = 24 * 60 * 60 * 1000;
 
 export type SnippetUsageEntry = {
-  count: number;
+  pending: number;
+  baseServerCount: number;
   lastUsedAt: number;
 };
 
@@ -18,15 +20,25 @@ export function createEmptySnippetUsageMap(): SnippetUsageMap {
   return Object.create(null) as SnippetUsageMap;
 }
 
-function pruneSnippetUsageMap(map: SnippetUsageMap): SnippetUsageMap {
-  const entries = Object.entries(map);
+function isPendingExpired(lastUsedAt: number, now: number): boolean {
+  return now - lastUsedAt > PENDING_SNIPPET_TAP_TTL_MS;
+}
+
+function pruneSnippetUsageMap(
+  map: SnippetUsageMap,
+  now = Date.now(),
+): SnippetUsageMap {
+  const entries = Object.entries(map).filter(
+    ([, entry]) =>
+      entry.pending > 0 && !isPendingExpired(entry.lastUsedAt, now),
+  );
   if (entries.length <= MAX_TRACKED_SNIPPETS) {
     const copy = createEmptySnippetUsageMap();
     for (const [key, entry] of entries) copy[key] = entry;
     return copy;
   }
   entries.sort(([, a], [, b]) => {
-    if (b.count !== a.count) return b.count - a.count;
+    if (b.pending !== a.pending) return b.pending - a.pending;
     return b.lastUsedAt - a.lastUsedAt;
   });
   const pruned = createEmptySnippetUsageMap();
@@ -36,7 +48,10 @@ function pruneSnippetUsageMap(map: SnippetUsageMap): SnippetUsageMap {
   return pruned;
 }
 
-export function parseSnippetUsageStore(raw: string): SnippetUsageMap {
+export function parseSnippetUsageStore(
+  raw: string,
+  now = Date.now(),
+): SnippetUsageMap {
   try {
     const parsed = JSON.parse(raw) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -54,40 +69,58 @@ export function parseSnippetUsageStore(raw: string): SnippetUsageMap {
       const value = entriesObj[key];
       const normalized = snippetUsageKey(key);
       if (!normalized || !value || typeof value !== "object") continue;
-      const entry = value as { count?: unknown; lastUsedAt?: unknown };
+      const entry = value as {
+        pending?: unknown;
+        baseServerCount?: unknown;
+        lastUsedAt?: unknown;
+      };
       if (
-        typeof entry.count !== "number" ||
-        !Number.isInteger(entry.count) ||
-        entry.count < 0
+        typeof entry.pending !== "number" ||
+        !Number.isInteger(entry.pending) ||
+        entry.pending <= 0
       ) {
         continue;
       }
+      const baseServerCount =
+        typeof entry.baseServerCount === "number" &&
+        Number.isInteger(entry.baseServerCount) &&
+        entry.baseServerCount >= 0
+          ? entry.baseServerCount
+          : 0;
       const lastUsedAt =
         typeof entry.lastUsedAt === "number" &&
         Number.isFinite(entry.lastUsedAt) &&
         entry.lastUsedAt >= 0
           ? entry.lastUsedAt
           : 0;
+      if (isPendingExpired(lastUsedAt, now)) continue;
       const existing = Object.hasOwn(next, normalized)
         ? next[normalized]
         : undefined;
       if (
         !existing ||
-        entry.count > existing.count ||
-        (entry.count === existing.count && lastUsedAt > existing.lastUsedAt)
+        entry.pending > existing.pending ||
+        (entry.pending === existing.pending && lastUsedAt > existing.lastUsedAt)
       ) {
-        next[normalized] = { count: entry.count, lastUsedAt };
+        next[normalized] = {
+          pending: entry.pending,
+          baseServerCount,
+          lastUsedAt,
+        };
       }
     }
-    return pruneSnippetUsageMap(next);
+    return pruneSnippetUsageMap(next, now);
   } catch {
     return createEmptySnippetUsageMap();
   }
 }
 
-export function serializeSnippetUsageStore(map: SnippetUsageMap): string {
+export function serializeSnippetUsageStore(
+  map: SnippetUsageMap,
+  now = Date.now(),
+): string {
   const entries: Record<string, SnippetUsageEntry> = {};
-  for (const [key, entry] of Object.entries(pruneSnippetUsageMap(map))) {
+  for (const [key, entry] of Object.entries(pruneSnippetUsageMap(map, now))) {
     Object.defineProperty(entries, key, {
       value: entry,
       enumerable: true,
@@ -95,7 +128,7 @@ export function serializeSnippetUsageStore(map: SnippetUsageMap): string {
       writable: true,
     });
   }
-  return JSON.stringify({ v: 1, entries });
+  return JSON.stringify({ v: 2, entries });
 }
 
 export function recordSnippetUseInStore(
@@ -106,44 +139,123 @@ export function recordSnippetUseInStore(
 ): SnippetUsageMap {
   const key = snippetUsageKey(content);
   if (!key) return map;
-  const prev = Object.hasOwn(map, key) ? map[key] : undefined;
   const baseServer =
     typeof serverUseCount === "number" &&
     Number.isFinite(serverUseCount) &&
     serverUseCount > 0
       ? Math.floor(serverUseCount)
       : 0;
-  const count = Math.max(prev?.count ?? 0, baseServer) + 1;
-  const lastUsedAt = Math.max(prev?.lastUsedAt ?? 0, now);
+  const prev = Object.hasOwn(map, key) ? map[key] : undefined;
+  const activePending =
+    prev && !isPendingExpired(prev.lastUsedAt, now)
+      ? Math.max(
+          0,
+          prev.pending - Math.max(0, baseServer - prev.baseServerCount),
+        )
+      : 0;
   const next = createEmptySnippetUsageMap();
   for (const existingKey of Object.keys(map)) {
     next[existingKey] = map[existingKey];
   }
-  next[key] = { count, lastUsedAt };
-  return pruneSnippetUsageMap(next);
+  next[key] = {
+    pending: activePending + 1,
+    baseServerCount: baseServer,
+    lastUsedAt: Math.max(prev?.lastUsedAt ?? 0, now),
+  };
+  return pruneSnippetUsageMap(next, now);
 }
 
-export function mergeSnippetUsageMaps(
-  disk: SnippetUsageMap,
-  memory: SnippetUsageMap,
-): SnippetUsageMap {
-  const merged = createEmptySnippetUsageMap();
-  for (const key of Object.keys(disk)) {
-    merged[key] = disk[key];
+export function reconcileSnippetUsageWithServer(
+  map: SnippetUsageMap,
+  items: ReadonlyArray<{ content: string; use_count?: number }>,
+  now = Date.now(),
+): { map: SnippetUsageMap; changed: boolean } {
+  const serverCounts = new Map<string, number>();
+  for (const item of items) {
+    const key = snippetUsageKey(item.content);
+    if (!key) continue;
+    const count =
+      typeof item.use_count === "number" &&
+      Number.isFinite(item.use_count) &&
+      item.use_count > 0
+        ? Math.floor(item.use_count)
+        : 0;
+    serverCounts.set(key, count);
   }
-  for (const key of Object.keys(memory)) {
-    const entry = memory[key];
-    const existing = Object.hasOwn(merged, key) ? merged[key] : undefined;
-    if (!existing) {
-      merged[key] = entry;
+  const next = createEmptySnippetUsageMap();
+  let changed = false;
+  for (const key of Object.keys(map)) {
+    const entry = map[key];
+    if (entry.pending <= 0 || isPendingExpired(entry.lastUsedAt, now)) {
+      changed = true;
       continue;
     }
-    merged[key] = {
-      count: Math.max(existing.count, entry.count),
-      lastUsedAt: Math.max(existing.lastUsedAt, entry.lastUsedAt),
+    const serverCount = serverCounts.get(key);
+    if (serverCount === undefined) {
+      next[key] = entry;
+      continue;
+    }
+    const confirmedIncrease = Math.max(0, serverCount - entry.baseServerCount);
+    const remainingPending = Math.max(0, entry.pending - confirmedIncrease);
+    if (remainingPending === 0) {
+      changed = true;
+      continue;
+    }
+    if (
+      remainingPending !== entry.pending ||
+      serverCount !== entry.baseServerCount
+    ) {
+      changed = true;
+    }
+    next[key] = {
+      pending: remainingPending,
+      baseServerCount: serverCount,
+      lastUsedAt: entry.lastUsedAt,
     };
   }
-  return pruneSnippetUsageMap(merged);
+  return { map: next, changed };
+}
+
+export function sortSnippetsByUsage<
+  T extends { content: string; use_count?: number; last_used_at?: number },
+>(items: readonly T[], usageMap: SnippetUsageMap, now = Date.now()): T[] {
+  if (items.length <= 1) return [...items];
+  return items
+    .map((item, index) => {
+      const key = snippetUsageKey(item.content);
+      const local = Object.hasOwn(usageMap, key) ? usageMap[key] : undefined;
+      const serverCount =
+        typeof item.use_count === "number" &&
+        Number.isFinite(item.use_count) &&
+        item.use_count > 0
+          ? Math.floor(item.use_count)
+          : 0;
+      const serverLastUsedAt =
+        typeof item.last_used_at === "number" &&
+        Number.isFinite(item.last_used_at) &&
+        item.last_used_at > 0
+          ? item.last_used_at
+          : 0;
+      const pending =
+        local && !isPendingExpired(local.lastUsedAt, now)
+          ? Math.max(
+              0,
+              local.pending - Math.max(0, serverCount - local.baseServerCount),
+            )
+          : 0;
+      const count = serverCount + pending;
+      const lastUsedAt = Math.max(
+        serverLastUsedAt,
+        pending > 0 && local ? local.lastUsedAt : 0,
+      );
+      return { item, index, count, lastUsedAt };
+    })
+    .sort((a, b) => {
+      if (b.count !== a.count) return b.count - a.count;
+      if (b.lastUsedAt !== a.lastUsedAt) return b.lastUsedAt - a.lastUsedAt;
+      return a.index - b.index;
+    })
+    .map((entry) => entry.item);
 }
 
 export type SnippetUsageStorage = {
@@ -165,9 +277,18 @@ export function createSnippetUsageStore(storage: SnippetUsageStorage) {
   const pendingOpsByBucket = new Map<string, PendingUseOp[]>();
   const bucketEpoch = new Map<string, number>();
 
-  function writeBucketFile(bucket: string, map: SnippetUsageMap): void {
+  function writeBucketFile(
+    bucket: string,
+    map: SnippetUsageMap,
+    now = Date.now(),
+  ): void {
     try {
-      storage.writeText(bucket, serializeSnippetUsageStore(map));
+      const serialized = serializeSnippetUsageStore(map, now);
+      if (serialized === '{"v":2,"entries":{}}') {
+        storage.deleteFile(bucket);
+      } else {
+        storage.writeText(bucket, serialized);
+      }
     } catch {
       // Best-effort local persistence; never block snippet selection.
     }
@@ -196,8 +317,6 @@ export function createSnippetUsageStore(storage: SnippetUsageStorage) {
       }
       const pending = pendingOpsByBucket.get(bucket);
       pendingOpsByBucket.delete(bucket);
-      // Replay queued early taps strictly onto the hydrated disk store (never
-      // re-merging memoryBuckets, which already contains those early taps).
       let merged = loaded;
       let dirty = false;
       if (pending?.length) {
@@ -251,7 +370,28 @@ export function createSnippetUsageStore(storage: SnippetUsageStorage) {
       void ensureBucketLoaded(bucket);
       return next;
     }
-    writeBucketFile(bucket, next);
+    writeBucketFile(bucket, next, now);
+    return next;
+  }
+
+  function reconcileSnippetUsage(
+    origin: string | null | undefined,
+    items: ReadonlyArray<{ content: string; use_count?: number }>,
+    now = Date.now(),
+  ): SnippetUsageMap {
+    if (!origin) return createEmptySnippetUsageMap();
+    const bucket = draftWorkspaceBucket(origin);
+    const current = memoryBuckets.get(bucket) ?? createEmptySnippetUsageMap();
+    const { map: next, changed } = reconcileSnippetUsageWithServer(
+      current,
+      items,
+      now,
+    );
+    if (!changed) return current;
+    memoryBuckets.set(bucket, next);
+    if (loadedBuckets.has(bucket)) {
+      writeBucketFile(bucket, next, now);
+    }
     return next;
   }
 
@@ -273,34 +413,9 @@ export function createSnippetUsageStore(storage: SnippetUsageStorage) {
   return {
     loadSnippetUsage,
     recordSnippetUse,
+    reconcileSnippetUsage,
     clearWorkspaceSnippetUsage,
   };
-}
-
-export function sortSnippetsByUsage<
-  T extends { content: string; use_count?: number },
->(items: readonly T[], usageMap: SnippetUsageMap): T[] {
-  if (items.length <= 1) return [...items];
-  return items
-    .map((item, index) => {
-      const key = snippetUsageKey(item.content);
-      const local = Object.hasOwn(usageMap, key) ? usageMap[key] : undefined;
-      const serverCount =
-        typeof item.use_count === "number" &&
-        Number.isFinite(item.use_count) &&
-        item.use_count > 0
-          ? Math.floor(item.use_count)
-          : 0;
-      const count = Math.max(serverCount, local?.count ?? 0);
-      const lastUsedAt = local?.lastUsedAt ?? 0;
-      return { item, index, count, lastUsedAt };
-    })
-    .sort((a, b) => {
-      if (b.count !== a.count) return b.count - a.count;
-      if (b.lastUsedAt !== a.lastUsedAt) return b.lastUsedAt - a.lastUsedAt;
-      return a.index - b.index;
-    })
-    .map((entry) => entry.item);
 }
 
 export function computeKeyboardInset(

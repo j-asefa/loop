@@ -254,6 +254,7 @@ export const PublicSnippets = z.object({
       content: Text,
       created_at: Time,
       use_count: z.number().int().nonnegative(),
+      last_used_at: z.number().int().nonnegative(),
     }),
   ),
 });

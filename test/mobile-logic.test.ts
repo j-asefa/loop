@@ -131,8 +131,9 @@ import {
   createEmptySnippetUsageMap,
   createSnippetUsageStore,
   MAX_TRACKED_SNIPPETS,
-  mergeSnippetUsageMaps,
   parseSnippetUsageStore,
+  PENDING_SNIPPET_TAP_TTL_MS,
+  reconcileSnippetUsageWithServer,
   recordSnippetUseInStore,
   serializeSnippetUsageStore,
   snippetUsageKey,
@@ -3773,46 +3774,135 @@ describe("mobile text selection helpers", () => {
 });
 
 describe("mobile snippet usage sorting and quick-reply keyboard layout", () => {
-  it("puts most used snippets at the top without double-counting server counts", () => {
+  it("puts most used snippets at the top without locking stale server counts or reversing server ties", () => {
     const snippets = [
-      { id: "s1", title: "Alpha", content: "Alpha prompt", use_count: 3 },
-      { id: "s2", title: "Beta", content: "Beta prompt", use_count: 1 },
-      { id: "s3", title: "Gamma", content: "Gamma prompt", use_count: 0 },
-      { id: "s4", title: "Delta", content: "Delta prompt", use_count: 0 },
+      {
+        id: "s1",
+        title: "Alpha",
+        content: "Alpha prompt",
+        use_count: 3,
+        last_used_at: 500,
+      },
+      {
+        id: "s2",
+        title: "Beta",
+        content: "Beta prompt",
+        use_count: 1,
+        last_used_at: 400,
+      },
+      {
+        id: "s3",
+        title: "Gamma",
+        content: "Gamma prompt",
+        use_count: 0,
+        last_used_at: 0,
+      },
+      {
+        id: "s4",
+        title: "Delta",
+        content: "Delta prompt",
+        use_count: 0,
+        last_used_at: 0,
+      },
     ];
 
     // Preserves server order before any local taps.
-    expect(sortSnippetsByUsage(snippets, {}).map((s) => s.id)).toEqual([
+    expect(sortSnippetsByUsage(snippets, {}, 1000).map((s) => s.id)).toEqual([
       "s1",
       "s2",
       "s3",
       "s4",
     ]);
 
-    // Tapping Gamma once promotes it above Delta, while staying below Alpha (3) and tied with Beta (1) by recency.
+    // Tapping Gamma once promotes it above Delta, and ties Beta (count 1) by newer lastUsedAt (1000 > 400).
     let usage = recordSnippetUseInStore({}, "Gamma prompt", 0, 1000);
-    expect(sortSnippetsByUsage(snippets, usage).map((s) => s.id)).toEqual([
-      "s1",
-      "s3",
-      "s2",
-      "s4",
-    ]);
+    expect(sortSnippetsByUsage(snippets, usage, 1000).map((s) => s.id)).toEqual(
+      ["s1", "s3", "s2", "s4"],
+    );
 
-    // Tapping Gamma 3 more times raises it to 4 and puts it first above Alpha (3).
+    // If another device later uses Beta (last_used_at: 2000), server timestamp wins the tie over Gamma's tap at 1000.
+    const withNewerServerBeta = snippets.map((s) =>
+      s.id === "s2" ? { ...s, last_used_at: 2000 } : s,
+    );
+    expect(
+      sortSnippetsByUsage(withNewerServerBeta, usage, 2100).map((s) => s.id),
+    ).toEqual(["s1", "s2", "s3", "s4"]);
+
+    // Tapping Gamma 3 more times raises pending to 4 and puts it first above Alpha (3).
     usage = recordSnippetUseInStore(usage, "Gamma prompt", 0, 2000);
     usage = recordSnippetUseInStore(usage, "Gamma prompt", 0, 3000);
     usage = recordSnippetUseInStore(usage, "Gamma prompt", 0, 4000);
-    expect(sortSnippetsByUsage(snippets, usage).map((s) => s.id)).toEqual([
-      "s3",
-      "s1",
-      "s2",
-      "s4",
-    ]);
+    expect(sortSnippetsByUsage(snippets, usage, 4000).map((s) => s.id)).toEqual(
+      ["s3", "s1", "s2", "s4"],
+    );
 
-    // Round-tripping persisted JSON preserves counts and caps tracked entries.
-    const serialized = serializeSnippetUsageStore(usage);
-    const parsed = parseSnippetUsageStore(serialized);
-    expect(parsed["Gamma prompt"]).toEqual({ count: 4, lastUsedAt: 4000 });
+    // When server count rises to 4, reconciliation clears pending so there is no double-counting.
+    const confirmed = reconcileSnippetUsageWithServer(
+      usage,
+      [{ content: "Gamma prompt", use_count: 4 }],
+      5000,
+    );
+    expect(confirmed.changed).toBe(true);
+    expect(confirmed.map["Gamma prompt"]).toBeUndefined();
+
+    // Tapping a snippet with high server count (50) stores pending=1 (not absolute 51);
+    // if old server messages age out (server drops to 10), ranking reflects 10 (not locked at 51).
+    let highUsage = recordSnippetUseInStore({}, "Alpha prompt", 50, 6000);
+    expect(highUsage["Alpha prompt"]).toEqual({
+      pending: 1,
+      baseServerCount: 50,
+      lastUsedAt: 6000,
+    });
+    const aged = reconcileSnippetUsageWithServer(
+      highUsage,
+      [{ content: "Alpha prompt", use_count: 10 }],
+      7000,
+    );
+    expect(aged.map["Alpha prompt"]).toEqual({
+      pending: 1,
+      baseServerCount: 10,
+      lastUsedAt: 6000,
+    });
+    expect(
+      sortSnippetsByUsage(
+        [
+          {
+            id: "alpha",
+            title: "Alpha",
+            content: "Alpha prompt",
+            use_count: 10,
+            last_used_at: 6000,
+          },
+          {
+            id: "beta",
+            title: "Beta",
+            content: "Beta prompt",
+            use_count: 20,
+            last_used_at: 6500,
+          },
+        ],
+        aged.map,
+        7000,
+      ).map((s) => s.id),
+    ).toEqual(["beta", "alpha"]);
+
+    // Abandoned local pending taps expire after PENDING_SNIPPET_TAP_TTL_MS.
+    const expired = reconcileSnippetUsageWithServer(
+      aged.map,
+      [{ content: "Alpha prompt", use_count: 10 }],
+      6000 + PENDING_SNIPPET_TAP_TTL_MS + 1,
+    );
+    expect(expired.changed).toBe(true);
+    expect(expired.map["Alpha prompt"]).toBeUndefined();
+
+    // Round-tripping persisted JSON preserves pending entries and caps tracked entries.
+    const serialized = serializeSnippetUsageStore(usage, 4000);
+    const parsed = parseSnippetUsageStore(serialized, 4000);
+    expect(parsed["Gamma prompt"]).toEqual({
+      pending: 4,
+      baseServerCount: 0,
+      lastUsedAt: 4000,
+    });
 
     // Prototype property names and SQL-matching trim whitespace behave safely.
     expect(snippetUsageKey("  \t\n\rhello\u00a0\r\n ")).toBe("hello\u00a0");
@@ -3821,27 +3911,39 @@ describe("mobile snippet usage sorting and quick-reply keyboard layout", () => {
       protoMap = recordSnippetUseInStore(protoMap, protoKey, 0, 9000);
     }
     const protoParsed = parseSnippetUsageStore(
-      serializeSnippetUsageStore(protoMap),
+      serializeSnippetUsageStore(protoMap, 9000),
+      9000,
     );
     expect(Object.prototype.hasOwnProperty.call(protoParsed, "__proto__")).toBe(
       true,
     );
-    expect(protoParsed["__proto__"]).toEqual({ count: 1, lastUsedAt: 9000 });
-    expect(protoParsed["constructor"]).toEqual({ count: 1, lastUsedAt: 9000 });
-    expect(protoParsed["toString"]).toEqual({ count: 1, lastUsedAt: 9000 });
-    const mergedProto = mergeSnippetUsageMaps(protoParsed, protoMap);
-    expect(mergedProto["__proto__"]).toEqual({ count: 1, lastUsedAt: 9000 });
+    expect(protoParsed["__proto__"]).toEqual({
+      pending: 1,
+      baseServerCount: 0,
+      lastUsedAt: 9000,
+    });
+    expect(protoParsed["constructor"]).toEqual({
+      pending: 1,
+      baseServerCount: 0,
+      lastUsedAt: 9000,
+    });
+    expect(protoParsed["toString"]).toEqual({
+      pending: 1,
+      baseServerCount: 0,
+      lastUsedAt: 9000,
+    });
     expect(
       sortSnippetsByUsage(
         [
           { id: "a", title: "Normal", content: "Normal", use_count: 0 },
           { id: "b", title: "Proto", content: "__proto__", use_count: 0 },
         ],
-        mergedProto,
+        protoParsed,
+        9000,
       ).map((s) => s.id),
     ).toEqual(["b", "a"]);
 
-    // Share-intake blocklist rejects the snippet usage cache file (raw and percent-encoded).
+    // Share-intake blocklist rejects the snippet usage cache file (raw, percent-encoded, and malformed %).
     expect(
       isSafeLocalShareFileUri(
         "file:///var/mobile/Library/Caches/loop-snippet-usage-abc123.json",
@@ -3852,6 +3954,9 @@ describe("mobile snippet usage sorting and quick-reply keyboard layout", () => {
         "file:///var/mobile/Library/Caches/loop%2dsnippet-usage-abc123.json",
       ),
     ).toBe(false);
+    expect(isSafeLocalShareFileUri("file:///cache/bad%ZZpath.json")).toBe(
+      false,
+    );
 
     let crowded = parsed;
     for (let i = 0; i < MAX_TRACKED_SNIPPETS + 10; i++) {
@@ -3931,12 +4036,20 @@ describe("mobile snippet usage sorting and quick-reply keyboard layout", () => {
   it("does not double-count taps made while the usage file is still loading", async () => {
     const origin = "https://loop.example.test";
     const bucket = draftWorkspaceBucket(origin);
+    const now = Date.now();
     const files = new Map<string, string>([
       [
         bucket,
-        serializeSnippetUsageStore({
-          "Existing snippet": { count: 3, lastUsedAt: 1000 },
-        }),
+        serializeSnippetUsageStore(
+          {
+            "Existing snippet": {
+              pending: 1,
+              baseServerCount: 3,
+              lastUsedAt: now - 1000,
+            },
+          },
+          now,
+        ),
       ],
     ]);
     let resolveRead!: (value: string | null) => void;
@@ -3956,18 +4069,23 @@ describe("mobile snippet usage sorting and quick-reply keyboard layout", () => {
     const loadPromise = store.loadSnippetUsage(origin);
 
     // Tap once on an uncached snippet and once on an existing snippet while disk load is in flight.
-    const early1 = store.recordSnippetUse(origin, "Brand new snippet", 0, 2000);
-    expect(early1["Brand new snippet"]?.count).toBe(1);
-    const early2 = store.recordSnippetUse(origin, "Existing snippet", 3, 2001);
-    expect(early2["Existing snippet"]?.count).toBe(4);
+    const early1 = store.recordSnippetUse(origin, "Brand new snippet", 0, now);
+    expect(early1["Brand new snippet"]?.pending).toBe(1);
+    const early2 = store.recordSnippetUse(
+      origin,
+      "Existing snippet",
+      3,
+      now + 1,
+    );
+    expect(early2["Existing snippet"]?.pending).toBe(1);
 
     resolveRead(files.get(bucket) ?? null);
     const loaded = await loadPromise;
-    expect(loaded["Brand new snippet"]?.count).toBe(1);
-    expect(loaded["Existing snippet"]?.count).toBe(4);
+    expect(loaded["Brand new snippet"]?.pending).toBe(1);
+    expect(loaded["Existing snippet"]?.pending).toBe(2);
 
-    const persisted = parseSnippetUsageStore(files.get(bucket)!);
-    expect(persisted["Brand new snippet"]?.count).toBe(1);
-    expect(persisted["Existing snippet"]?.count).toBe(4);
+    const persisted = parseSnippetUsageStore(files.get(bucket)!, now + 1);
+    expect(persisted["Brand new snippet"]?.pending).toBe(1);
+    expect(persisted["Existing snippet"]?.pending).toBe(2);
   });
 });

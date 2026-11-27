@@ -80,11 +80,11 @@ export function isSafeHttpUrl(raw: string): boolean {
 export function isSafeLocalShareFileUri(raw: string): boolean {
   const trimmed = raw.trim();
   if (!trimmed) return false;
-  let decoded = trimmed;
+  let decoded: string;
   try {
     decoded = decodeURIComponent(trimmed);
   } catch {
-    decoded = trimmed;
+    return false;
   }
   for (const candidate of [trimmed, decoded]) {
     if (/(?:^|[\\/])\.\.(?:[\\/]|$)/.test(candidate)) return false;

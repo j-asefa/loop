@@ -254,9 +254,14 @@ const snippetsStatement = statement(
      WHERE copy = 1
    ),
    recent_user_messages AS (
-     SELECT m.content, m.metadata, m.created_at, m.run_id
+     SELECT m.content, m.created_at
      FROM messages m
      WHERE m.owner_id = @owner AND m.role = 'user'
+       AND m.run_id IS NOT NULL
+       AND json_extract(m.metadata, '$.personal') = 1
+       AND json_extract(m.metadata, '$.progress') IS NOT 1
+       AND json_extract(m.metadata, '$.automation') IS NULL
+       AND COALESCE(json_extract(m.metadata, '$.shared'), 0) = 0
      ORDER BY m.created_at DESC, m.id DESC
      LIMIT 2000
    ),
@@ -265,14 +270,9 @@ const snippetsStatement = statement(
        count(*) AS use_count,
        max(m.created_at) AS last_used_at
      FROM recent_user_messages m
-     WHERE m.run_id IS NOT NULL
-       AND json_extract(m.metadata, '$.personal') = 1
-       AND json_extract(m.metadata, '$.progress') IS NOT 1
-       AND json_extract(m.metadata, '$.automation') IS NULL
-       AND COALESCE(json_extract(m.metadata, '$.shared'), 0) = 0
-       AND trim(m.content, ' '||char(9)||char(10)||char(13)) IN (
-         SELECT norm_content FROM unique_snippets WHERE norm_content <> ''
-       )
+     WHERE trim(m.content, ' '||char(9)||char(10)||char(13)) IN (
+       SELECT norm_content FROM unique_snippets WHERE norm_content <> ''
+     )
      GROUP BY trim(m.content, ' '||char(9)||char(10)||char(13))
    ),
    ranked AS (
@@ -294,7 +294,7 @@ const snippetsStatement = statement(
        ) AS keep_rank
      FROM ranked
    )
-   SELECT id, title, content, created_at, use_count
+   SELECT id, title, content, created_at, use_count, last_used_at
    FROM selected
    WHERE keep_rank <= 100
    ORDER BY use_count DESC,
@@ -309,7 +309,10 @@ const snippetsRow = QueryRecords.artifacts
     content: true,
     created_at: true,
   })
-  .extend({ use_count: z.number().int().nonnegative() });
+  .extend({
+    use_count: z.number().int().nonnegative(),
+    last_used_at: z.number().int().nonnegative(),
+  });
 export function snippets(db: Database.Database, owner: string) {
   return snippetsStatement(db)
     .all({ owner })

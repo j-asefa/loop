@@ -5,7 +5,8 @@ export {
   computeKeyboardInset,
   computeQuickSheetLayout,
   createEmptySnippetUsageMap,
-  mergeSnippetUsageMaps,
+  PENDING_SNIPPET_TAP_TTL_MS,
+  reconcileSnippetUsageWithServer,
   recordSnippetUseInStore,
   sortSnippetsByUsage,
   type SnippetUsageEntry,
@@ -32,4 +33,5 @@ const store = createSnippetUsageStore({
 
 export const loadSnippetUsage = store.loadSnippetUsage;
 export const recordSnippetUse = store.recordSnippetUse;
+export const reconcileSnippetUsage = store.reconcileSnippetUsage;
 export const clearWorkspaceSnippetUsage = store.clearWorkspaceSnippetUsage;

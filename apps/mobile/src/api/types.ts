@@ -226,6 +226,7 @@ export type ApiSnippet = {
   content: string;
   created_at?: number;
   use_count?: number;
+  last_used_at?: number;
 };
 
 export type ApiProjectSummary = {
