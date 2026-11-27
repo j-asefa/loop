@@ -318,6 +318,12 @@ export function pruneDraftStore(input: DraftMap, now = Date.now()): DraftMap {
   return out;
 }
 
+export class UnreadableDraftStore extends Error {
+  constructor() {
+    super("Could not read the existing local drafts.");
+  }
+}
+
 export function parseDraftStore(raw: string, now = Date.now()): DraftMap {
   try {
     const parsed = JSON.parse(raw) as {
@@ -382,7 +388,7 @@ export function parseDraftStore(raw: string, now = Date.now()): DraftMap {
     }
     return pruneDraftStore(loaded, now);
   } catch {
-    throw new Error("Could not read the existing local drafts.");
+    throw new UnreadableDraftStore();
   }
 }
 

@@ -1,5 +1,6 @@
 import { File as ExpoFile, Paths } from "expo-file-system";
 import {
+  UnreadableDraftStore,
   createEmptyDraftMap,
   deleteDraftFromStore,
   draftWorkspaceBucket,
@@ -49,6 +50,14 @@ function draftFileForBucket(bucket: string): ExpoFile {
   return new ExpoFile(Paths.document, `loop-drafts-${bucket}.json`);
 }
 
+function stagedDraftFileForBucket(bucket: string): ExpoFile {
+  return new ExpoFile(Paths.document, `loop-drafts-${bucket}.staged.json`);
+}
+
+function previousDraftFileForBucket(bucket: string): ExpoFile {
+  return new ExpoFile(Paths.document, `loop-drafts-${bucket}.previous.json`);
+}
+
 function legacyDraftFileForBucket(bucket: string): ExpoFile {
   return new ExpoFile(Paths.cache, `loop-drafts-${bucket}.json`);
 }
@@ -64,24 +73,26 @@ function getOrCreatePendingOps(bucket: string): PendingOps {
 
 function writeBucketFile(bucket: string, map: DraftMap): void {
   const file = draftFileForBucket(bucket);
+  const staged = stagedDraftFileForBucket(bucket);
+  const previous = previousDraftFileForBucket(bucket);
   const legacy = legacyDraftFileForBucket(bucket);
-  if (Object.keys(map).length === 0) {
-    try {
-      if (legacy.exists) legacy.delete();
-    } catch {
-      // Keep an authoritative empty store so an undeletable legacy file cannot reappear.
-      file.writeSync(serializeDraftStore(map));
-      return;
-    }
-    if (file.exists) file.delete();
-    return;
+
+  // Write the full snapshot before replacing the committed file. Preserve the
+  // old snapshot across the rename so an interrupted commit remains readable.
+  staged.writeSync(serializeDraftStore(map));
+  if (file.exists) {
+    if (previous.exists) previous.delete();
+    file.moveSync(previous);
   }
-  // Expo SDK 58 uses an asynchronous write(); recovery must persist before dispatch.
-  file.writeSync(serializeDraftStore(map));
-  try {
-    if (legacy.exists) legacy.delete();
-  } catch {
-    // The durable file takes precedence on the next read.
+  staged.moveSync(draftFileForBucket(bucket));
+
+  // Even an empty committed snapshot masks older drafts after settlement.
+  for (const obsolete of [previous, legacy]) {
+    try {
+      if (obsolete.exists) obsolete.delete();
+    } catch {
+      // The committed file takes precedence on the next read.
+    }
   }
 }
 
@@ -121,15 +132,33 @@ async function ensureBucketLoaded(bucket: string): Promise<DraftMap> {
   const epochAtStart = bucketEpoch.get(bucket) ?? 0;
   const loadPromise = (async () => {
     let loaded = createEmptyDraftMap();
-    let readLegacy = false;
-    const file = draftFileForBucket(bucket);
-    const legacy = legacyDraftFileForBucket(bucket);
-    // A failed read must leave the bucket unloaded so a later write cannot replace it.
-    if (file.exists) {
-      loaded = parseDraftStore(await file.text());
-    } else if (legacy.exists) {
-      loaded = parseDraftStore(await legacy.text());
-      readLegacy = true;
+    let recovered = false;
+    const candidates = [
+      draftFileForBucket(bucket),
+      previousDraftFileForBucket(bucket),
+      legacyDraftFileForBucket(bucket),
+    ];
+    for (const [index, file] of candidates.entries()) {
+      if (!file.exists) continue;
+      // I/O failures leave the bucket unloaded. Malformed bytes are kept
+      // separately so the next readable snapshot can restore the workspace.
+      const raw = await file.text();
+      if ((bucketEpoch.get(bucket) ?? 0) !== epochAtStart) break;
+      try {
+        loaded = parseDraftStore(raw);
+        recovered ||= index > 0;
+        break;
+      } catch (error) {
+        if (!(error instanceof UnreadableDraftStore)) throw error;
+        const suffix = `${Date.now()}-${index}-${Math.random().toString(36).slice(2)}`;
+        file.moveSync(
+          new ExpoFile(
+            Paths.document,
+            `loop-drafts-${bucket}.unreadable-${suffix}.json`,
+          ),
+        );
+        recovered = true;
+      }
     }
     // If `clearWorkspaceDrafts` bumped the epoch while reading disk, discard the stale read.
     if ((bucketEpoch.get(bucket) ?? 0) !== epochAtStart) {
@@ -178,7 +207,7 @@ async function ensureBucketLoaded(bucket: string): Promise<DraftMap> {
     }
     memoryBuckets.set(bucket, merged);
     loadedBuckets.add(bucket);
-    if (dirty || readLegacy) {
+    if (dirty || recovered) {
       flushBucketNow(bucket);
     }
     return merged;
@@ -384,13 +413,30 @@ export function clearDraft(
 /** Purge the workspace's drafts on explicit sign-out. */
 export function clearWorkspaceDrafts(origin: string | null | undefined): void {
   const bucket = draftWorkspaceBucket(origin);
-  for (const makeFile of [draftFileForBucket, legacyDraftFileForBucket]) {
+  for (const makeFile of [
+    draftFileForBucket,
+    stagedDraftFileForBucket,
+    previousDraftFileForBucket,
+    legacyDraftFileForBucket,
+  ]) {
     try {
       const file = makeFile(bucket);
       if (file.exists) file.delete();
     } catch {
       // Best-effort removal of files belonging to this session.
     }
+  }
+  try {
+    for (const file of Paths.document.list()) {
+      if (
+        file instanceof ExpoFile &&
+        file.name.startsWith(`loop-drafts-${bucket}.unreadable-`)
+      ) {
+        file.delete();
+      }
+    }
+  } catch {
+    // Draft cleanup can proceed even when an archived copy is inaccessible.
   }
   bucketEpoch.set(bucket, (bucketEpoch.get(bucket) ?? 0) + 1);
   pendingOpsByBucket.delete(bucket);

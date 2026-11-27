@@ -11,6 +11,7 @@ import * as doneCardDismissalsQueries from "./sql/done-card-dismissals.js";
 import * as feedCardsQueries from "./sql/feed-cards.js";
 import * as doneCardReadsQueries from "./sql/done-card-reads.js";
 import * as artifactsQueries from "./sql/artifacts.js";
+import * as resultsQueries from "./sql/results.js";
 import * as messageBookmarksQueries from "./sql/message-bookmarks.js";
 import * as savedLabelsQueries from "./sql/saved-labels.js";
 import * as memoryReceiptsQueries from "./sql/memory-receipts.js";
@@ -355,8 +356,13 @@ export function setSaved(owner: string, messageId: string, on: boolean) {
   return db
     .transaction(() => {
       const message = ownedMessage(messageId, owner);
-      if (message.metadata.progress)
-        throw new Problem(400, "Only saved messages can be kept");
+      if (
+        message.metadata.progress &&
+        resultsQueries.canonicalByMessage(db, owner, messageId)?.kind !==
+          "steering_reply"
+      ) {
+        throw new Problem(400, "Only published answers can be saved");
+      }
       const result = resultFor(owner, messageId),
         savedAt = now();
       if (result && result.pinned !== Number(on)) {

@@ -946,7 +946,7 @@ it("updates an agent's model and advertised effort through the workspace route",
   ).toBeNull();
 });
 
-it("uses the sealed text of a published steering reply in carousel history", async () => {
+it("uses and saves the sealed text of a published steering reply in carousel history", async () => {
   const { run } = fixture();
   const conversationId = run.conversation_id!;
   const runSteering = await import("../src/server/sql/run-steering.js");
@@ -1022,4 +1022,35 @@ it("uses the sealed text of a published steering reply in carousel history", asy
     content: "The sealed reply",
     carousel_prompt: "Which option?",
   });
+  const savedPath = `/messages/${reply}/saved`;
+  expect((await request(savedPath, {})).data).toEqual({
+    ok: true,
+    saved: true,
+  });
+  expect((await request(`${path}?view=carousel`)).data.saved).toContain(reply);
+  expect((await request("/saved")).data.items).toContainEqual(
+    expect.objectContaining({
+      message: expect.objectContaining({
+        message_id: reply,
+        content: "The sealed reply",
+      }),
+    }),
+  );
+  expect((await request(savedPath, undefined, "DELETE")).data).toEqual({
+    ok: true,
+    saved: false,
+  });
+
+  const progress = id();
+  seedMessage(db, {
+    id: progress,
+    owner_id: owner,
+    run_id: run.id,
+    conversation_id: conversationId,
+    role: "assistant",
+    content: "Work in progress",
+    metadata: '{"progress":true}',
+    created_at: now(),
+  });
+  expect((await request(`/messages/${progress}/saved`, {})).status).toBe(400);
 });

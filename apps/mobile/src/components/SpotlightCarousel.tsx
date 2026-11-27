@@ -541,6 +541,7 @@ export function SpotlightCarousel({
     useState<NativeResultCard | null>(null);
   const [draft, setDraft] = useState("");
   const [draftLoaded, setDraftLoaded] = useState(false);
+  const [draftLoadFailed, setDraftLoadFailed] = useState(false);
   const draftScope = conversationId
     ? draftScopeForCarousel(conversationId)
     : "";
@@ -604,10 +605,12 @@ export function SpotlightCarousel({
         }
       })
       .catch(() => {
-        if (!cancelled)
+        if (!cancelled) {
+          setDraftLoadFailed(true);
           setReplyError(
             "Could not load the saved draft. Close and reopen to retry.",
           );
+        }
       });
     return () => {
       cancelled = true;
@@ -659,8 +662,9 @@ export function SpotlightCarousel({
     replyToMessageId?: string;
     queue?: boolean;
   } | null>(null);
+  const waitingForDraft = !draftLoaded && !draftLoadFailed;
   const holdHistoryUpdates =
-    !draftLoaded || keyboardVisible || recordingAudio || sending;
+    waitingForDraft || keyboardVisible || recordingAudio || sending;
   const holdSelection =
     holdHistoryUpdates ||
     draft.trim().length > 0 ||
@@ -671,7 +675,7 @@ export function SpotlightCarousel({
     if (
       !page ||
       appliedHistoryRef.current === page ||
-      !draftLoaded ||
+      waitingForDraft ||
       (historyLoaded && holdHistoryUpdates)
     )
       return;
@@ -699,7 +703,7 @@ export function SpotlightCarousel({
         keepOlder ? "refresh" : "replace",
       ),
     );
-  }, [draftLoaded, fetchedHistory, historyLoaded, holdHistoryUpdates]);
+  }, [waitingForDraft, fetchedHistory, historyLoaded, holdHistoryUpdates]);
 
   // Authoritative server capability: only show Steer/Queue toggle when the server reports
   // `steerable_run_id` matching the active run (harnesses with `midTurn: "steer"` / active live input).
