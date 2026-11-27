@@ -91,6 +91,10 @@ export function ProfileScreen({
   const [saved, setSaved] = useState<ApiSavedEntry[]>([]);
   const [reminders, setReminders] = useState<ApiLaterItem[]>([]);
   const [scheduled, setScheduled] = useState<ApiScheduledSend[]>([]);
+  const [scheduledNextCursor, setScheduledNextCursor] = useState<string | null>(
+    null,
+  );
+  const [loadingMoreScheduled, setLoadingMoreScheduled] = useState(false);
   const [busyScheduledIds, setBusyScheduledIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -117,6 +121,8 @@ export function ProfileScreen({
     setSaved([]);
     setReminders([]);
     setScheduled([]);
+    setScheduledNextCursor(null);
+    setLoadingMoreScheduled(false);
     setBusyScheduledIds(new Set());
     setScheduledNotice("");
     setFiles([]);
@@ -176,8 +182,11 @@ export function ProfileScreen({
         const data = await client.laterList();
         if (gen === loadGenRef.current) setReminders(data);
       } else if (section === "scheduled") {
-        const data = await client.scheduledList();
-        if (gen === loadGenRef.current) setScheduled(data);
+        const page = await client.scheduledListPage();
+        if (gen === loadGenRef.current) {
+          setScheduled(page.items);
+          setScheduledNextCursor(page.failedNext);
+        }
       } else if (section === "files") {
         const page = await client.personalFilesPage();
         if (gen === loadGenRef.current) {
@@ -194,6 +203,28 @@ export function ProfileScreen({
       if (gen === loadGenRef.current) setLoading(false);
     }
   }, [client, section]);
+
+  const loadMoreScheduled = useCallback(async () => {
+    if (!client || !scheduledNextCursor || loadingMoreScheduled || loading) {
+      return;
+    }
+    const gen = loadGenRef.current;
+    setLoadingMoreScheduled(true);
+    try {
+      const page = await client.scheduledListPage(scheduledNextCursor);
+      if (gen !== loadGenRef.current) return;
+      setScheduled((prev) => {
+        const seen = new Set(prev.map((x) => x.id));
+        const extra = page.items.filter((x) => !seen.has(x.id));
+        return extra.length > 0 ? [...prev, ...extra] : prev;
+      });
+      setScheduledNextCursor(page.failedNext);
+    } catch {
+      // keep existing items
+    } finally {
+      if (gen === loadGenRef.current) setLoadingMoreScheduled(false);
+    }
+  }, [client, loading, loadingMoreScheduled, scheduledNextCursor]);
 
   const loadMoreFiles = useCallback(async () => {
     if (!client || filesNextCursor === null || loadingMoreFiles || loading) {
@@ -821,6 +852,33 @@ export function ProfileScreen({
                   </View>
                 );
               })}
+              {scheduledNextCursor !== null && (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Load more failed scheduled messages"
+                  disabled={loadingMoreScheduled}
+                  onPress={() => {
+                    haptics.light();
+                    void loadMoreScheduled();
+                  }}
+                  style={({ pressed }) => [
+                    styles.loadMoreBtn,
+                    {
+                      backgroundColor: pressed
+                        ? theme.attention
+                        : theme.surface,
+                      borderColor: theme.line,
+                      opacity: loadingMoreScheduled ? 0.6 : 1,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.loadMoreText, { color: theme.text }]}>
+                    {loadingMoreScheduled
+                      ? "Loading more…"
+                      : "Load more failed messages"}
+                  </Text>
+                </Pressable>
+              )}
             </>
           ))}
 

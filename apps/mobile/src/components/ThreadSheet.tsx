@@ -30,6 +30,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   isUncertainOutcomeError,
+  LoopApiError,
   randomUuid,
   type LoopClient,
 } from "../api/client";
@@ -151,6 +152,7 @@ export function ThreadSheet({
     idempotencyKey: string;
     sendAt: number;
     input: string;
+    agentId?: string;
     attachmentIds: string[];
     locked: boolean;
   } | null>(null);
@@ -164,6 +166,7 @@ export function ThreadSheet({
     idempotencyKey: string;
     sendAt: number;
     input: string;
+    agentId?: string;
     attachmentIds: string[];
     locked: boolean;
   } | null>(null);
@@ -178,7 +181,22 @@ export function ThreadSheet({
     let cancelled = false;
     draftTouchedRef.current = false;
     void loadDraftEntry(client?.origin, draftScope).then((entry) => {
-      if (!cancelled && !draftTouchedRef.current && entry?.text) {
+      if (cancelled || !entry?.text) return;
+      if (entry.pendingSchedule) {
+        const restored = {
+          idempotencyKey: entry.pendingSchedule.key,
+          sendAt: entry.pendingSchedule.sendAt,
+          input: entry.pendingSchedule.input ?? entry.text,
+          agentId: entry.pendingSchedule.agentId,
+          attachmentIds: entry.pendingSchedule.attachmentIds ?? [],
+          locked: true,
+        };
+        restoredPendingScheduleRef.current = restored;
+        setPendingSchedule(restored);
+        setDraft(entry.text);
+        return;
+      }
+      if (!draftTouchedRef.current) {
         if (entry.pendingKey) {
           restoredPendingRef.current = {
             idempotencyKey: entry.pendingKey,
@@ -187,15 +205,6 @@ export function ThreadSheet({
           if (entry.pendingQueue !== undefined) {
             setDeliveryMode(entry.pendingQueue ? "queue" : "steer");
           }
-        }
-        if (entry.pendingSchedule) {
-          restoredPendingScheduleRef.current = {
-            idempotencyKey: entry.pendingSchedule.key,
-            sendAt: entry.pendingSchedule.sendAt,
-            input: entry.pendingSchedule.input ?? entry.text,
-            attachmentIds: entry.pendingSchedule.attachmentIds ?? [],
-            locked: true,
-          };
         }
         setDraft(entry.text);
       }
@@ -488,24 +497,42 @@ export function ThreadSheet({
       idempotencyKey: randomUuid(),
       sendAt,
       input: finalText,
+      agentId: resolvedAgentId || undefined,
       attachmentIds: readyIds,
       locked: false,
     };
-    setPendingSchedule(nextPending);
     setScheduleBusy(true);
     setScheduleError("");
-    await saveDraftAndFlush(client?.origin, draftScope, trimmed || finalText, {
-      schedule: {
-        key: nextPending.idempotencyKey,
-        sendAt: nextPending.sendAt,
-        input: nextPending.input,
-        attachmentIds: nextPending.attachmentIds,
-      },
-    });
+    try {
+      await saveDraftAndFlush(
+        client?.origin,
+        draftScope,
+        trimmed || finalText,
+        {
+          schedule: {
+            key: nextPending.idempotencyKey,
+            sendAt: nextPending.sendAt,
+            input: nextPending.input,
+            ...(nextPending.agentId ? { agentId: nextPending.agentId } : {}),
+            attachmentIds: nextPending.attachmentIds,
+          },
+        },
+      );
+    } catch (persistErr) {
+      haptics.warning();
+      setScheduleError(
+        persistErr instanceof Error
+          ? persistErr.message
+          : "Could not save schedule recovery state locally.",
+      );
+      setScheduleBusy(false);
+      return;
+    }
+    setPendingSchedule(nextPending);
     try {
       await onScheduleReply({
         conversationId,
-        agentId: resolvedAgentId || "",
+        agentId: nextPending.agentId || resolvedAgentId || "",
         agentName,
         text: nextPending.input,
         attachmentIds: nextPending.attachmentIds,
@@ -520,8 +547,24 @@ export function ThreadSheet({
       setDraft("");
       clearAttachments();
     } catch (err) {
+      if (err instanceof LoopApiError && err.status === 401) {
+        setPendingSchedule(null);
+        setScheduleBusy(false);
+        return;
+      }
       if (isUncertainOutcomeError(err)) {
         setPendingSchedule({ ...nextPending, locked: true });
+      } else if (
+        err instanceof LoopApiError &&
+        err.status === 409 &&
+        nextPending.locked
+      ) {
+        setPendingSchedule({ ...nextPending, locked: true });
+        haptics.warning();
+        setScheduleError(
+          "This scheduled message may already exist — check Profile → Scheduled before unlocking.",
+        );
+        return;
       } else {
         setPendingSchedule(null);
         if (draft.trim()) saveDraft(client?.origin, draftScope, draft);

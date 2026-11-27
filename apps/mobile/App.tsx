@@ -831,6 +831,7 @@ function LoopShell() {
       if (!client) {
         throw new Error("Pair with a Loop workspace to schedule messages.");
       }
+      const gen = workspaceGenRef.current;
       const agentId =
         card.agentId ||
         agents.find((a) => a.name === card.agentName)?.id ||
@@ -847,33 +848,46 @@ function LoopShell() {
         idempotencyKey,
         sendAt,
       });
-      haptics.success();
-      showToast(
-        `Scheduled for @${card.agentName} · ${formatScheduledTime(sendAt)}`,
-      );
+      if (gen === workspaceGenRef.current) {
+        haptics.success();
+        showToast(
+          `Scheduled for @${card.agentName} · ${formatScheduledTime(sendAt)}`,
+        );
+        scheduleSilentRefresh(400, gen);
+      }
     },
-    [agents, client, showToast],
+    [agents, client, scheduleSilentRefresh, showToast],
   );
 
   const handleComposeSchedule = useCallback(
-    async (agent: ApiAgent, input: ComposeSubmit & { sendAt: number }) => {
+    async (
+      agent: ApiAgent,
+      input: ComposeSubmit & { sendAt: number; folderId?: string | null },
+    ) => {
       if (!client) {
         throw new Error("Pair with a Loop workspace to schedule messages.");
       }
+      const gen = workspaceGenRef.current;
       await client.createScheduledSend({
         agentId: agent.id,
-        folderId: agent.folder_id ?? null,
+        folderId:
+          input.folderId !== undefined
+            ? input.folderId
+            : (agent.folder_id ?? null),
         input: input.text,
         attachmentIds: input.attachmentIds ?? [],
         idempotencyKey: input.idempotencyKey,
         sendAt: input.sendAt,
       });
-      haptics.success();
-      showToast(
-        `Scheduled for @${agent.name} · ${formatScheduledTime(input.sendAt)}`,
-      );
+      if (gen === workspaceGenRef.current) {
+        haptics.success();
+        showToast(
+          `Scheduled for @${agent.name} · ${formatScheduledTime(input.sendAt)}`,
+        );
+        scheduleSilentRefresh(400, gen);
+      }
     },
-    [client, showToast],
+    [client, scheduleSilentRefresh, showToast],
   );
 
   const handleComposeMessage = useCallback(
@@ -1766,6 +1780,7 @@ function LoopShell() {
           onScheduleReply={
             client
               ? async (input) => {
+                  const gen = workspaceGenRef.current;
                   const agentId =
                     input.agentId ||
                     agents.find((a) => a.name === input.agentName)?.id ||
@@ -1780,10 +1795,13 @@ function LoopShell() {
                     idempotencyKey: input.idempotencyKey,
                     sendAt: input.sendAt,
                   });
-                  haptics.success();
-                  showToast(
-                    `Scheduled for @${input.agentName} · ${formatScheduledTime(input.sendAt)}`,
-                  );
+                  if (gen === workspaceGenRef.current) {
+                    haptics.success();
+                    showToast(
+                      `Scheduled for @${input.agentName} · ${formatScheduledTime(input.sendAt)}`,
+                    );
+                    scheduleSilentRefresh(400, gen);
+                  }
                 }
               : undefined
           }

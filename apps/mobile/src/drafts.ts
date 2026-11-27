@@ -53,6 +53,15 @@ function getOrCreatePendingOps(bucket: string): PendingOps {
   return ops;
 }
 
+function writeBucketFile(bucket: string, map: DraftMap): void {
+  const file = draftFileForBucket(bucket);
+  if (Object.keys(map).length === 0) {
+    if (file.exists) file.delete();
+    return;
+  }
+  file.write(serializeDraftStore(map));
+}
+
 function flushBucketNow(bucket: string): void {
   const timer = flushTimers.get(bucket);
   if (timer) {
@@ -62,14 +71,9 @@ function flushBucketNow(bucket: string): void {
   if (!loadedBuckets.has(bucket)) return;
   try {
     const map = memoryBuckets.get(bucket) ?? createEmptyDraftMap();
-    const file = draftFileForBucket(bucket);
-    if (Object.keys(map).length === 0) {
-      if (file.exists) file.delete();
-      return;
-    }
-    file.write(serializeDraftStore(map));
+    writeBucketFile(bucket, map);
   } catch {
-    // Cache persistence is best-effort; never disrupt typing or sending.
+    // Best-effort flush for ordinary draft typing.
   }
 }
 
@@ -115,10 +119,14 @@ async function ensureBucketLoaded(bucket: string): Promise<DraftMap> {
     let dirty = false;
     if (ops) {
       for (const scope of ops.deletes) {
+        if (merged[scope]?.pendingSchedule) continue;
         merged = deleteDraftFromStore(merged, scope);
         dirty = true;
       }
       for (const [scope, op] of ops.saves) {
+        // Never allow an ordinary typing save queued during initial disk load
+        // to overwrite a persisted pendingSchedule lock on disk.
+        if (merged[scope]?.pendingSchedule && !op.pending?.schedule) continue;
         merged = setDraftInStore(
           merged,
           scope,
@@ -200,8 +208,19 @@ export async function saveDraftAndFlush(
   await ensureBucketLoaded(bucket);
   const current = memoryBuckets.get(bucket) ?? createEmptyDraftMap();
   const next = setDraftInStore(current, scope, text, Date.now(), pending);
+  const timer = flushTimers.get(bucket);
+  if (timer) {
+    clearTimeout(timer);
+    flushTimers.delete(bucket);
+  }
+  try {
+    writeBucketFile(bucket, next);
+  } catch {
+    throw new Error(
+      "Could not persist schedule recovery state locally. Please try again.",
+    );
+  }
   memoryBuckets.set(bucket, next);
-  flushBucketNow(bucket);
 }
 
 export function clearDraft(

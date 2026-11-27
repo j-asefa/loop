@@ -2,6 +2,8 @@ export type PendingScheduleDraft = {
   key: string;
   sendAt: number;
   input?: string;
+  agentId?: string;
+  folderId?: string | null;
   attachmentIds?: string[];
   replyToMessageId?: string;
 };
@@ -31,6 +33,8 @@ function sanitizePendingSchedule(
     key?: unknown;
     sendAt?: unknown;
     input?: unknown;
+    agentId?: unknown;
+    folderId?: unknown;
     attachmentIds?: unknown;
     replyToMessageId?: unknown;
   };
@@ -54,10 +58,20 @@ function sanitizePendingSchedule(
         ? item.input.slice(0, MAX_DRAFT_CHARS)
         : item.input
       : undefined;
+  const folderId =
+    item.folderId === null
+      ? null
+      : typeof item.folderId === "string" && item.folderId
+        ? item.folderId
+        : undefined;
   return {
     key: item.key,
     sendAt: item.sendAt,
     ...(input ? { input } : {}),
+    ...(typeof item.agentId === "string" && item.agentId
+      ? { agentId: item.agentId }
+      : {}),
+    ...(folderId !== undefined ? { folderId } : {}),
     ...(attachmentIds && attachmentIds.length > 0 ? { attachmentIds } : {}),
     ...(typeof item.replyToMessageId === "string" && item.replyToMessageId
       ? { replyToMessageId: item.replyToMessageId }

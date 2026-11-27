@@ -451,7 +451,12 @@ export function AttachmentChipStrip({
           )}
 
           <Pressable
-            disabled={locked || att.status !== "error" || !onRetry}
+            disabled={
+              locked ||
+              att.status !== "error" ||
+              !onRetry ||
+              Boolean(att.size && att.size > MAX_UPLOAD_BYTES)
+            }
             onPress={() => onRetry?.(att.localId)}
             style={styles.chipMeta}
           >
@@ -473,7 +478,7 @@ export function AttachmentChipStrip({
               {att.status === "uploading"
                 ? "Uploading…"
                 : att.status === "error"
-                  ? onRetry
+                  ? onRetry && !(att.size && att.size > MAX_UPLOAD_BYTES)
                     ? `${att.error || "Failed"} · Tap to retry`
                     : att.error || "Failed"
                   : formatFileSize(att.size) || "Attached"}

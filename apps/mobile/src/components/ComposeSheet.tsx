@@ -16,6 +16,7 @@ import { ArrowUp, Clock, Paperclip, X } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   isUncertainOutcomeError,
+  LoopApiError,
   randomUuid,
   type LoopClient,
 } from "../api/client";
@@ -74,7 +75,7 @@ export function ComposeSheet({
   onMessage: (agent: ApiAgent, input: ComposeSubmit) => Promise<void>;
   onSchedule?: (
     agent: ApiAgent,
-    input: ComposeSubmit & { sendAt: number },
+    input: ComposeSubmit & { sendAt: number; folderId?: string | null },
   ) => Promise<void>;
   onCreate: (
     input: ComposeSubmit & {
@@ -114,6 +115,7 @@ export function ComposeSheet({
     idempotencyKey: string;
     sendAt: number;
     input: string;
+    folderId: string | null;
     attachmentIds: string[];
     locked: boolean;
   } | null>(null);
@@ -127,6 +129,7 @@ export function ComposeSheet({
     idempotencyKey: string;
     sendAt: number;
     input: string;
+    folderId: string | null;
     attachmentIds: string[];
     locked: boolean;
   } | null>(null);
@@ -135,24 +138,34 @@ export function ComposeSheet({
     let cancelled = false;
     draftTouchedRef.current = false;
     void loadDraftEntry(client?.origin, draftScope).then((entry) => {
-      if (!cancelled && !draftTouchedRef.current && entry?.text) {
+      if (cancelled || !entry?.text) return;
+      if (entry.pendingSchedule) {
+        // Always restore a locked schedule even if the user started typing before disk load finished.
+        const restored = {
+          idempotencyKey: entry.pendingSchedule.key,
+          sendAt: entry.pendingSchedule.sendAt,
+          input: entry.pendingSchedule.input ?? entry.text,
+          folderId:
+            entry.pendingSchedule.folderId !== undefined
+              ? entry.pendingSchedule.folderId
+              : (agent?.folder_id ?? null),
+          attachmentIds: entry.pendingSchedule.attachmentIds ?? [],
+          locked: true,
+        };
+        restoredPendingScheduleRef.current = restored;
+        setPendingSchedule(restored);
+        setText(entry.text);
+        return;
+      }
+      if (!draftTouchedRef.current) {
         restoredPendingKeyRef.current = entry.pendingKey ?? null;
-        restoredPendingScheduleRef.current = entry.pendingSchedule
-          ? {
-              idempotencyKey: entry.pendingSchedule.key,
-              sendAt: entry.pendingSchedule.sendAt,
-              input: entry.pendingSchedule.input ?? entry.text,
-              attachmentIds: entry.pendingSchedule.attachmentIds ?? [],
-              locked: true,
-            }
-          : null;
         setText(entry.text);
       }
     });
     return () => {
       cancelled = true;
     };
-  }, [client?.origin, draftScope]);
+  }, [agent?.folder_id, client?.origin, draftScope]);
 
   useEffect(() => {
     if (agent || !client) return;
@@ -253,25 +266,45 @@ export function ComposeSheet({
       idempotencyKey: randomUuid(),
       sendAt,
       input: finalText,
+      folderId: agent.folder_id ?? null,
       attachmentIds: readyIds,
       locked: false,
     };
-    setPendingSchedule(nextPending);
     setScheduleBusy(true);
     setScheduleError("");
-    // Persist and flush durable schedule identity + payload before dispatch so
-    // process kills or uncertain timeouts never replay under a second key.
-    await saveDraftAndFlush(client?.origin, draftScope, trimmed || finalText, {
-      schedule: {
-        key: nextPending.idempotencyKey,
-        sendAt: nextPending.sendAt,
-        input: nextPending.input,
-        attachmentIds: nextPending.attachmentIds,
-      },
-    });
+    // Persist and flush durable schedule identity + payload before dispatch;
+    // refuse to dispatch if local persistence fails.
+    try {
+      await saveDraftAndFlush(
+        client?.origin,
+        draftScope,
+        trimmed || finalText,
+        {
+          schedule: {
+            key: nextPending.idempotencyKey,
+            sendAt: nextPending.sendAt,
+            input: nextPending.input,
+            agentId: agent.id,
+            folderId: nextPending.folderId,
+            attachmentIds: nextPending.attachmentIds,
+          },
+        },
+      );
+    } catch (persistErr) {
+      haptics.warning();
+      setScheduleError(
+        persistErr instanceof Error
+          ? persistErr.message
+          : "Could not save schedule recovery state locally.",
+      );
+      setScheduleBusy(false);
+      return;
+    }
+    setPendingSchedule(nextPending);
     try {
       await onSchedule(agent, {
         text: nextPending.input,
+        folderId: nextPending.folderId,
         attachmentIds: nextPending.attachmentIds,
         idempotencyKey: nextPending.idempotencyKey,
         sendAt: nextPending.sendAt,
@@ -284,8 +317,24 @@ export function ComposeSheet({
       clearAttachments();
       onClose();
     } catch (err) {
+      if (err instanceof LoopApiError && err.status === 401) {
+        setPendingSchedule(null);
+        setScheduleBusy(false);
+        return;
+      }
       if (isUncertainOutcomeError(err)) {
         setPendingSchedule({ ...nextPending, locked: true });
+      } else if (
+        err instanceof LoopApiError &&
+        err.status === 409 &&
+        nextPending.locked
+      ) {
+        setPendingSchedule({ ...nextPending, locked: true });
+        haptics.warning();
+        setScheduleError(
+          "This scheduled message may already exist — check Profile → Scheduled before unlocking.",
+        );
+        return;
       } else {
         setPendingSchedule(null);
         if (text.trim()) saveDraft(client?.origin, draftScope, text);

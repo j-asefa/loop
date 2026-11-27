@@ -684,17 +684,31 @@ export class LoopClient {
     return this.request("DELETE", `/api/later/${encodeURIComponent(id)}`, {});
   }
 
-  async scheduledList(): Promise<ApiScheduledSend[]> {
+  async scheduledListPage(
+    failedBefore?: string,
+  ): Promise<{ items: ApiScheduledSend[]; failedNext: string | null }> {
+    const query = failedBefore
+      ? `?failedBefore=${encodeURIComponent(failedBefore)}`
+      : "";
     const data = await this.request<{
       pending?: ApiScheduledSend[];
       failed?: ApiScheduledSend[];
       items?: ApiScheduledSend[];
-    }>("GET", "/api/scheduled-sends");
-    return [
-      ...(data.failed ?? []),
-      ...(data.pending ?? []),
-      ...(data.items ?? []),
-    ];
+      failed_next?: string | null;
+    }>("GET", `/api/scheduled-sends${query}`);
+    return {
+      items: [
+        ...(data.failed ?? []),
+        ...(data.pending ?? []),
+        ...(data.items ?? []),
+      ],
+      failedNext: data.failed_next ?? null,
+    };
+  }
+
+  async scheduledList(): Promise<ApiScheduledSend[]> {
+    const page = await this.scheduledListPage();
+    return page.items;
   }
 
   createScheduledSend(input: {
