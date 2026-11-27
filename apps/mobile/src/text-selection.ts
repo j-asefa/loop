@@ -65,6 +65,24 @@ export function resolveInlineTextSelectable(opts: {
   return true;
 }
 
+/**
+ * Returns true when FilePreviewModal's Select text toggle actually changes the
+ * underlying view:
+ * - On iOS, switches both Markdown and plain-text previews to a read-only multiline
+ *   `TextInput` for drag-handle partial selection.
+ * - On Android/other platforms, switches rendered Markdown (`RichContent`) to a single
+ *   selectable `<Text>` view; plain-text previews already render a single `<Text selectable>`,
+ *   so hiding the toggle avoids a no-op button.
+ */
+export function shouldShowPreviewSelectToggle(opts: {
+  hasTextContent: boolean;
+  isMarkdown: boolean;
+  platformOs: string;
+}): boolean {
+  if (!opts.hasTextContent) return false;
+  return opts.platformOs === "ios" || opts.isMarkdown;
+}
+
 export interface CopySessionCallbacks {
   onSuccess: () => void;
   onReset: () => void;

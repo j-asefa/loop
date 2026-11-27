@@ -46,6 +46,7 @@ import {
   type PublishedFileItem,
 } from "../api/files";
 import { haptics } from "../haptics";
+import { shouldShowPreviewSelectToggle } from "../text-selection";
 import type { LoopTheme } from "../theme";
 import { RichContent } from "./RichContent";
 
@@ -467,7 +468,11 @@ export function FilePreviewModal({
                 .join(" · ")}
             </Text>
           </View>
-          {textContent !== null ? (
+          {shouldShowPreviewSelectToggle({
+            hasTextContent: textContent !== null,
+            isMarkdown,
+            platformOs: Platform.OS,
+          }) ? (
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={

@@ -143,18 +143,22 @@ export function ThreadSheet({
   const [selectingMessage, setSelectingMessage] = useState<{
     author: string;
     content: string;
+    streamingSnapshot?: boolean;
   } | null>(null);
   const [selectModalCopied, setSelectModalCopied] = useState(false);
   const copyTrackerRef = useRef(new CopySessionTracker());
   const selectCopyTrackerRef = useRef(new CopySessionTracker());
 
-  const openSelectModal = useCallback((author: string, content: string) => {
-    haptics.light();
-    Keyboard.dismiss();
-    selectCopyTrackerRef.current.invalidate();
-    setSelectModalCopied(false);
-    setSelectingMessage({ author, content });
-  }, []);
+  const openSelectModal = useCallback(
+    (author: string, content: string, streamingSnapshot = false) => {
+      haptics.light();
+      Keyboard.dismiss();
+      selectCopyTrackerRef.current.invalidate();
+      setSelectModalCopied(false);
+      setSelectingMessage({ author, content, streamingSnapshot });
+    },
+    [],
+  );
 
   const closeSelectModal = useCallback(() => {
     selectCopyTrackerRef.current.invalidate();
@@ -1083,7 +1087,11 @@ export function ThreadSheet({
                             accessibilityRole="button"
                             accessibilityLabel="Select text"
                             onPress={() =>
-                              openSelectModal(`@${agentName}`, liveStream.text)
+                              openSelectModal(
+                                `@${agentName}`,
+                                liveStream.text,
+                                true,
+                              )
                             }
                             hitSlop={8}
                           >
@@ -1402,7 +1410,11 @@ export function ThreadSheet({
                   style={[styles.selectModalSub, { color: theme.muted }]}
                   numberOfLines={1}
                 >
-                  {selectingMessage.author} · drag handles to select any portion
+                  {selectingMessage.author}
+                  {selectingMessage.streamingSnapshot
+                    ? " · snapshot while streaming"
+                    : ""}{" "}
+                  · drag handles to select any portion
                 </Text>
               ) : null}
             </View>

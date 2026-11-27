@@ -6,6 +6,7 @@ import {
   CopySessionTracker,
   hasInteractiveInlineLink,
   resolveInlineTextSelectable,
+  shouldShowPreviewSelectToggle,
 } from "../apps/mobile/src/text-selection.js";
 import {
   ShareInput,
@@ -3679,6 +3680,38 @@ describe("mobile text selection helpers", () => {
         selectable: true,
         platformOs: "android",
         hasInteractiveLinks: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("shows FilePreviewModal Select text toggle only where it changes the rendered view", () => {
+    expect(
+      shouldShowPreviewSelectToggle({
+        hasTextContent: false,
+        isMarkdown: true,
+        platformOs: "ios",
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowPreviewSelectToggle({
+        hasTextContent: true,
+        isMarkdown: false,
+        platformOs: "ios",
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowPreviewSelectToggle({
+        hasTextContent: true,
+        isMarkdown: true,
+        platformOs: "android",
+      }),
+    ).toBe(true);
+    // Plain-text previews on Android already render a single selectable <Text>
+    expect(
+      shouldShowPreviewSelectToggle({
+        hasTextContent: true,
+        isMarkdown: false,
+        platformOs: "android",
       }),
     ).toBe(false);
   });
