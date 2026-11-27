@@ -185,6 +185,8 @@ export function ThreadSheet({
   const suppressAutoScrollUntilRef = useRef(0);
   const hasLoadedHistoryRef = useRef(false);
   const [draft, setDraft] = useState("");
+  const [draftLoaded, setDraftLoaded] = useState(false);
+  const [draftLoadError, setDraftLoadError] = useState(false);
   const draftScope = draftScopeForThread(conversationId);
   const draftTouchedRef = useRef(false);
   const restoredPendingRef = useRef<{
@@ -223,35 +225,43 @@ export function ThreadSheet({
   useEffect(() => {
     let cancelled = false;
     draftTouchedRef.current = false;
-    void loadDraftEntry(client?.localDataScope, draftScope).then((entry) => {
-      if (cancelled || !entry?.text) return;
-      if (entry.pendingSchedule) {
-        const restored = {
-          idempotencyKey: entry.pendingSchedule.key,
-          sendAt: entry.pendingSchedule.sendAt,
-          input: entry.pendingSchedule.input ?? entry.text,
-          agentId: entry.pendingSchedule.agentId,
-          attachmentIds: entry.pendingSchedule.attachmentIds ?? [],
-          locked: true,
-        };
-        restoredPendingScheduleRef.current = restored;
-        setPendingSchedule(restored);
-        setDraft(entry.text);
-        return;
-      }
-      if (!draftTouchedRef.current) {
-        if (entry.pendingKey) {
-          restoredPendingRef.current = {
-            idempotencyKey: entry.pendingKey,
-            queue: entry.pendingQueue,
+    setDraftLoaded(false);
+    setDraftLoadError(false);
+    void loadDraftEntry(client?.localDataScope, draftScope)
+      .then((entry) => {
+        if (cancelled) return;
+        setDraftLoaded(true);
+        if (!entry?.text) return;
+        if (entry.pendingSchedule) {
+          const restored = {
+            idempotencyKey: entry.pendingSchedule.key,
+            sendAt: entry.pendingSchedule.sendAt,
+            input: entry.pendingSchedule.input ?? entry.text,
+            agentId: entry.pendingSchedule.agentId,
+            attachmentIds: entry.pendingSchedule.attachmentIds ?? [],
+            locked: true,
           };
-          if (entry.pendingQueue !== undefined) {
-            setDeliveryMode(entry.pendingQueue ? "queue" : "steer");
-          }
+          restoredPendingScheduleRef.current = restored;
+          setPendingSchedule(restored);
+          setDraft(entry.text);
+          return;
         }
-        setDraft(entry.text);
-      }
-    });
+        if (!draftTouchedRef.current) {
+          if (entry.pendingKey) {
+            restoredPendingRef.current = {
+              idempotencyKey: entry.pendingKey,
+              queue: entry.pendingQueue,
+            };
+            if (entry.pendingQueue !== undefined) {
+              setDeliveryMode(entry.pendingQueue ? "queue" : "steer");
+            }
+          }
+          setDraft(entry.text);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setDraftLoadError(true);
+      });
     return () => {
       cancelled = true;
     };
@@ -455,6 +465,7 @@ export function ThreadSheet({
     const { readyIds, readyNames, uploading, hasErrors, clearAttachments } =
       replyAttachments;
     if (
+      !draftLoaded ||
       (!trimmed && readyIds.length === 0) ||
       uploading ||
       hasErrors ||
@@ -1200,6 +1211,11 @@ export function ThreadSheet({
               </Pressable>
             </View>
           )}
+          {draftLoadError && (
+            <Text style={{ color: theme.orange }}>
+              Could not load the saved draft. Close and reopen to retry.
+            </Text>
+          )}
           <AttachmentChipStrip
             attachments={replyAttachments.attachments}
             theme={theme}
@@ -1262,7 +1278,9 @@ export function ThreadSheet({
             />
             <TextInput
               value={draft}
-              editable={!sending && !scheduleBusy && !scheduleLocked}
+              editable={
+                draftLoaded && !sending && !scheduleBusy && !scheduleLocked
+              }
               onChangeText={(next) => {
                 draftTouchedRef.current = true;
                 pendingSendRef.current = null;
@@ -1315,6 +1333,7 @@ export function ThreadSheet({
             )}
             <Pressable
               disabled={
+                !draftLoaded ||
                 (!draft.trim() && replyAttachments.readyIds.length === 0) ||
                 replyAttachments.uploading ||
                 replyAttachments.hasErrors ||
@@ -1329,6 +1348,7 @@ export function ThreadSheet({
                 {
                   backgroundColor: theme.brass,
                   opacity:
+                    !draftLoaded ||
                     (!draft.trim() && replyAttachments.readyIds.length === 0) ||
                     replyAttachments.uploading ||
                     replyAttachments.hasErrors ||

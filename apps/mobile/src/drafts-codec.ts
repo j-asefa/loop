@@ -319,17 +319,18 @@ export function pruneDraftStore(input: DraftMap, now = Date.now()): DraftMap {
 }
 
 export function parseDraftStore(raw: string, now = Date.now()): DraftMap {
-  if (!raw) return createEmptyDraftMap();
   try {
     const parsed = JSON.parse(raw) as {
       v?: unknown;
       drafts?: Record<string, unknown>;
     };
     if (!parsed || typeof parsed !== "object" || parsed.v !== 1) {
-      return createEmptyDraftMap();
+      throw new Error("Unexpected draft format.");
     }
     const source = parsed.drafts;
-    if (!source || typeof source !== "object") return createEmptyDraftMap();
+    if (!source || typeof source !== "object" || Array.isArray(source)) {
+      throw new Error("Missing draft entries.");
+    }
     const loaded = createEmptyDraftMap();
     for (const key of Object.keys(source)) {
       if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
@@ -381,7 +382,7 @@ export function parseDraftStore(raw: string, now = Date.now()): DraftMap {
     }
     return pruneDraftStore(loaded, now);
   } catch {
-    return createEmptyDraftMap();
+    throw new Error("Could not read the existing local drafts.");
   }
 }
 

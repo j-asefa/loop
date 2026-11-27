@@ -566,47 +566,55 @@ export function SpotlightCarousel({
     if (!draftScope) return;
     let cancelled = false;
     draftTouchedRef.current = false;
-    void loadDraftEntry(client?.localDataScope, draftScope).then((entry) => {
-      if (cancelled) return;
-      setDraftLoaded(true);
-      if (!entry?.text) return;
-      if (entry.pendingSchedule) {
-        const restored = {
-          idempotencyKey: entry.pendingSchedule.key,
-          sendAt: entry.pendingSchedule.sendAt,
-          input: entry.pendingSchedule.input ?? entry.text,
-          agentId: entry.pendingSchedule.agentId,
-          attachmentIds: entry.pendingSchedule.attachmentIds ?? [],
-          replyToMessageId: entry.pendingSchedule.replyToMessageId,
-          locked: true,
-        };
-        restoredPendingScheduleRef.current = restored;
-        setPendingSchedule(restored);
-        setDraft(entry.text);
-        return;
-      }
-      if (!draftTouchedRef.current) {
-        if (entry.pendingKey) {
-          setRetryModeLocked(true);
-          restoredPendingReplyRef.current = {
-            idempotencyKey: entry.pendingKey,
-            replyToMessageId: entry.pendingReplyToMessageId,
-            queue: entry.pendingQueue,
+    void loadDraftEntry(client?.localDataScope, draftScope)
+      .then((entry) => {
+        if (cancelled) return;
+        setDraftLoaded(true);
+        if (!entry?.text) return;
+        if (entry.pendingSchedule) {
+          const restored = {
+            idempotencyKey: entry.pendingSchedule.key,
+            sendAt: entry.pendingSchedule.sendAt,
+            input: entry.pendingSchedule.input ?? entry.text,
+            agentId: entry.pendingSchedule.agentId,
+            attachmentIds: entry.pendingSchedule.attachmentIds ?? [],
+            replyToMessageId: entry.pendingSchedule.replyToMessageId,
+            locked: true,
           };
-          if (entry.pendingReplyAttachmentIds)
-            restoreUploadedAttachments(entry.pendingReplyAttachmentIds);
-          if (entry.pendingQueue !== undefined) {
-            setDeliveryMode(entry.pendingQueue ? "queue" : "steer");
-          }
+          restoredPendingScheduleRef.current = restored;
+          setPendingSchedule(restored);
+          setDraft(entry.text);
+          return;
         }
-        setDraft(entry.text);
-      }
-    });
+        if (!draftTouchedRef.current) {
+          if (entry.pendingKey) {
+            setRetryModeLocked(true);
+            restoredPendingReplyRef.current = {
+              idempotencyKey: entry.pendingKey,
+              replyToMessageId: entry.pendingReplyToMessageId,
+              queue: entry.pendingQueue,
+            };
+            if (entry.pendingReplyAttachmentIds)
+              restoreUploadedAttachments(entry.pendingReplyAttachmentIds);
+            if (entry.pendingQueue !== undefined) {
+              setDeliveryMode(entry.pendingQueue ? "queue" : "steer");
+            }
+          }
+          setDraft(entry.text);
+        }
+      })
+      .catch(() => {
+        if (!cancelled)
+          setReplyError(
+            "Could not load the saved draft. Close and reopen to retry.",
+          );
+      });
     return () => {
       cancelled = true;
     };
   }, [client?.localDataScope, draftScope, restoreUploadedAttachments]);
   const [replyError, setReplyError] = useState("");
+  const [replyConfirmed, setReplyConfirmed] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleBusy, setScheduleBusy] = useState(false);
   const [scheduleError, setScheduleError] = useState("");
@@ -1142,6 +1150,7 @@ export function SpotlightCarousel({
       replyAttachments;
     if (
       !draftLoaded ||
+      replyConfirmed ||
       (!trimmed && readyIds.length === 0) ||
       uploading ||
       hasErrors ||
@@ -1193,11 +1202,21 @@ export function SpotlightCarousel({
       await Promise.resolve(
         onSendReply(targetCard, finalPrompt, readyIds, idempotencyKey, queue),
       );
+      if (
+        origin &&
+        persisted &&
+        settlePendingReplyDraft(origin, draftScope, idempotencyKey) ===
+          "write-failed"
+      ) {
+        setReplyConfirmed(true);
+        setRetryModeLocked(true);
+        setReplyError("Reply sent. Could not clear its local recovery record.");
+        Keyboard.dismiss();
+        return;
+      }
       pendingReplyRef.current = null;
       setRetryModeLocked(false);
-      if (origin && persisted)
-        settlePendingReplyDraft(origin, draftScope, idempotencyKey);
-      else if (!origin && draftScope) clearDraft(origin, draftScope);
+      if (!origin && draftScope) clearDraft(origin, draftScope);
       setDraft("");
       clearAttachments();
       Keyboard.dismiss();
@@ -1205,11 +1224,17 @@ export function SpotlightCarousel({
       if (wasUncertain || isUncertainOutcomeError(err)) {
         setRetryModeLocked(true);
       } else {
-        if (origin && persisted) {
-          settlePendingReplyDraft(origin, draftScope, idempotencyKey, draft);
+        const settleFailed =
+          origin &&
+          persisted &&
+          settlePendingReplyDraft(origin, draftScope, idempotencyKey, draft) ===
+            "write-failed";
+        if (settleFailed) {
+          setRetryModeLocked(true);
+        } else {
+          pendingReplyRef.current = null;
+          setRetryModeLocked(false);
         }
-        pendingReplyRef.current = null;
-        setRetryModeLocked(false);
       }
       haptics.warning();
       setReplyError(
@@ -1222,6 +1247,7 @@ export function SpotlightCarousel({
   }, [
     draft,
     draftLoaded,
+    replyConfirmed,
     retryModeLocked,
     recordingAudio,
     scheduleBusy,
@@ -1240,17 +1266,33 @@ export function SpotlightCarousel({
     const scope = client?.localDataScope;
     if (!scope || !request || sendingRef.current) return;
     Alert.alert(
-      "Discard pending reply?",
-      "The earlier send may already have gone through.",
+      replyConfirmed
+        ? "Clear reply recovery record?"
+        : "Discard pending reply?",
+      replyConfirmed
+        ? "Your reply was already sent."
+        : "The earlier send may already have gone through.",
       [
         { text: "Keep reply", style: "cancel" },
         {
-          text: "Discard",
+          text: replyConfirmed ? "Clear" : "Discard",
           style: "destructive",
           onPress: () => {
             if (request !== pendingReplyRef.current || sendingRef.current)
               return;
-            settlePendingReplyDraft(scope, draftScope, request.idempotencyKey);
+            if (
+              settlePendingReplyDraft(
+                scope,
+                draftScope,
+                request.idempotencyKey,
+              ) === "write-failed"
+            ) {
+              setReplyError(
+                "Could not clear the local recovery record. Try again.",
+              );
+              return;
+            }
+            setReplyConfirmed(false);
             pendingReplyRef.current = null;
             setRetryModeLocked(false);
             setReplyError("");
@@ -1260,7 +1302,12 @@ export function SpotlightCarousel({
         },
       ],
     );
-  }, [client?.localDataScope, draftScope, replyAttachments.clearAttachments]);
+  }, [
+    client?.localDataScope,
+    draftScope,
+    replyAttachments.clearAttachments,
+    replyConfirmed,
+  ]);
 
   const submitScheduledReply = useCallback(
     async (sendAt: number) => {
@@ -2273,7 +2320,9 @@ export function SpotlightCarousel({
                 <Text
                   style={[styles.replyErrorText, { color: theme.brassText }]}
                 >
-                  Discard pending reply
+                  {replyConfirmed
+                    ? "Clear recovery record"
+                    : "Discard pending reply"}
                 </Text>
               </Pressable>
             )}
@@ -2415,6 +2464,7 @@ export function SpotlightCarousel({
                 accessibilityLabel="Send reply"
                 disabled={
                   !draftLoaded ||
+                  replyConfirmed ||
                   (!draft.trim() && replyAttachments.readyIds.length === 0) ||
                   replyAttachments.uploading ||
                   replyAttachments.hasErrors ||
@@ -2430,6 +2480,7 @@ export function SpotlightCarousel({
                     backgroundColor: theme.brass,
                     opacity:
                       !draftLoaded ||
+                      replyConfirmed ||
                       (!draft.trim() &&
                         replyAttachments.readyIds.length === 0) ||
                       replyAttachments.uploading ||

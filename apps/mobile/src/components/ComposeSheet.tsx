@@ -154,46 +154,54 @@ export function ComposeSheet({
   useEffect(() => {
     let cancelled = false;
     draftTouchedRef.current = false;
-    void loadDraftEntry(client?.localDataScope, draftScope).then((entry) => {
-      if (cancelled) return;
-      setDraftLoaded(true);
-      if (!entry?.text) return;
-      if (!agentId && entry.pendingAgentCreate) {
-        const pending = entry.pendingAgentCreate;
-        setPendingCreate(pending);
-        restoreUploadedAttachments(pending.attachmentIds);
-        setName(pending.name);
-        setModelSelection({
-          connectionId: pending.connectionId,
-          model: pending.model,
-          effort: pending.effort,
-        });
-        setText(entry.text);
-        return;
-      }
-      if (entry.pendingSchedule) {
-        // Always restore a locked schedule even if the user started typing before disk load finished.
-        const restored = {
-          idempotencyKey: entry.pendingSchedule.key,
-          sendAt: entry.pendingSchedule.sendAt,
-          input: entry.pendingSchedule.input ?? entry.text,
-          folderId:
-            entry.pendingSchedule.folderId !== undefined
-              ? entry.pendingSchedule.folderId
-              : (agent?.folder_id ?? null),
-          attachmentIds: entry.pendingSchedule.attachmentIds ?? [],
-          locked: true,
-        };
-        restoredPendingScheduleRef.current = restored;
-        setPendingSchedule(restored);
-        setText(entry.text);
-        return;
-      }
-      if (!draftTouchedRef.current) {
-        restoredPendingKeyRef.current = entry.pendingKey ?? null;
-        setText(entry.text);
-      }
-    });
+    setDraftLoaded(false);
+    void loadDraftEntry(client?.localDataScope, draftScope)
+      .then((entry) => {
+        if (cancelled) return;
+        setDraftLoaded(true);
+        if (!entry?.text) return;
+        if (!agentId && entry.pendingAgentCreate) {
+          const pending = entry.pendingAgentCreate;
+          setPendingCreate(pending);
+          restoreUploadedAttachments(pending.attachmentIds);
+          setName(pending.name);
+          setModelSelection({
+            connectionId: pending.connectionId,
+            model: pending.model,
+            effort: pending.effort,
+          });
+          setText(entry.text);
+          return;
+        }
+        if (entry.pendingSchedule) {
+          // Always restore a locked schedule even if the user started typing before disk load finished.
+          const restored = {
+            idempotencyKey: entry.pendingSchedule.key,
+            sendAt: entry.pendingSchedule.sendAt,
+            input: entry.pendingSchedule.input ?? entry.text,
+            folderId:
+              entry.pendingSchedule.folderId !== undefined
+                ? entry.pendingSchedule.folderId
+                : (agent?.folder_id ?? null),
+            attachmentIds: entry.pendingSchedule.attachmentIds ?? [],
+            locked: true,
+          };
+          restoredPendingScheduleRef.current = restored;
+          setPendingSchedule(restored);
+          setText(entry.text);
+          return;
+        }
+        if (!draftTouchedRef.current) {
+          restoredPendingKeyRef.current = entry.pendingKey ?? null;
+          setText(entry.text);
+        }
+      })
+      .catch(() => {
+        if (!cancelled)
+          setError(
+            "Could not load the saved draft. Close and reopen to retry.",
+          );
+      });
     return () => {
       cancelled = true;
     };
@@ -242,15 +250,15 @@ export function ComposeSheet({
 
   const scheduleLocked = Boolean(pendingSchedule?.locked);
   const createLocked = Boolean(pendingCreate);
-  const composerLocked = scheduleLocked || createLocked;
-  const ready = agent
-    ? true
-    : client
-      ? draftLoaded &&
-        Boolean(
-          pendingCreate || (name && selection.connectionId && selection.model),
-        )
-      : true;
+  const composerLocked = !draftLoaded || scheduleLocked || createLocked;
+  const ready =
+    draftLoaded &&
+    Boolean(
+      agent ||
+      !client ||
+      pendingCreate ||
+      (name && selection.connectionId && selection.model),
+    );
   const cannotSend =
     (!pendingCreate &&
       !text.trim() &&

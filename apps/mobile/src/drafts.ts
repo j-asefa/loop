@@ -66,7 +66,13 @@ function writeBucketFile(bucket: string, map: DraftMap): void {
   const file = draftFileForBucket(bucket);
   const legacy = legacyDraftFileForBucket(bucket);
   if (Object.keys(map).length === 0) {
-    if (legacy.exists) legacy.delete();
+    try {
+      if (legacy.exists) legacy.delete();
+    } catch {
+      // Keep an authoritative empty store so an undeletable legacy file cannot reappear.
+      file.writeSync(serializeDraftStore(map));
+      return;
+    }
     if (file.exists) file.delete();
     return;
   }
@@ -116,17 +122,14 @@ async function ensureBucketLoaded(bucket: string): Promise<DraftMap> {
   const loadPromise = (async () => {
     let loaded = createEmptyDraftMap();
     let readLegacy = false;
-    try {
-      const file = draftFileForBucket(bucket);
-      const legacy = legacyDraftFileForBucket(bucket);
-      if (file.exists) {
-        loaded = parseDraftStore(await file.text());
-      } else if (legacy.exists) {
-        loaded = parseDraftStore(await legacy.text());
-        readLegacy = true;
-      }
-    } catch {
-      loaded = createEmptyDraftMap();
+    const file = draftFileForBucket(bucket);
+    const legacy = legacyDraftFileForBucket(bucket);
+    // A failed read must leave the bucket unloaded so a later write cannot replace it.
+    if (file.exists) {
+      loaded = parseDraftStore(await file.text());
+    } else if (legacy.exists) {
+      loaded = parseDraftStore(await legacy.text());
+      readLegacy = true;
     }
     // If `clearWorkspaceDrafts` bumped the epoch while reading disk, discard the stale read.
     if ((bucketEpoch.get(bucket) ?? 0) !== epochAtStart) {
@@ -221,7 +224,7 @@ export function saveDraft(
       ops.saves.delete(scope);
       ops.deletes.add(scope);
     }
-    void ensureBucketLoaded(bucket);
+    void ensureBucketLoaded(bucket).catch(() => {});
     return;
   }
   const current = memoryBuckets.get(bucket) ?? createEmptyDraftMap();
@@ -345,14 +348,19 @@ export function settlePendingReplyDraft(
   scope: string,
   key: string,
   text?: string,
-): void {
+): "settled" | "stale" | "write-failed" {
   const bucket = draftWorkspaceBucket(origin);
   const current = memoryBuckets.get(bucket);
-  if (!current) return;
+  if (!current) return "stale";
   const next = settlePendingReplyInStore(current, scope, key, text);
-  if (next === current) return;
+  if (next === current) return "stale";
+  try {
+    writeBucketFile(bucket, next);
+  } catch {
+    return "write-failed";
+  }
   memoryBuckets.set(bucket, next);
-  flushBucketNow(bucket);
+  return "settled";
 }
 
 export function clearDraft(
@@ -364,7 +372,7 @@ export function clearDraft(
     const ops = getOrCreatePendingOps(bucket);
     ops.saves.delete(scope);
     ops.deletes.add(scope);
-    void ensureBucketLoaded(bucket);
+    void ensureBucketLoaded(bucket).catch(() => {});
     return;
   }
   const current = memoryBuckets.get(bucket) ?? createEmptyDraftMap();

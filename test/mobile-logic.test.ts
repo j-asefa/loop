@@ -4088,6 +4088,14 @@ it("uses the most recently started bookmark read and preserves a newer local cha
   ).toBe(false);
 });
 
+it("rejects unreadable draft stores without treating them as empty", () => {
+  expect(() => parseDraftStore('{"v":1,"drafts":')).toThrow("Could not read");
+  expect(() => parseDraftStore('{"v":2,"drafts":{}}')).toThrow(
+    "Could not read",
+  );
+  expect(Object.keys(parseDraftStore('{"v":1,"drafts":{}}'))).toEqual([]);
+});
+
 it("keeps an older pending carousel reply through draft age and capacity limits", () => {
   const now = Date.now();
   const scope = "carousel:pending";

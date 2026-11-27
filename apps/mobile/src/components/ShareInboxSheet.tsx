@@ -252,7 +252,9 @@ export function ShareInboxSheet({
       })
       .catch(() => {
         if (!cancelled && mountedRef.current && clientRef.current === client) {
-          setPendingLoaded(true);
+          setError(
+            "Could not load the saved draft. Close and reopen to retry.",
+          );
         }
       });
     return () => {
