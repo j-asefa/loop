@@ -621,7 +621,6 @@ export function ThreadSheet({
     void copyTrackerRef.current.copy(
       () => Clipboard.setStringAsync(msg.content),
       {
-        restartSession: true,
         onSuccess: () => {
           haptics.success();
           setCopiedMsgId(msg.id);

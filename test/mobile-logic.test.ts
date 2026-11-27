@@ -3471,20 +3471,21 @@ describe("mobile text selection helpers", () => {
       resetDelayMs: 1600,
     });
 
-    // Must not trigger success haptic/state before clipboard write settles
+    // Must not trigger success haptic/state before clipboard write settles;
+    // starting a copy resets any prior copied state up front
     expect(onSuccess).not.toHaveBeenCalled();
-    expect(onReset).not.toHaveBeenCalled();
+    expect(onReset).toHaveBeenCalledTimes(1);
 
     resolveWrite();
     await expect(pending).resolves.toBe(true);
     expect(onSuccess).toHaveBeenCalledTimes(1);
     expect(onError).not.toHaveBeenCalled();
-    expect(onReset).not.toHaveBeenCalled();
+    expect(onReset).toHaveBeenCalledTimes(1);
 
     vi.advanceTimersByTime(1599);
-    expect(onReset).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(1);
     expect(onReset).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(1);
+    expect(onReset).toHaveBeenCalledTimes(2);
   });
 
   it("fires error callback and suppresses success feedback when clipboard write rejects", async () => {
@@ -3503,10 +3504,11 @@ describe("mobile text selection helpers", () => {
     expect(onSuccess).not.toHaveBeenCalled();
     expect(onError).toHaveBeenCalledTimes(1);
     vi.advanceTimersByTime(5000);
-    expect(onReset).not.toHaveBeenCalled();
+    // Only the initial pre-copy reset ran; no reset timer was scheduled
+    expect(onReset).toHaveBeenCalledTimes(1);
   });
 
-  it("ignores late clipboard resolution after modal close/switch or unmount", async () => {
+  it("ignores late clipboard resolution or rejection after close/switch or overlapping copy", async () => {
     vi.useFakeTimers();
     const tracker = new CopySessionTracker();
     let resolveFirst!: () => void;
@@ -3528,33 +3530,34 @@ describe("mobile text selection helpers", () => {
     await expect(firstPending).resolves.toBe(false);
     expect(firstSuccess).not.toHaveBeenCalled();
     vi.advanceTimersByTime(5000);
-    expect(firstReset).not.toHaveBeenCalled();
+    expect(firstReset).toHaveBeenCalledTimes(1);
 
-    // Per-message copy with restartSession supersedes an earlier in-flight copy
-    let resolveMsgA!: () => void;
-    const msgAWrite = new Promise<void>((resolve) => {
-      resolveMsgA = resolve;
+    // Overlapping copy supersedes an earlier in-flight write even if the earlier write later rejects
+    let rejectFirstCopy!: (err: Error) => void;
+    const slowFirstCopy = new Promise<void>((_, reject) => {
+      rejectFirstCopy = reject;
     });
-    const msgASuccess = vi.fn();
-    const msgBSuccess = vi.fn();
-    const msgBReset = vi.fn();
+    const staleSuccess = vi.fn();
+    const staleError = vi.fn();
+    const latestSuccess = vi.fn();
+    const latestReset = vi.fn();
 
-    const msgAPending = tracker.copy(() => msgAWrite, {
-      restartSession: true,
-      onSuccess: msgASuccess,
+    const firstAttempt = tracker.copy(() => slowFirstCopy, {
+      onSuccess: staleSuccess,
       onReset: vi.fn(),
+      onError: staleError,
     });
-    const msgBPending = tracker.copy(() => Promise.resolve(), {
-      restartSession: true,
-      onSuccess: msgBSuccess,
-      onReset: msgBReset,
+    const secondAttempt = tracker.copy(() => Promise.resolve(), {
+      onSuccess: latestSuccess,
+      onReset: latestReset,
     });
 
-    await expect(msgBPending).resolves.toBe(true);
-    resolveMsgA();
-    await expect(msgAPending).resolves.toBe(false);
-    expect(msgASuccess).not.toHaveBeenCalled();
-    expect(msgBSuccess).toHaveBeenCalledTimes(1);
+    await expect(secondAttempt).resolves.toBe(true);
+    rejectFirstCopy(new Error("stale rejection"));
+    await expect(firstAttempt).resolves.toBe(false);
+    expect(staleSuccess).not.toHaveBeenCalled();
+    expect(staleError).not.toHaveBeenCalled();
+    expect(latestSuccess).toHaveBeenCalledTimes(1);
   });
 
   it("clears a prior copied badge immediately when a subsequent copy is slow or rejects", async () => {
@@ -3566,7 +3569,6 @@ describe("mobile text selection helpers", () => {
     // First copy succeeds and sets badge to msg-a
     await expect(
       tracker.copy(() => Promise.resolve(), {
-        restartSession: true,
         onSuccess: () => {
           copiedId = "msg-a";
         },
@@ -3584,7 +3586,6 @@ describe("mobile text selection helpers", () => {
       rejectMsgB = reject;
     });
     const pendingB = tracker.copy(() => msgBWrite, {
-      restartSession: true,
       onSuccess: () => {
         copiedId = "msg-b";
       },

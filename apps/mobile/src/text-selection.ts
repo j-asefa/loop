@@ -88,14 +88,12 @@ export interface CopySessionCallbacks {
   onReset: () => void;
   onError?: () => void;
   resetDelayMs?: number;
-  /** Increment the session token before starting so an older in-flight copy is superseded. */
-  restartSession?: boolean;
 }
 
 /**
  * Coordinates async clipboard writes with a reset timer and monotonic session token
- * so closing a sheet, switching messages, or unmounting never flashes stale "Copied"
- * feedback or leaks a reset timeout.
+ * so overlapping taps, closing a sheet, switching messages, or unmounting never
+ * flash stale "Copied" feedback, fire stale error haptics, or leak a reset timeout.
  */
 export class CopySessionTracker {
   private session = 0;
@@ -113,10 +111,8 @@ export class CopySessionTracker {
     writeClipboard: () => Promise<unknown>,
     callbacks: CopySessionCallbacks,
   ): Promise<boolean> {
-    if (callbacks.restartSession) {
-      this.invalidate();
-      callbacks.onReset();
-    }
+    this.invalidate();
+    callbacks.onReset();
     const token = this.session;
     try {
       await writeClipboard();
