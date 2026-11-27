@@ -126,6 +126,7 @@ import {
 } from "../apps/mobile/src/theme.js";
 import { getAgentArt, PALETTES } from "../apps/mobile/src/agentArt.js";
 import {
+  applyImmediateSnippetUseInStore,
   computeKeyboardInset,
   computeQuickSheetLayout,
   createEmptySnippetUsageMap,
@@ -4229,7 +4230,7 @@ describe("mobile snippet usage sorting and quick-reply keyboard layout", () => {
       persistPending: "bonus",
     });
 
-    // Clearing the snippet text before sending drops attribution.
+    // Clearing the snippet text before sending drops attribution; editing into another snippet verbatim prefers exact match.
     expect(
       resolveSentSnippetAttribution(
         "Unrelated message",
@@ -4237,12 +4238,21 @@ describe("mobile snippet usage sorting and quick-reply keyboard layout", () => {
         [{ id: "review", content: "Review this PR", use_count: 1 }],
       ),
     ).toBeNull();
+    expect(
+      resolveSentSnippetAttribution("Check CI status", "Review this PR", [
+        { id: "review", content: "Review this PR", use_count: 1 },
+        { id: "ci", content: "Check CI status", use_count: 0 },
+      ]),
+    ).toEqual({
+      snippet: { id: "ci", content: "Check CI status", use_count: 0 },
+      persistPending: "exact",
+    });
   });
 
-  it("defers exact pending reconciliation for future scheduled replies past pendingAfter", () => {
+  it("defers scheduled pending reconciliation past sendAt and handles mixed immediate + overlapping sends", () => {
     const now = 20_000;
     const sendAt = now + 48 * 60 * 60 * 1000; // 48h out (> 24h TTL)
-    const map = recordSnippetUseInStore(
+    let map = recordSnippetUseInStore(
       createEmptySnippetUsageMap(),
       "Morning check-in",
       0,
@@ -4251,14 +4261,29 @@ describe("mobile snippet usage sorting and quick-reply keyboard layout", () => {
       sendAt,
     );
     expect(map["Morning check-in"]).toEqual({
-      pending: 1,
-      pendingAfter: sendAt,
+      pending: 0,
+      scheduledSendAts: [sendAt],
       baseServerCount: 0,
       lastUsedAt: now,
     });
 
-    // Unrelated verbatim send from another device before sendAt raises server use_count to 1:
-    // baseline advances to 1 without clearing pending, so total count stays 2 even > 24h after booking.
+    // Immediate send of the same snippet BEFORE sendAt keeps pending=1 alongside scheduledSendAts=[sendAt].
+    map = recordSnippetUseInStore(
+      map,
+      "Morning check-in",
+      0,
+      now + 100,
+      "exact",
+    );
+    expect(map["Morning check-in"]).toEqual({
+      pending: 1,
+      scheduledSendAts: [sendAt],
+      baseServerCount: 0,
+      lastUsedAt: now + 100,
+    });
+
+    // When server count rises to 1 from that immediate send (still before sendAt),
+    // only pending is consumed (1 -> 0); scheduledSendAts=[sendAt] stays intact -> total = 2 (never 3).
     const beforeSendAt = now + 30 * 60 * 60 * 1000;
     const mid = reconcileSnippetUsageWithServer(
       map,
@@ -4266,28 +4291,51 @@ describe("mobile snippet usage sorting and quick-reply keyboard layout", () => {
       beforeSendAt,
     );
     expect(mid.map["Morning check-in"]).toEqual({
-      pending: 1,
-      pendingAfter: sendAt,
+      pending: 0,
+      scheduledSendAts: [sendAt],
       baseServerCount: 1,
-      lastUsedAt: now,
+      lastUsedAt: now + 100,
     });
     expect(
       sortSnippetsByUsage(
         [
-          { id: "a", content: "Other", use_count: 1, last_used_at: now + 9000 },
+          { id: "a", content: "Other", use_count: 2, last_used_at: now + 9000 },
           {
             id: "b",
             content: "Morning check-in",
             use_count: 1,
             last_used_at: now + 1000,
           },
+          { id: "c", content: "High", use_count: 3, last_used_at: now + 5000 },
         ],
         mid.map,
         beforeSendAt,
       ).map((s) => s.id),
-    ).toEqual(["b", "a"]);
+    ).toEqual(["c", "a", "b"]); // b has server 1 + scheduled 1 = 2 (< a's newer 2, < c's 3)
 
-    // Once sendAt arrives and the scheduled send commits on server (use_count -> 2), pending clears cleanly.
+    // Overlapping workspace refresh that already incremented server count skips adding redundant pending.
+    const overlapped = applyImmediateSnippetUseInStore(
+      createEmptySnippetUsageMap(),
+      "Morning check-in",
+      1,
+      2,
+      beforeSendAt,
+    );
+    expect(overlapped.recorded).toBe(false);
+    expect(overlapped.map["Morning check-in"]).toBeUndefined();
+
+    // Non-overlapping immediate send records pending=1 cleanly on current count.
+    const recorded = applyImmediateSnippetUseInStore(
+      createEmptySnippetUsageMap(),
+      "Morning check-in",
+      1,
+      1,
+      beforeSendAt,
+    );
+    expect(recorded.recorded).toBe(true);
+    expect(recorded.map["Morning check-in"]?.pending).toBe(1);
+
+    // Once sendAt arrives and the scheduled send commits on server (use_count -> 2), scheduledSendAts clears cleanly.
     const afterSendAt = sendAt + 1000;
     const done = reconcileSnippetUsageWithServer(
       mid.map,

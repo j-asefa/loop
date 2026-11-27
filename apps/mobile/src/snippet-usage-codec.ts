@@ -1,16 +1,17 @@
 import { draftWorkspaceBucket } from "./drafts-codec";
 
 export const MAX_TRACKED_SNIPPETS = 200;
+export const MAX_SCHEDULED_SEND_ATS = 20;
 export const PENDING_SNIPPET_TAP_TTL_MS = 24 * 60 * 60 * 1000;
 
 export type SnippetUseKind = "exact" | "bonus";
 
 export type SnippetUsageEntry = {
   pending: number;
+  /** Due timestamps for unconfirmed future scheduled exact sends (consumed only after pending === 0 and sendAt <= now). */
+  scheduledSendAts?: number[];
   /** Edited sends that never increment the server's exact-match count; immune to serverDelta. */
   localBonus?: number;
-  /** Earliest timestamp (e.g. scheduled sendAt) when server increases may reconcile `pending`. */
-  pendingAfter?: number;
   baseServerCount: number;
   lastUsedAt: number;
 };
@@ -30,42 +31,88 @@ export function resolveSentSnippetAttribution<T extends { content: string }>(
 ): { snippet: T; persistPending: SnippetUseKind } | null {
   const trimmedFinal = snippetUsageKey(sentText);
   if (!trimmedFinal) return null;
+  // Prefer an exact snippet match over picked-snippet substring attribution so
+  // editing snippet A into verbatim snippet B never credits A locally on top of B on the server.
+  const exactMatch =
+    snippets.find((s) => snippetUsageKey(s.content) === trimmedFinal) ?? null;
+  if (exactMatch) {
+    return { snippet: exactMatch, persistPending: "exact" };
+  }
   const pickedKey = pickedSnippetContent
     ? snippetUsageKey(pickedSnippetContent)
     : "";
-  const pickedMatches =
-    pickedKey && trimmedFinal.includes(pickedKey)
-      ? (snippets.find((s) => snippetUsageKey(s.content) === pickedKey) ??
-        fallbackSnippet ??
-        ({ content: pickedSnippetContent } as T))
-      : null;
-  const sentSnippet =
-    pickedMatches ??
-    snippets.find((s) => snippetUsageKey(s.content) === trimmedFinal) ??
-    null;
-  if (!sentSnippet) return null;
-  const edited = trimmedFinal !== snippetUsageKey(sentSnippet.content);
-  return {
-    snippet: sentSnippet,
-    persistPending: edited ? "bonus" : "exact",
-  };
+  if (pickedKey && trimmedFinal.includes(pickedKey)) {
+    const pickedSnippet =
+      snippets.find((s) => snippetUsageKey(s.content) === pickedKey) ??
+      fallbackSnippet ??
+      ({ content: pickedSnippetContent } as T);
+    return { snippet: pickedSnippet, persistPending: "bonus" };
+  }
+  return null;
 }
 
 export function createEmptySnippetUsageMap(): SnippetUsageMap {
   return Object.create(null) as SnippetUsageMap;
 }
 
-function isPendingExpired(
-  lastUsedAt: number,
-  now: number,
-  pendingAfter?: number,
-): boolean {
-  const anchor = Math.max(lastUsedAt, pendingAfter ?? 0);
+function normalizeScheduledSendAts(raw: unknown): number[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter(
+      (v): v is number => typeof v === "number" && Number.isFinite(v) && v > 0,
+    )
+    .sort((a, b) => a - b)
+    .slice(0, MAX_SCHEDULED_SEND_ATS);
+}
+
+function isEntryExpired(entry: SnippetUsageEntry, now: number): boolean {
+  let anchor = entry.lastUsedAt;
+  if (entry.scheduledSendAts?.length) {
+    for (const sendAt of entry.scheduledSendAts) {
+      if (sendAt > anchor) anchor = sendAt;
+    }
+  }
   return now - anchor > PENDING_SNIPPET_TAP_TTL_MS;
 }
 
 function totalLocalDelta(entry: SnippetUsageEntry): number {
-  return entry.pending + (entry.localBonus ?? 0);
+  return (
+    entry.pending +
+    (entry.scheduledSendAts?.length ?? 0) +
+    (entry.localBonus ?? 0)
+  );
+}
+
+function resolveEntryAgainstServer(
+  entry: SnippetUsageEntry,
+  serverCount: number,
+  now: number,
+): {
+  pending: number;
+  scheduledSendAts: number[];
+  localBonus: number;
+} {
+  if (isEntryExpired(entry, now)) {
+    return { pending: 0, scheduledSendAts: [], localBonus: 0 };
+  }
+  let remainingIncrease = Math.max(0, serverCount - entry.baseServerCount);
+  const usedByPending = Math.min(entry.pending, remainingIncrease);
+  const pending = entry.pending - usedByPending;
+  remainingIncrease -= usedByPending;
+
+  const remainingScheduled: number[] = [];
+  for (const sendAt of normalizeScheduledSendAts(entry.scheduledSendAts)) {
+    if (remainingIncrease > 0 && sendAt <= now) {
+      remainingIncrease -= 1;
+    } else {
+      remainingScheduled.push(sendAt);
+    }
+  }
+  return {
+    pending,
+    scheduledSendAts: remainingScheduled,
+    localBonus: entry.localBonus ?? 0,
+  };
 }
 
 function pruneSnippetUsageMap(
@@ -73,9 +120,7 @@ function pruneSnippetUsageMap(
   now = Date.now(),
 ): SnippetUsageMap {
   const entries = Object.entries(map).filter(
-    ([, entry]) =>
-      totalLocalDelta(entry) > 0 &&
-      !isPendingExpired(entry.lastUsedAt, now, entry.pendingAfter),
+    ([, entry]) => totalLocalDelta(entry) > 0 && !isEntryExpired(entry, now),
   );
   if (entries.length <= MAX_TRACKED_SNIPPETS) {
     const copy = createEmptySnippetUsageMap();
@@ -117,12 +162,13 @@ export function parseSnippetUsageStore(
       if (!normalized || !value || typeof value !== "object") continue;
       const entry = value as {
         pending?: unknown;
-        localBonus?: unknown;
+        scheduledSendAts?: unknown;
         pendingAfter?: unknown;
+        localBonus?: unknown;
         baseServerCount?: unknown;
         lastUsedAt?: unknown;
       };
-      const pending =
+      const rawPending =
         typeof entry.pending === "number" &&
         Number.isInteger(entry.pending) &&
         entry.pending >= 0
@@ -136,15 +182,28 @@ export function parseSnippetUsageStore(
               entry.localBonus >= 0
             ? entry.localBonus
             : -1;
-      if (pending < 0 || localBonus < 0 || pending + localBonus <= 0) {
+      if (rawPending < 0 || localBonus < 0) {
         continue;
       }
-      const pendingAfter =
+      let scheduledSendAts = normalizeScheduledSendAts(entry.scheduledSendAts);
+      let pending = rawPending;
+      // Migrate single-slot pendingAfter if present on an older persisted file.
+      if (
+        scheduledSendAts.length === 0 &&
         typeof entry.pendingAfter === "number" &&
         Number.isFinite(entry.pendingAfter) &&
-        entry.pendingAfter > 0
-          ? entry.pendingAfter
-          : undefined;
+        entry.pendingAfter > 0 &&
+        pending > 0
+      ) {
+        scheduledSendAts = Array.from(
+          { length: Math.min(pending, MAX_SCHEDULED_SEND_ATS) },
+          () => entry.pendingAfter as number,
+        );
+        pending = 0;
+      }
+      if (pending + scheduledSendAts.length + localBonus <= 0) {
+        continue;
+      }
       const baseServerCount =
         typeof entry.baseServerCount === "number" &&
         Number.isInteger(entry.baseServerCount) &&
@@ -157,14 +216,14 @@ export function parseSnippetUsageStore(
         entry.lastUsedAt >= 0
           ? entry.lastUsedAt
           : 0;
-      if (isPendingExpired(lastUsedAt, now, pendingAfter)) continue;
       const candidate: SnippetUsageEntry = {
         pending,
+        ...(scheduledSendAts.length > 0 ? { scheduledSendAts } : {}),
         ...(localBonus > 0 ? { localBonus } : {}),
-        ...(pendingAfter !== undefined && pending > 0 ? { pendingAfter } : {}),
         baseServerCount,
         lastUsedAt,
       };
+      if (isEntryExpired(candidate, now)) continue;
       const existing = Object.hasOwn(next, normalized)
         ? next[normalized]
         : undefined;
@@ -216,52 +275,59 @@ export function recordSnippetUseInStore(
       ? Math.floor(serverUseCount)
       : 0;
   const prev = Object.hasOwn(map, key) ? map[key] : undefined;
-  const prevUnexpired =
-    prev && !isPendingExpired(prev.lastUsedAt, now, prev.pendingAfter)
-      ? prev
-      : undefined;
-  const canReconcilePrev =
-    prevUnexpired &&
-    (!prevUnexpired.pendingAfter || now >= prevUnexpired.pendingAfter);
-  const activePending = prevUnexpired
-    ? canReconcilePrev
-      ? Math.max(
-          0,
-          prevUnexpired.pending -
-            Math.max(0, baseServer - prevUnexpired.baseServerCount),
-        )
-      : prevUnexpired.pending
-    : 0;
-  const activeBonus = prevUnexpired ? (prevUnexpired.localBonus ?? 0) : 0;
-  const nextPending = kind === "exact" ? activePending + 1 : activePending;
-  const nextBonus = kind === "bonus" ? activeBonus + 1 : activeBonus;
-  const validPendingAfter =
+  const resolved = prev
+    ? resolveEntryAgainstServer(prev, baseServer, now)
+    : { pending: 0, scheduledSendAts: [], localBonus: 0 };
+  const validScheduledAt =
+    kind === "exact" &&
     typeof pendingAfter === "number" &&
     Number.isFinite(pendingAfter) &&
     pendingAfter > 0
       ? pendingAfter
       : undefined;
-  const nextPendingAfter =
-    nextPending > 0
-      ? Math.max(
-          activePending > 0 ? (prevUnexpired?.pendingAfter ?? 0) : 0,
-          kind === "exact" ? (validPendingAfter ?? 0) : 0,
-        ) || undefined
-      : undefined;
+  const nextPending =
+    kind === "exact" && validScheduledAt === undefined
+      ? resolved.pending + 1
+      : resolved.pending;
+  const nextScheduled =
+    validScheduledAt !== undefined
+      ? [...resolved.scheduledSendAts, validScheduledAt]
+          .sort((a, b) => a - b)
+          .slice(0, MAX_SCHEDULED_SEND_ATS)
+      : resolved.scheduledSendAts;
+  const nextBonus =
+    kind === "bonus" ? resolved.localBonus + 1 : resolved.localBonus;
   const next = createEmptySnippetUsageMap();
   for (const existingKey of Object.keys(map)) {
     next[existingKey] = map[existingKey];
   }
   next[key] = {
     pending: nextPending,
+    ...(nextScheduled.length > 0 ? { scheduledSendAts: nextScheduled } : {}),
     ...(nextBonus > 0 ? { localBonus: nextBonus } : {}),
-    ...(nextPendingAfter !== undefined
-      ? { pendingAfter: nextPendingAfter }
-      : {}),
     baseServerCount: baseServer,
     lastUsedAt: Math.max(prev?.lastUsedAt ?? 0, now),
   };
   return pruneSnippetUsageMap(next, now);
+}
+
+export function applyImmediateSnippetUseInStore(
+  map: SnippetUsageMap,
+  content: string,
+  preSendServerCount = 0,
+  currentServerCount = 0,
+  now = Date.now(),
+): { map: SnippetUsageMap; recorded: boolean } {
+  const baseline = Math.max(0, Math.floor(preSendServerCount || 0));
+  const current = Math.max(0, Math.floor(currentServerCount || 0));
+  if (current > baseline) {
+    // An overlapping refresh already reflected this send in server counts.
+    return { map, recorded: false };
+  }
+  return {
+    map: recordSnippetUseInStore(map, content, current, now, "exact"),
+    recorded: true,
+  };
 }
 
 export function reconcileSnippetUsageWithServer(
@@ -285,11 +351,7 @@ export function reconcileSnippetUsageWithServer(
   let changed = false;
   for (const key of Object.keys(map)) {
     const entry = map[key];
-    const bonus = entry.localBonus ?? 0;
-    if (
-      (entry.pending <= 0 && bonus <= 0) ||
-      isPendingExpired(entry.lastUsedAt, now, entry.pendingAfter)
-    ) {
+    if (totalLocalDelta(entry) <= 0 || isEntryExpired(entry, now)) {
       changed = true;
       continue;
     }
@@ -298,32 +360,29 @@ export function reconcileSnippetUsageWithServer(
       next[key] = entry;
       continue;
     }
-    const canReconcile = !entry.pendingAfter || now >= entry.pendingAfter;
-    const confirmedIncrease = canReconcile
-      ? Math.max(0, serverCount - entry.baseServerCount)
-      : 0;
-    const remainingPending = Math.max(0, entry.pending - confirmedIncrease);
-    if (remainingPending === 0 && bonus === 0) {
+    const resolved = resolveEntryAgainstServer(entry, serverCount, now);
+    if (
+      resolved.pending === 0 &&
+      resolved.scheduledSendAts.length === 0 &&
+      resolved.localBonus === 0
+    ) {
       changed = true;
       continue;
     }
-    const nextPendingAfter =
-      remainingPending > 0 && entry.pendingAfter && now < entry.pendingAfter
-        ? entry.pendingAfter
-        : undefined;
     if (
-      remainingPending !== entry.pending ||
-      serverCount !== entry.baseServerCount ||
-      nextPendingAfter !== entry.pendingAfter
+      resolved.pending !== entry.pending ||
+      resolved.scheduledSendAts.length !==
+        (entry.scheduledSendAts?.length ?? 0) ||
+      serverCount !== entry.baseServerCount
     ) {
       changed = true;
     }
     next[key] = {
-      pending: remainingPending,
-      ...(bonus > 0 ? { localBonus: bonus } : {}),
-      ...(nextPendingAfter !== undefined
-        ? { pendingAfter: nextPendingAfter }
+      pending: resolved.pending,
+      ...(resolved.scheduledSendAts.length > 0
+        ? { scheduledSendAts: resolved.scheduledSendAts }
         : {}),
+      ...(resolved.localBonus > 0 ? { localBonus: resolved.localBonus } : {}),
       baseServerCount: serverCount,
       lastUsedAt: entry.lastUsedAt,
     };
@@ -351,22 +410,17 @@ export function sortSnippetsByUsage<
         item.last_used_at > 0
           ? item.last_used_at
           : 0;
-      const active =
-        local && !isPendingExpired(local.lastUsedAt, now, local.pendingAfter)
-          ? local
-          : undefined;
-      const confirmedIncrease =
-        active && (!active.pendingAfter || now >= active.pendingAfter)
-          ? Math.max(0, serverCount - active.baseServerCount)
-          : 0;
-      const pending = active
-        ? Math.max(0, active.pending - confirmedIncrease)
-        : 0;
-      const bonus = active ? (active.localBonus ?? 0) : 0;
-      const count = serverCount + pending + bonus;
+      const resolved = local
+        ? resolveEntryAgainstServer(local, serverCount, now)
+        : { pending: 0, scheduledSendAts: [], localBonus: 0 };
+      const localCount =
+        resolved.pending +
+        resolved.scheduledSendAts.length +
+        resolved.localBonus;
+      const count = serverCount + localCount;
       const lastUsedAt = Math.max(
         serverLastUsedAt,
-        pending + bonus > 0 && active ? active.lastUsedAt : 0,
+        localCount > 0 && local ? local.lastUsedAt : 0,
       );
       return { item, index, count, lastUsedAt };
     })

@@ -105,6 +105,7 @@ import {
   saveWorkspaceCache,
 } from "./src/offline-cache";
 import {
+  applyImmediateSnippetUseInStore,
   clearWorkspaceSnippetUsage,
   createEmptySnippetUsageMap,
   loadSnippetUsage,
@@ -208,6 +209,8 @@ function LoopShell() {
   const [agents, setAgents] = useState<ApiAgent[]>(DEMO_AGENTS);
   const [folders, setFolders] = useState<ApiFolder[]>([]);
   const [snippets, setSnippets] = useState<ApiSnippet[]>([]);
+  const snippetsRef = useRef<ApiSnippet[]>([]);
+  snippetsRef.current = snippets;
   const [snippetUsage, setSnippetUsage] = useState<SnippetUsageMap>(() =>
     createEmptySnippetUsageMap(),
   );
@@ -1913,21 +1916,36 @@ function LoopShell() {
                   return;
                 }
                 const usedKey = snippetUsageKey(snip.content);
-                const usedAt = Date.now();
-                setSnippets((prev) =>
-                  prev.map((item) =>
-                    snippetUsageKey(item.content) === usedKey
-                      ? {
-                          ...item,
-                          use_count: (item.use_count ?? 0) + 1,
-                          last_used_at: Math.max(
-                            item.last_used_at ?? 0,
-                            usedAt,
-                          ),
-                        }
-                      : item,
-                  ),
-                );
+                const latestServerCount =
+                  snippetsRef.current.find(
+                    (item) => snippetUsageKey(item.content) === usedKey,
+                  )?.use_count ??
+                  snip.use_count ??
+                  0;
+                const preSendServerCount = snip.use_count ?? 0;
+                if (latestServerCount > preSendServerCount) {
+                  return;
+                }
+                if (renderSessionOrigin) {
+                  const next = recordSnippetUse(
+                    renderSessionOrigin,
+                    snip.content,
+                    latestServerCount,
+                    Date.now(),
+                    "exact",
+                  );
+                  setSnippetUsage(next);
+                } else {
+                  setSnippetUsage(
+                    (prev) =>
+                      applyImmediateSnippetUseInStore(
+                        prev,
+                        snip.content,
+                        preSendServerCount,
+                        latestServerCount,
+                      ).map,
+                  );
+                }
               }}
               theme={theme}
               onCancelQueuedRun={handleCancelQueuedRun}

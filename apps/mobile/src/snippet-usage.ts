@@ -2,6 +2,7 @@ import { File as ExpoFile, Paths } from "expo-file-system";
 import { createSnippetUsageStore } from "./snippet-usage-codec";
 
 export {
+  applyImmediateSnippetUseInStore,
   computeKeyboardInset,
   computeQuickSheetLayout,
   createEmptySnippetUsageMap,

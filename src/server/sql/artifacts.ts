@@ -258,7 +258,8 @@ const snippetsStatement = statement(
    recent_user_messages AS (
      SELECT m.content, m.created_at
      FROM messages m
-     WHERE m.owner_id = @owner AND m.role = 'user'
+     WHERE EXISTS (SELECT 1 FROM unique_snippets WHERE norm_content <> '')
+       AND m.owner_id = @owner AND m.role = 'user'
        AND m.run_id IS NOT NULL
        AND json_extract(m.metadata, '$.personal') = 1
        AND json_extract(m.metadata, '$.progress') IS NOT 1
