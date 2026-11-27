@@ -50,6 +50,7 @@ import {
 import { relativeTime, type NativeResultCard } from "../fixtures";
 import { ThreadRefreshGate } from "../workspace-runtime";
 import { haptics } from "../haptics";
+import { CopySessionTracker } from "../text-selection";
 import type { LoopTheme } from "../theme";
 import type { AgentRunSummary } from "./AgentProfileSheet";
 import {
@@ -144,28 +145,35 @@ export function ThreadSheet({
     content: string;
   } | null>(null);
   const [selectModalCopied, setSelectModalCopied] = useState(false);
-  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const selectCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const selectModalSessionRef = useRef(0);
+  const copyTrackerRef = useRef(new CopySessionTracker());
+  const selectCopyTrackerRef = useRef(new CopySessionTracker());
+
+  const openSelectModal = useCallback((author: string, content: string) => {
+    haptics.light();
+    Keyboard.dismiss();
+    selectCopyTrackerRef.current.invalidate();
+    setSelectModalCopied(false);
+    setSelectingMessage({ author, content });
+  }, []);
 
   const closeSelectModal = useCallback(() => {
-    selectModalSessionRef.current += 1;
-    if (selectCopyTimerRef.current) {
-      clearTimeout(selectCopyTimerRef.current);
-      selectCopyTimerRef.current = null;
-    }
+    selectCopyTrackerRef.current.invalidate();
     setSelectModalCopied(false);
     setSelectingMessage(null);
   }, []);
 
   useEffect(() => {
+    copyTrackerRef.current.invalidate();
+    setCopiedMsgId(null);
     closeSelectModal();
   }, [conversationId, client?.origin, closeSelectModal]);
 
   useEffect(() => {
+    const copyTracker = copyTrackerRef.current;
+    const selectTracker = selectCopyTrackerRef.current;
     return () => {
-      selectModalSessionRef.current += 1;
-      if (selectCopyTimerRef.current) clearTimeout(selectCopyTimerRef.current);
+      copyTracker.invalidate();
+      selectTracker.invalidate();
     };
   }, []);
   // Suppress auto-scroll-to-bottom briefly after prepending earlier history so multi-pass
@@ -245,11 +253,6 @@ export function ThreadSheet({
     };
   }, [client?.origin, draftScope]);
 
-  useEffect(() => {
-    return () => {
-      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
-    };
-  }, []);
   // The parent rebuilds this array on every render. Read it through a ref so a
   // parent re-render does not reload the thread.
   const fallbackCardsRef = useRef(fallbackCards);
@@ -611,17 +614,18 @@ export function ThreadSheet({
   }
 
   function handleCopyMessage(msg: ApiMessage) {
-    haptics.success();
-    void Clipboard.setStringAsync(msg.content)
-      .then(() => {
-        setCopiedMsgId(msg.id);
-        if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
-        copyTimerRef.current = setTimeout(() => {
-          copyTimerRef.current = null;
-          setCopiedMsgId(null);
-        }, 1600);
-      })
-      .catch(() => {});
+    void copyTrackerRef.current.copy(
+      () => Clipboard.setStringAsync(msg.content),
+      {
+        restartSession: true,
+        onSuccess: () => {
+          haptics.success();
+          setCopiedMsgId(msg.id);
+        },
+        onReset: () => setCopiedMsgId(null),
+        onError: () => haptics.warning(),
+      },
+    );
   }
 
   async function handleToggleSave(msgId: string) {
@@ -856,11 +860,14 @@ export function ThreadSheet({
         )}
 
         {/* Chronological Message Stream */}
+        {/* Keep first-tap actions (Select text, Copy, Save, links) responsive while the
+            reply keyboard is open, while allowing swipe-down interactive dismissal. */}
         <ScrollView
           ref={scrollRef}
           style={styles.flex}
           contentContainerStyle={styles.messagesContent}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
           onContentSizeChange={() => {
             if (Date.now() < suppressAutoScrollUntilRef.current) {
               return;
@@ -939,20 +946,12 @@ export function ThreadSheet({
                         <Pressable
                           accessibilityRole="button"
                           accessibilityLabel="Select text"
-                          onPress={() => {
-                            haptics.light();
-                            Keyboard.dismiss();
-                            selectModalSessionRef.current += 1;
-                            if (selectCopyTimerRef.current) {
-                              clearTimeout(selectCopyTimerRef.current);
-                              selectCopyTimerRef.current = null;
-                            }
-                            setSelectModalCopied(false);
-                            setSelectingMessage({
-                              author: isUser ? "You" : `@${agentName}`,
-                              content: msg.content,
-                            });
-                          }}
+                          onPress={() =>
+                            openSelectModal(
+                              isUser ? "You" : `@${agentName}`,
+                              msg.content,
+                            )
+                          }
                           hitSlop={8}
                         >
                           <TextSelect size={14} color={theme.muted} />
@@ -1078,13 +1077,27 @@ export function ThreadSheet({
                       <Text style={[styles.msgAuthor, { color: theme.blue }]}>
                         @{agentName} · {liveStream.activity || "Streaming…"}
                       </Text>
-                      <ActivityIndicator size="small" color={theme.blue} />
+                      <View style={styles.msgHeadActions}>
+                        {liveStream.text.trim().length > 0 ? (
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel="Select text"
+                            onPress={() =>
+                              openSelectModal(`@${agentName}`, liveStream.text)
+                            }
+                            hitSlop={8}
+                          >
+                            <TextSelect size={14} color={theme.muted} />
+                          </Pressable>
+                        ) : null}
+                        <ActivityIndicator size="small" color={theme.blue} />
+                      </View>
                     </View>
                     {liveStream.text.trim().length > 0 ? (
                       <RichContent
                         content={liveStream.text}
                         theme={theme}
-                        selectable
+                        selectable={false}
                         workspaceOrigin={client?.origin}
                         onOpenFile={onOpenFileTarget}
                       />
@@ -1401,23 +1414,17 @@ export function ThreadSheet({
                     selectModalCopied ? "Copied all text" : "Copy all text"
                   }
                   onPress={() => {
-                    haptics.success();
-                    const session = selectModalSessionRef.current;
-                    void Clipboard.setStringAsync(selectingMessage.content)
-                      .then(() => {
-                        if (selectModalSessionRef.current !== session) return;
-                        setSelectModalCopied(true);
-                        if (selectCopyTimerRef.current) {
-                          clearTimeout(selectCopyTimerRef.current);
-                        }
-                        selectCopyTimerRef.current = setTimeout(() => {
-                          selectCopyTimerRef.current = null;
-                          if (selectModalSessionRef.current === session) {
-                            setSelectModalCopied(false);
-                          }
-                        }, 1600);
-                      })
-                      .catch(() => {});
+                    void selectCopyTrackerRef.current.copy(
+                      () => Clipboard.setStringAsync(selectingMessage.content),
+                      {
+                        onSuccess: () => {
+                          haptics.success();
+                          setSelectModalCopied(true);
+                        },
+                        onReset: () => setSelectModalCopied(false),
+                        onError: () => haptics.warning(),
+                      },
+                    );
                   }}
                   style={[
                     styles.selectModalBtn,

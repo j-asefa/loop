@@ -1,5 +1,12 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ScheduleInput } from "../src/shared/mobile-contract-schemas.js";
+import {
+  CopySessionTracker,
+  hasInteractiveInlineLink,
+  resolveInlineTextSelectable,
+} from "../apps/mobile/src/text-selection.js";
 import {
   ShareInput,
   ShareSendInput,
@@ -3436,5 +3443,224 @@ describe("mobile offline workspace cache codec", () => {
     );
     expect(capped?.cards).toHaveLength(MAX_CACHED_CARDS);
     expect(capped?.agents).toHaveLength(MAX_CACHED_AGENTS);
+  });
+});
+
+describe("mobile text selection helpers", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("fires success feedback only after clipboard write resolves and resets after delay", async () => {
+    vi.useFakeTimers();
+    const tracker = new CopySessionTracker();
+    let resolveWrite!: () => void;
+    const writePromise = new Promise<void>((resolve) => {
+      resolveWrite = resolve;
+    });
+
+    const onSuccess = vi.fn();
+    const onReset = vi.fn();
+    const onError = vi.fn();
+
+    const pending = tracker.copy(() => writePromise, {
+      onSuccess,
+      onReset,
+      onError,
+      resetDelayMs: 1600,
+    });
+
+    // Must not trigger success haptic/state before clipboard write settles
+    expect(onSuccess).not.toHaveBeenCalled();
+    expect(onReset).not.toHaveBeenCalled();
+
+    resolveWrite();
+    await expect(pending).resolves.toBe(true);
+    expect(onSuccess).toHaveBeenCalledTimes(1);
+    expect(onError).not.toHaveBeenCalled();
+    expect(onReset).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(1599);
+    expect(onReset).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(onReset).toHaveBeenCalledTimes(1);
+  });
+
+  it("fires error callback and suppresses success feedback when clipboard write rejects", async () => {
+    vi.useFakeTimers();
+    const tracker = new CopySessionTracker();
+    const onSuccess = vi.fn();
+    const onReset = vi.fn();
+    const onError = vi.fn();
+
+    const ok = await tracker.copy(
+      () => Promise.reject(new Error("clipboard denied")),
+      { onSuccess, onReset, onError },
+    );
+
+    expect(ok).toBe(false);
+    expect(onSuccess).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(5000);
+    expect(onReset).not.toHaveBeenCalled();
+  });
+
+  it("ignores late clipboard resolution after modal close/switch or unmount", async () => {
+    vi.useFakeTimers();
+    const tracker = new CopySessionTracker();
+    let resolveFirst!: () => void;
+    const firstWrite = new Promise<void>((resolve) => {
+      resolveFirst = resolve;
+    });
+
+    const firstSuccess = vi.fn();
+    const firstReset = vi.fn();
+    const firstPending = tracker.copy(() => firstWrite, {
+      onSuccess: firstSuccess,
+      onReset: firstReset,
+    });
+
+    // Modal closes (or switches to another message) before write settles
+    tracker.invalidate();
+
+    resolveFirst();
+    await expect(firstPending).resolves.toBe(false);
+    expect(firstSuccess).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(5000);
+    expect(firstReset).not.toHaveBeenCalled();
+
+    // Per-message copy with restartSession supersedes an earlier in-flight copy
+    let resolveMsgA!: () => void;
+    const msgAWrite = new Promise<void>((resolve) => {
+      resolveMsgA = resolve;
+    });
+    const msgASuccess = vi.fn();
+    const msgBSuccess = vi.fn();
+    const msgBReset = vi.fn();
+
+    const msgAPending = tracker.copy(() => msgAWrite, {
+      restartSession: true,
+      onSuccess: msgASuccess,
+      onReset: vi.fn(),
+    });
+    const msgBPending = tracker.copy(() => Promise.resolve(), {
+      restartSession: true,
+      onSuccess: msgBSuccess,
+      onReset: msgBReset,
+    });
+
+    await expect(msgBPending).resolves.toBe(true);
+    resolveMsgA();
+    await expect(msgAPending).resolves.toBe(false);
+    expect(msgASuccess).not.toHaveBeenCalled();
+    expect(msgBSuccess).toHaveBeenCalledTimes(1);
+  });
+
+  it("detects interactive URL and Loop file links including nested formatting", () => {
+    expect(
+      hasInteractiveInlineLink([{ kind: "text", text: "plain text" }]),
+    ).toBe(false);
+    expect(
+      hasInteractiveInlineLink([
+        {
+          kind: "link",
+          url: "file:///Users/owner/readme.md",
+          isLocalFile: true,
+        },
+      ]),
+    ).toBe(false);
+    expect(
+      hasInteractiveInlineLink([
+        { kind: "link", url: "https://example.com/docs" },
+      ]),
+    ).toBe(true);
+    expect(
+      hasInteractiveInlineLink(
+        [
+          {
+            kind: "bold",
+            children: [
+              {
+                kind: "link",
+                url: "/api/artifacts/12345678-1234-1234-1234-1234567890ab/file",
+              },
+            ],
+          },
+        ],
+        "https://loop.local",
+      ),
+    ).toBe(true);
+  });
+
+  it("disables inline selectable only on Android paragraphs with interactive links", () => {
+    expect(
+      resolveInlineTextSelectable({
+        selectable: false,
+        platformOs: "ios",
+        hasInteractiveLinks: false,
+      }),
+    ).toBe(false);
+    expect(
+      resolveInlineTextSelectable({
+        selectable: true,
+        platformOs: "ios",
+        hasInteractiveLinks: true,
+      }),
+    ).toBe(true);
+    expect(
+      resolveInlineTextSelectable({
+        selectable: true,
+        platformOs: "android",
+        hasInteractiveLinks: false,
+      }),
+    ).toBe(true);
+    expect(
+      resolveInlineTextSelectable({
+        selectable: true,
+        platformOs: "android",
+        hasInteractiveLinks: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("preserves selectable defaults and wiring across mobile thread and rich-content components", () => {
+    const mobileDir = path.resolve("apps/mobile/src/components");
+    const rich = readFileSync(path.join(mobileDir, "RichContent.tsx"), "utf8");
+    const mermaid = readFileSync(
+      path.join(mobileDir, "MermaidDiagram.tsx"),
+      "utf8",
+    );
+    const thread = readFileSync(
+      path.join(mobileDir, "ThreadSheet.tsx"),
+      "utf8",
+    );
+    const preview = readFileSync(
+      path.join(mobileDir, "FilePreviewModal.tsx"),
+      "utf8",
+    );
+
+    // RichContent and MermaidDiagram keep selectable=false by default for card/carousel callers
+    expect(rich).toMatch(/function RichContent[\s\S]*?selectable = false/);
+    expect(rich).toMatch(
+      /export function InlineFormattedText[\s\S]*?selectable = false/,
+    );
+    expect(mermaid).toMatch(
+      /export function MermaidDiagram[\s\S]*?selectable = false/,
+    );
+    // Chart title, category labels, and numbers propagate selectable
+    expect(rich).toContain("resolveInlineTextSelectable");
+    expect(rich).toMatch(
+      /NativeSpecChart[\s\S]*?selectable=\{selectable\}[\s\S]*?specCardTitle/,
+    );
+    expect(rich).toMatch(
+      /NativeSpecChart[\s\S]*?selectable=\{selectable\}[\s\S]*?chartLabelText/,
+    );
+    // ThreadSheet keeps live stream non-selectable inline while offering the Select text snapshot sheet
+    expect(thread).toMatch(
+      /content=\{liveStream\.text\}[\s\S]*?selectable=\{false\}/,
+    );
+    expect(thread).toContain("new CopySessionTracker()");
+    // FilePreviewModal offers in-place selectable text toggle without nested Modal
+    expect(preview).toContain("selectTextMode");
   });
 });
