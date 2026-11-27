@@ -177,6 +177,7 @@ export type ApiMessage = {
   created_at: number;
   run_state?: string | null;
   run_error?: string | null;
+  carousel_prompt?: string;
 };
 
 export type ApiConversationPage = {

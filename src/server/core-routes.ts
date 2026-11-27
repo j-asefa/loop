@@ -727,14 +727,9 @@ routes.on(workspaceApi.resultUpdate, (req, res) => {
     });
   res.json({ ok: true });
 });
-function publishedReplyBody(
-  owner: string,
-  message: { id: string; content: string },
-) {
-  const sealed = resultsQueries.canonicalByMessage(db, owner, message.id);
-  return sealed?.kind === "steering_reply"
-    ? sealed.outcome.body
-    : message.content;
+function sealedSteeringReply(owner: string, messageId: string) {
+  const sealed = resultsQueries.canonicalByMessage(db, owner, messageId);
+  return sealed?.kind === "steering_reply" ? sealed : undefined;
 }
 
 routes.on(
@@ -807,14 +802,17 @@ routes.on(
       ...page,
       ...(req.query.view === "carousel"
         ? {
-            messages: page.messages.map((message) =>
-              message.role === "assistant"
+            messages: page.messages.map((message) => {
+              if (message.role !== "assistant") return message;
+              const sealed = sealedSteeringReply(res.locals.owner, message.id);
+              return sealed
                 ? {
                     ...message,
-                    content: publishedReplyBody(res.locals.owner, message),
+                    content: sealed.outcome.body,
+                    carousel_prompt: sealed.stimulus.text,
                   }
-                : message,
-            ),
+                : message;
+            }),
           }
         : {}),
       ...returned,
@@ -840,7 +838,9 @@ routes.on(workspaceApi.messageDetail, (req, res) => {
   res.json(
     messageResponse({
       ...message,
-      content: publishedReplyBody(res.locals.owner, message),
+      content:
+        sealedSteeringReply(res.locals.owner, message.id)?.outcome.body ??
+        message.content,
     }),
   );
 });

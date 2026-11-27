@@ -45,6 +45,10 @@ const flushTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const bucketEpoch = new Map<string, number>();
 
 function draftFileForBucket(bucket: string): ExpoFile {
+  return new ExpoFile(Paths.document, `loop-drafts-${bucket}.json`);
+}
+
+function legacyDraftFileForBucket(bucket: string): ExpoFile {
   return new ExpoFile(Paths.cache, `loop-drafts-${bucket}.json`);
 }
 
@@ -59,11 +63,18 @@ function getOrCreatePendingOps(bucket: string): PendingOps {
 
 function writeBucketFile(bucket: string, map: DraftMap): void {
   const file = draftFileForBucket(bucket);
+  const legacy = legacyDraftFileForBucket(bucket);
   if (Object.keys(map).length === 0) {
+    if (legacy.exists) legacy.delete();
     if (file.exists) file.delete();
     return;
   }
-  file.write(serializeDraftStore(map));
+  file.writeSync(serializeDraftStore(map));
+  try {
+    if (legacy.exists) legacy.delete();
+  } catch {
+    // The durable file takes precedence on the next read.
+  }
 }
 
 function flushBucketNow(bucket: string): void {
@@ -102,11 +113,15 @@ async function ensureBucketLoaded(bucket: string): Promise<DraftMap> {
   const epochAtStart = bucketEpoch.get(bucket) ?? 0;
   const loadPromise = (async () => {
     let loaded = createEmptyDraftMap();
+    let readLegacy = false;
     try {
       const file = draftFileForBucket(bucket);
+      const legacy = legacyDraftFileForBucket(bucket);
       if (file.exists) {
-        const raw = await file.text();
-        loaded = parseDraftStore(raw);
+        loaded = parseDraftStore(await file.text());
+      } else if (legacy.exists) {
+        loaded = parseDraftStore(await legacy.text());
+        readLegacy = true;
       }
     } catch {
       loaded = createEmptyDraftMap();
@@ -152,7 +167,7 @@ async function ensureBucketLoaded(bucket: string): Promise<DraftMap> {
     }
     memoryBuckets.set(bucket, merged);
     loadedBuckets.add(bucket);
-    if (dirty) {
+    if (dirty || readLegacy) {
       flushBucketNow(bucket);
     }
     return merged;
@@ -337,10 +352,12 @@ export function clearWorkspaceDrafts(origin: string | null | undefined): void {
   }
   memoryBuckets.set(bucket, createEmptyDraftMap());
   loadedBuckets.add(bucket);
-  try {
-    const file = draftFileForBucket(bucket);
-    if (file.exists) file.delete();
-  } catch {
-    // ignore
+  for (const makeFile of [draftFileForBucket, legacyDraftFileForBucket]) {
+    try {
+      const file = makeFile(bucket);
+      if (file.exists) file.delete();
+    } catch {
+      // Best-effort cleanup on sign-out.
+    }
   }
 }

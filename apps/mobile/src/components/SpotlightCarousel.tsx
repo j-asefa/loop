@@ -175,7 +175,8 @@ function parseConversationPageToSlides(
       continue;
     }
     if (msg.role !== "assistant" || !msg.content.trim()) continue;
-    if (lastPrompt) promptMap.set(msg.id, lastPrompt);
+    const prompt = msg.carousel_prompt || lastPrompt;
+    if (prompt) promptMap.set(msg.id, prompt);
     if (msg.run_id) runIdMap.set(msg.id, msg.run_id);
     bodyMap.set(msg.id, msg.content);
     extra.push({
@@ -186,7 +187,7 @@ function parseConversationPageToSlides(
       agentName: base?.agentName ?? "agent",
       projectName: base?.projectName ?? "Workspace",
       model: base?.model ?? "",
-      prompt: lastPrompt || page.conversation.title,
+      prompt: prompt || page.conversation.title,
       fallbackTitle: page.conversation.title || "Result",
       body: msg.content,
       createdAt: msg.created_at,
@@ -597,16 +598,16 @@ export function SpotlightCarousel({
     agentId: activeCard?.agentId,
   });
 
-  const hasReplyDraft = Boolean(
-    draft.trim() ||
-    replyAttachments.attachments.length ||
-    recordingAudio ||
-    sending,
-  );
-  const holdHistoryUpdates = !draftLoaded || keyboardVisible || hasReplyDraft;
+  const holdHistoryUpdates =
+    !draftLoaded || keyboardVisible || recordingAudio || sending;
   useEffect(() => {
     const page = fetchedHistory;
-    if (!page || appliedHistoryRef.current === page || holdHistoryUpdates)
+    if (
+      !page ||
+      appliedHistoryRef.current === page ||
+      !draftLoaded ||
+      (historyLoaded && holdHistoryUpdates)
+    )
       return;
     appliedHistoryRef.current = page;
     setHistoryUnavailable(false);
@@ -633,7 +634,7 @@ export function SpotlightCarousel({
         keepOlder ? "refresh" : "replace",
       ),
     );
-  }, [fetchedHistory, holdHistoryUpdates]);
+  }, [draftLoaded, fetchedHistory, historyLoaded, holdHistoryUpdates]);
 
   // Authoritative server capability: only show Steer/Queue toggle when the server reports
   // `steerable_run_id` matching the active run (harnesses with `midTurn: "steer"` / active live input).
@@ -1268,7 +1269,7 @@ export function SpotlightCarousel({
     openSearch();
   }, [openSearch]);
 
-  // A draft stays on its card until the composer is cleared.
+  // Hold repinning while the composer is active.
   useEffect(() => {
     const top = recentCards[0]?.id;
     if (holdHistoryUpdates || !top || lastTopCardRef.current === top) return;

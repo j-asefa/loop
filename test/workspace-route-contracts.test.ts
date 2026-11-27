@@ -921,6 +921,16 @@ it("updates an agent's model and advertised effort through the workspace route",
     model: "new-model",
     effort: "high",
   };
+  const created = await request("/agents", {
+    ...selection,
+    name: "route-" + id().slice(0, 8),
+    idempotencyKey: id(),
+  });
+  expect(created.status).toBe(201);
+  expect(workspaceApi.agentCreate.response.parse(created.data).effort).toBe(
+    "high",
+  );
+
   const updated = await request(path, selection, "PATCH");
   expect(updated.status).toBe(200);
   expect(workspaceApi.agentUpdate.response.parse(updated.data)).toMatchObject({
@@ -955,6 +965,16 @@ it("uses the sealed text of a published steering reply in carousel history", asy
     role: "user",
     content: "Which option?",
     metadata: JSON.stringify({ steeringId }),
+    created_at: now(),
+  });
+  seedMessage(db, {
+    id: id(),
+    owner_id: owner,
+    run_id: run.id,
+    conversation_id: conversationId,
+    role: "user",
+    content: "An unrelated later prompt",
+    metadata: JSON.stringify({ steeringId: id() }),
     created_at: now(),
   });
   runSteering.insert(
@@ -998,7 +1018,8 @@ it("uses the sealed text of a published steering reply in carousel history", asy
   expect(regular.messages.find(({ id }) => id === reply)?.content).toBe(
     "Edited transcript",
   );
-  expect(carousel.messages.find(({ id }) => id === reply)?.content).toBe(
-    "The sealed reply",
-  );
+  expect(carousel.messages.find(({ id }) => id === reply)).toMatchObject({
+    content: "The sealed reply",
+    carousel_prompt: "Which option?",
+  });
 });
