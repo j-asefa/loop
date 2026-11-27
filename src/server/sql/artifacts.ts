@@ -255,8 +255,10 @@ const snippetsStatement = statement(
      ORDER BY created_at DESC, row DESC
      LIMIT 100
    ),
-   recent_user_messages AS (
-     SELECT m.content, m.created_at
+   usage AS (
+     SELECT trim(m.content, ' '||char(9)||char(10)||char(13)) AS norm_content,
+       count(*) AS use_count,
+       max(m.created_at) AS last_used_at
      FROM messages m
      WHERE EXISTS (SELECT 1 FROM unique_snippets WHERE norm_content <> '')
        AND m.owner_id = @owner AND m.role = 'user'
@@ -265,17 +267,9 @@ const snippetsStatement = statement(
        AND json_extract(m.metadata, '$.progress') IS NOT 1
        AND json_extract(m.metadata, '$.automation') IS NULL
        AND COALESCE(json_extract(m.metadata, '$.shared'), 0) = 0
-     ORDER BY m.created_at DESC, m.id DESC
-     LIMIT 2000
-   ),
-   usage AS (
-     SELECT trim(m.content, ' '||char(9)||char(10)||char(13)) AS norm_content,
-       count(*) AS use_count,
-       max(m.created_at) AS last_used_at
-     FROM recent_user_messages m
-     WHERE trim(m.content, ' '||char(9)||char(10)||char(13)) IN (
-       SELECT norm_content FROM unique_snippets WHERE norm_content <> ''
-     )
+       AND trim(m.content, ' '||char(9)||char(10)||char(13)) IN (
+         SELECT norm_content FROM unique_snippets WHERE norm_content <> ''
+       )
      GROUP BY trim(m.content, ' '||char(9)||char(10)||char(13))
    )
    SELECT s.id, s.title, s.content, s.created_at,

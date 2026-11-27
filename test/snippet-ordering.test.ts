@@ -36,7 +36,7 @@ afterAll(async () => {
   db.close();
 });
 
-it("keeps personal snippet usage accurate past 2,000 excluded messages and retains new snippets past 100 used ones", async () => {
+it("keeps personal snippet usage accurate past 2,000 excluded and non-snippet messages and retains newest 100 snippets", async () => {
   const owner = id();
   const connectionId = id();
   seedConnection(db, {
@@ -115,6 +115,28 @@ it("keeps personal snippet usage accurate past 2,000 excluded messages and retai
         "Older real snippet",
         JSON.stringify({ personal: true, automation: { mailId: `m-${i}` } }),
         floodTs + 2000 + i,
+      );
+    }
+    // Also flood >2,000 eligible personal non-snippet messages newer than "Older real snippet".
+    for (let i = 0; i < 2050; i++) {
+      const rid = id();
+      insertRun.run(
+        rid,
+        owner,
+        agent.id,
+        cid,
+        "non-snip-" + i + "-" + rid,
+        floodTs + 5000 + i,
+        floodTs + 5000 + i,
+      );
+      insertMsg.run(
+        id(),
+        owner,
+        cid,
+        rid,
+        `Ad-hoc personal prompt ${i}`,
+        JSON.stringify({ personal: true }),
+        floodTs + 5000 + i,
       );
     }
   })();
