@@ -207,6 +207,16 @@ export async function saveDraftAndFlush(
   const bucket = draftWorkspaceBucket(origin);
   await ensureBucketLoaded(bucket);
   const current = memoryBuckets.get(bucket) ?? createEmptyDraftMap();
+  const existingSchedule = current[scope]?.pendingSchedule;
+  if (
+    existingSchedule &&
+    pending?.schedule &&
+    existingSchedule.key !== pending.schedule.key
+  ) {
+    throw new Error(
+      "A pending scheduled send already exists for this draft — check Profile → Scheduled before scheduling again.",
+    );
+  }
   const next = setDraftInStore(current, scope, text, Date.now(), pending);
   const timer = flushTimers.get(bucket);
   if (timer) {

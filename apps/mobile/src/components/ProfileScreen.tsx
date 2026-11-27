@@ -145,6 +145,7 @@ export function ProfileScreen({
   const loadSection = useCallback(async () => {
     const gen = ++loadGenRef.current;
     setLoadingMoreFiles(false);
+    setLoadingMoreScheduled(false);
     if (!client) {
       setSaved(
         localCardsRef.current

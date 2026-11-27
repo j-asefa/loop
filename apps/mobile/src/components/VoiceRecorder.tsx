@@ -186,7 +186,7 @@ export function VoiceRecorderButton({
         playsInSilentMode: true,
       });
       await recorder.prepareToRecordAsync();
-      if (!mountedRef.current) {
+      if (!mountedRef.current || disabledRef.current) {
         resetAudioMode();
         return;
       }
