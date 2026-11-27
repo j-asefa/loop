@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { agentProfileTagline } from "../apps/mobile/src/agent-profile-tagline.js";
 import { ScheduleInput } from "../src/shared/mobile-contract-schemas.js";
 import {
   CopySessionTracker,
@@ -3761,6 +3762,36 @@ describe("mobile text selection helpers", () => {
     expect(thread).toContain("new CopySessionTracker()");
     // FilePreviewModal offers in-place selectable text toggle without nested Modal
     expect(preview).toContain("selectTextMode");
+  });
+});
+
+describe("mobile agent profile taglines", () => {
+  it("shows a stable tagline for idle agents without instructions", () => {
+    expect(
+      agentProfileTagline({ id: "agent-willow", instructions: "" }, false),
+    ).toBe("The plot thickens. The functions get smaller.");
+    expect(
+      agentProfileTagline({ id: "agent-cedar", instructions: "  " }, false),
+    ).toBe("Every garden needs a little dead code removal.");
+  });
+
+  it("gives instructions and pending work precedence over the tagline", () => {
+    const agent = { id: "agent-willow", instructions: "" };
+    expect(agentProfileTagline(agent, true)).toBeNull();
+    expect(
+      agentProfileTagline({ ...agent, instructions: "Review changes." }, false),
+    ).toBeNull();
+  });
+
+  it("passes the profile's pending work state to the tagline selector", () => {
+    const profile = readFileSync(
+      "apps/mobile/src/components/AgentProfileSheet.tsx",
+      "utf8",
+    );
+    expect(profile).toContain(
+      "agentProfileTagline(agent, agentRuns.length > 0)",
+    );
+    expect(profile).toMatch(/\{tagline\s*\?\s*\(\s*<Text[^>]+>\s*\{tagline\}/);
   });
 });
 
