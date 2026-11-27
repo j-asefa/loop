@@ -3947,6 +3947,26 @@ it("reuses a carousel snapshot within one paired client and coalesces its refres
   completeOlder(page);
   await olderRequest;
   expect(client.cachedCarouselPage("thread")).toBe(newPage);
+  let completePreSave!: (value: typeof page) => void;
+  fetchPage.mockReturnValueOnce(
+    new Promise((resolve) => {
+      completePreSave = resolve;
+    }),
+  );
+  const preSave = client.refreshCarouselPage("thread");
+  const transport = vi
+    .spyOn(globalThis, "fetch")
+    .mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, saved: true }), { status: 200 }),
+    );
+  try {
+    await client.setSaved("bookmark", true, "thread");
+    completePreSave(newPage);
+    await preSave;
+    expect(client.cachedCarouselPage("thread")?.saved).toEqual(["bookmark"]);
+  } finally {
+    transport.mockRestore();
+  }
 });
 
 it("keeps the tapped older profile card in the first three carousel positions", () => {

@@ -1370,7 +1370,11 @@ export function SpotlightCarousel({
 
   const actionSavedEdit =
     actionSheetCard && savedEdits.get(carouselCardKey(actionSheetCard));
-  const actionSaved = actionSavedEdit?.saved ?? actionSheetCard?.saved;
+  const actionSaved =
+    actionSavedEdit?.saved ??
+    (actionSheetCard?.messageId && serverSavedIds
+      ? serverSavedIds.has(actionSheetCard.messageId)
+      : actionSheetCard?.saved);
   const actionSavePending = Boolean(
     actionSavedEdit?.pending || actionSavedEdit?.uncertain,
   );

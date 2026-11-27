@@ -130,8 +130,8 @@ import { DARK_THEME, LIGHT_THEME } from "./src/theme";
 
 function clearPairedWorkspaceData(origin: string, requireFileRemoval = false) {
   clearWorkspaceDrafts(origin, { requireFileRemoval });
-  clearWorkspaceCache(origin);
-  clearWorkspaceNotificationPrefs(origin);
+  clearWorkspaceCache(origin, { requireFileRemoval });
+  clearWorkspaceNotificationPrefs(origin, { requireFileRemoval });
 }
 
 type AppTab = "feed" | "projects" | "pulls" | "search" | "profile";
@@ -359,6 +359,7 @@ function LoopShell() {
     [session, handleUnauthorizedForSession],
   );
 
+  const pairingChangeRef = useRef(false);
   const workspaceGenRef = useRef(0);
   const loadCoordRef = useRef(new WorkspaceLoadCoordinator());
   // Durable per-target idempotency/command keys so retries after uncertain timeouts reuse the same key
@@ -370,7 +371,12 @@ function LoopShell() {
 
   const loadWorkspace = useCallback(
     async (options?: { silent?: boolean }) => {
-      if (!client) return;
+      if (
+        !client ||
+        pairingChangeRef.current ||
+        activeSessionRef.current !== session
+      )
+        return;
       const gen = loadCoordRef.current.currentGeneration;
       await loadCoordRef.current.run(options ?? { silent: true }, {
         setRefreshing,
@@ -501,7 +507,7 @@ function LoopShell() {
         },
       });
     },
-    [client, showToast],
+    [client, session, showToast],
   );
 
   const loadWorkspaceRef = useRef(loadWorkspace);
@@ -821,7 +827,7 @@ function LoopShell() {
               prev ? applySaved(saved)(prev) : prev,
             );
           },
-          commit: () => client.setSaved(msgId, nextSaved),
+          commit: () => client.setSaved(msgId, nextSaved, card.conversationId),
           onSuccess: () =>
             showToast(nextSaved ? "Saved card" : "Removed from Saved"),
           onUncertain: () => {
@@ -1988,7 +1994,11 @@ function LoopShell() {
           }
           onToggleSaved={async (msgId, currentlySaved) => {
             if (client) {
-              await client.setSaved(msgId, !currentlySaved);
+              await client.setSaved(
+                msgId,
+                !currentlySaved,
+                threadOverlay.conversationId,
+              );
               showToast(!currentlySaved ? "Saved" : "Unsaved");
             } else {
               setDemoCards((prev) =>
@@ -2135,26 +2145,34 @@ function LoopShell() {
           onPaired={async (nextSession) => {
             const previous = activeSessionRef.current;
             const newDevice = !isSamePairedDevice(previous, nextSession);
-            // A URL probe can reuse the same device. Clear local data only
-            // when the server's paired device identity changes.
-            if (newDevice) clearPairedWorkspaceData(nextSession.origin, true);
-            // Persist the new credential only after the target's old drafts
-            // are gone, so a restart mid-pairing cannot expose them.
-            await savePairedSession(nextSession);
-            if (
-              newDevice &&
-              previous &&
-              previous.origin !== nextSession.origin
-            ) {
-              clearPairedWorkspaceData(previous.origin);
+            try {
+              // A URL probe can reuse the same device. Stop the old client from
+              // repopulating the cleared cache before committing new credentials.
+              if (newDevice) {
+                pairingChangeRef.current = true;
+                workspaceGenRef.current = loadCoordRef.current.reset();
+                setRefreshing(false);
+                clearPairedWorkspaceData(nextSession.origin, true);
+              }
+              await savePairedSession(nextSession);
+              if (
+                newDevice &&
+                previous &&
+                previous.origin !== nextSession.origin
+              ) {
+                clearPairedWorkspaceData(previous.origin);
+              }
+              activeSessionRef.current = nextSession;
+              setComposeTarget(null);
+              setSession(nextSession);
+              setPairingOpen(false);
+              setPairingInitialUrl("");
+              showToast(
+                `Paired with ${nextSession.origin.replace(/^https?:\/\//, "")}`,
+              );
+            } finally {
+              pairingChangeRef.current = false;
             }
-            setComposeTarget(null);
-            setSession(nextSession);
-            setPairingOpen(false);
-            setPairingInitialUrl("");
-            showToast(
-              `Paired with ${nextSession.origin.replace(/^https?:\/\//, "")}`,
-            );
           }}
         />
       )}

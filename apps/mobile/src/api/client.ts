@@ -653,15 +653,39 @@ export class LoopClient {
     );
   }
 
-  setSaved(
+  async setSaved(
     messageId: string,
     saved: boolean,
+    conversationId?: string,
   ): Promise<{ ok: boolean; saved: boolean }> {
-    return this.request(
-      saved ? "POST" : "DELETE",
-      `/api/messages/${encodeURIComponent(messageId)}/saved`,
-      {},
-    );
+    try {
+      const result = await this.request<{ ok: boolean; saved: boolean }>(
+        saved ? "POST" : "DELETE",
+        `/api/messages/${encodeURIComponent(messageId)}/saved`,
+        {},
+      );
+      if (conversationId) {
+        const cached = this.carouselPages.get(conversationId);
+        if (cached) {
+          const ids = new Set(cached.page.saved);
+          if (result.saved) ids.add(messageId);
+          else ids.delete(messageId);
+          this.carouselPages.set(conversationId, {
+            ...cached,
+            page: { ...cached.page, saved: [...ids] },
+          });
+        }
+        // A GET already in flight may still contain the pre-save state.
+        this.carouselRequests.delete(conversationId);
+      }
+      return result;
+    } catch (error) {
+      if (conversationId && isUncertainOutcomeError(error)) {
+        this.carouselPages.delete(conversationId);
+        this.carouselRequests.delete(conversationId);
+      }
+      throw error;
+    }
   }
 
   createReminder(input: {

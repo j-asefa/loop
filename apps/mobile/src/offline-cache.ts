@@ -50,14 +50,17 @@ export function saveWorkspaceCache(
   cacheEpoch.set(bucket, (cacheEpoch.get(bucket) ?? 0) + 1);
   try {
     const file = cacheFileForBucket(bucket);
-    file.write(serializeWorkspaceCache(snapshot));
+    file.writeSync(serializeWorkspaceCache(snapshot));
   } catch {
     // Best-effort offline cache write; never disrupt live workspace sync.
   }
 }
 
 /** Purge cached workspace snapshot on sign-out or session expiry. */
-export function clearWorkspaceCache(origin: string | null | undefined): void {
+export function clearWorkspaceCache(
+  origin: string | null | undefined,
+  options?: { requireFileRemoval?: boolean },
+): void {
   if (!origin) return;
   const bucket = draftWorkspaceBucket(origin);
   cacheEpoch.set(bucket, (cacheEpoch.get(bucket) ?? 0) + 1);
@@ -65,6 +68,7 @@ export function clearWorkspaceCache(origin: string | null | undefined): void {
     const file = cacheFileForBucket(bucket);
     if (file.exists) file.delete();
   } catch {
-    // ignore
+    if (options?.requireFileRemoval)
+      throw new Error("Could not clear the previous workspace cache.");
   }
 }
