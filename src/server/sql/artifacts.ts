@@ -238,17 +238,53 @@ export function isBookmarked(
 }
 
 const snippetsStatement = statement(
-  "SELECT id,title,content,created_at FROM (\n          SELECT id,title,content,created_at,rowid AS row,\n            row_number() OVER (\n              PARTITION BY trim(content,' '||char(9)||char(10)||char(13))\n              ORDER BY created_at DESC,rowid DESC\n            ) copy\n          FROM artifacts WHERE owner_id=? AND archived=0\n            AND (json_extract(metadata,'$.snippet')=1 OR title LIKE 'Saved prompt:%')\n        ) WHERE copy=1 ORDER BY created_at DESC,row DESC LIMIT 100",
+  `WITH unique_snippets AS (
+     SELECT id, title, content, created_at, row,
+       trim(content, ' '||char(9)||char(10)||char(13)) AS norm_content
+     FROM (
+       SELECT id, title, content, created_at, rowid AS row,
+         row_number() OVER (
+           PARTITION BY trim(content, ' '||char(9)||char(10)||char(13))
+           ORDER BY created_at DESC, rowid DESC
+         ) copy
+       FROM artifacts
+       WHERE owner_id = @owner AND archived = 0
+         AND (json_extract(metadata, '$.snippet') = 1 OR title LIKE 'Saved prompt:%')
+     )
+     WHERE copy = 1
+   ),
+   usage AS (
+     SELECT trim(m.content, ' '||char(9)||char(10)||char(13)) AS norm_content,
+       count(*) AS use_count,
+       max(m.created_at) AS last_used_at
+     FROM messages m
+     WHERE m.owner_id = @owner AND m.role = 'user'
+       AND trim(m.content, ' '||char(9)||char(10)||char(13)) IN (
+         SELECT norm_content FROM unique_snippets WHERE norm_content <> ''
+       )
+     GROUP BY trim(m.content, ' '||char(9)||char(10)||char(13))
+   )
+   SELECT s.id, s.title, s.content, s.created_at,
+     COALESCE(u.use_count, 0) AS use_count
+   FROM unique_snippets s
+   LEFT JOIN usage u ON u.norm_content = s.norm_content
+   ORDER BY COALESCE(u.use_count, 0) DESC,
+            COALESCE(u.last_used_at, 0) DESC,
+            s.created_at DESC,
+            s.row DESC
+   LIMIT 100`,
 );
-const snippetsRow = QueryRecords.artifacts.pick({
-  id: true,
-  title: true,
-  content: true,
-  created_at: true,
-});
+const snippetsRow = QueryRecords.artifacts
+  .pick({
+    id: true,
+    title: true,
+    content: true,
+    created_at: true,
+  })
+  .extend({ use_count: z.number().int().nonnegative() });
 export function snippets(db: Database.Database, owner: string) {
   return snippetsStatement(db)
-    .all(owner)
+    .all({ owner })
     .map((row) => parseRecord(snippetsRow, row, "artifacts"));
 }
 

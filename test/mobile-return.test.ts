@@ -3434,6 +3434,66 @@ it("lists snippets, searches personal prompts and summarizes projects", async ()
   });
 });
 
+it("orders snippets by usage count then recency while isolating owners", async () => {
+  const w = workspaceFor(),
+    a = w.agent(),
+    cid = conversation(w.owner, a.id),
+    intruder = workspaceFor(),
+    intruderAgent = intruder.agent(),
+    intruderCid = conversation(intruder.owner, intruderAgent.id);
+
+  await api(w.owner, "/artifacts", "POST", {
+    title: "Snippet: Review PR",
+    content: "Review this PR",
+    metadata: { snippet: true },
+  });
+  await api(w.owner, "/artifacts", "POST", {
+    title: "Snippet: Check CI",
+    content: "Check CI status",
+    metadata: { snippet: true },
+  });
+  await api(w.owner, "/artifacts", "POST", {
+    title: "Snippet: Summarize",
+    content: "Summarize thread",
+    metadata: { snippet: true },
+  });
+
+  // Intruder sends "Summarize thread" many times; owner's order must stay isolated.
+  for (let i = 0; i < 4; i++) {
+    await api(intruder.owner, "/runs", "POST", {
+      agentId: intruderAgent.id,
+      conversationId: intruderCid,
+      input: "Summarize thread",
+      idempotencyKey: "intr-" + i + "-" + randomBytes(4).toString("hex"),
+      queue: true,
+    });
+  }
+
+  // Owner uses "Review this PR" twice and "Check CI status" once.
+  for (const input of [
+    "Review this PR",
+    "Check CI status",
+    "Review this PR ",
+  ]) {
+    await api(w.owner, "/runs", "POST", {
+      agentId: a.id,
+      conversationId: cid,
+      input,
+      idempotencyKey: "snip-" + randomBytes(6).toString("hex"),
+      queue: true,
+    });
+  }
+
+  const ordered = (await api(w.owner, "/snippets")).data.items;
+  expect(
+    ordered.map((s: any) => ({ content: s.content, use_count: s.use_count })),
+  ).toEqual([
+    { content: "Review this PR", use_count: 2 },
+    { content: "Check CI status", use_count: 1 },
+    { content: "Summarize thread", use_count: 0 },
+  ]);
+});
+
 it("keeps your profile per owner, with counts matching your prompt history", async () => {
   const w = workspaceFor(),
     a = w.agent();

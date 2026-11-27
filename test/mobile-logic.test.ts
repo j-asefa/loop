@@ -125,6 +125,15 @@ import {
   type LoopTheme,
 } from "../apps/mobile/src/theme.js";
 import { getAgentArt, PALETTES } from "../apps/mobile/src/agentArt.js";
+import {
+  computeKeyboardInset,
+  computeQuickSheetLayout,
+  MAX_TRACKED_SNIPPETS,
+  parseSnippetUsageStore,
+  recordSnippetUseInStore,
+  serializeSnippetUsageStore,
+  sortSnippetsByUsage,
+} from "../apps/mobile/src/snippet-usage-codec.js";
 import type { ApiFeedItem } from "../apps/mobile/src/api/types.js";
 
 function makeFeedItem(overrides: Partial<ApiFeedItem> = {}): ApiFeedItem {
@@ -3756,5 +3765,104 @@ describe("mobile text selection helpers", () => {
     expect(thread).toContain("new CopySessionTracker()");
     // FilePreviewModal offers in-place selectable text toggle without nested Modal
     expect(preview).toContain("selectTextMode");
+  });
+});
+
+describe("mobile snippet usage sorting and quick-reply keyboard layout", () => {
+  it("puts most used snippets at the top without double-counting server counts", () => {
+    const snippets = [
+      { id: "s1", title: "Alpha", content: "Alpha prompt", use_count: 3 },
+      { id: "s2", title: "Beta", content: "Beta prompt", use_count: 1 },
+      { id: "s3", title: "Gamma", content: "Gamma prompt", use_count: 0 },
+      { id: "s4", title: "Delta", content: "Delta prompt", use_count: 0 },
+    ];
+
+    // Preserves server order before any local taps.
+    expect(sortSnippetsByUsage(snippets, {}).map((s) => s.id)).toEqual([
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+    ]);
+
+    // Tapping Gamma once promotes it above Delta, while staying below Alpha (3) and tied with Beta (1) by recency.
+    let usage = recordSnippetUseInStore({}, "Gamma prompt", 0, 1000);
+    expect(sortSnippetsByUsage(snippets, usage).map((s) => s.id)).toEqual([
+      "s1",
+      "s3",
+      "s2",
+      "s4",
+    ]);
+
+    // Tapping Gamma 3 more times raises it to 4 and puts it first above Alpha (3).
+    usage = recordSnippetUseInStore(usage, "Gamma prompt", 0, 2000);
+    usage = recordSnippetUseInStore(usage, "Gamma prompt", 0, 3000);
+    usage = recordSnippetUseInStore(usage, "Gamma prompt", 0, 4000);
+    expect(sortSnippetsByUsage(snippets, usage).map((s) => s.id)).toEqual([
+      "s3",
+      "s1",
+      "s2",
+      "s4",
+    ]);
+
+    // Round-tripping persisted JSON preserves counts and caps tracked entries.
+    const serialized = serializeSnippetUsageStore(usage);
+    const parsed = parseSnippetUsageStore(serialized);
+    expect(parsed["Gamma prompt"]).toEqual({ count: 4, lastUsedAt: 4000 });
+
+    let crowded = parsed;
+    for (let i = 0; i < MAX_TRACKED_SNIPPETS + 10; i++) {
+      crowded = recordSnippetUseInStore(crowded, `Extra ${i}`, 0, 5000 + i);
+    }
+    expect(Object.keys(crowded).length).toBeLessThanOrEqual(
+      MAX_TRACKED_SNIPPETS,
+    );
+  });
+
+  it("sizes quick-reply sheet and scrollable area above an open keyboard", () => {
+    const iosInset = computeKeyboardInset(
+      { endCoordinates: { height: 336, screenY: 508 } },
+      844,
+      "ios",
+    );
+    expect(iosInset).toBe(336);
+    expect(
+      computeKeyboardInset(
+        { endCoordinates: { height: 336, screenY: 844 } },
+        844,
+        "ios",
+      ),
+    ).toBe(0);
+
+    // Android adjustResize already shrinks windowHeight to screenY -> inset 0 (no double padding).
+    expect(
+      computeKeyboardInset(
+        { endCoordinates: { height: 300, screenY: 544 } },
+        544,
+        "android",
+      ),
+    ).toBe(0);
+
+    const openLayout = computeQuickSheetLayout({
+      windowHeight: 844,
+      insetTop: 59,
+      insetBottom: 34,
+      keyboardInset: iosInset,
+    });
+    expect(openLayout.maxSheetHeight).toBe(429);
+    expect(openLayout.sheetPaddingBottom).toBe(12);
+    expect(openLayout.maxScrollHeight).toBe(365);
+    expect(openLayout.maxSheetHeight + iosInset + 59).toBeLessThanOrEqual(844);
+
+    const closedLayout = computeQuickSheetLayout({
+      windowHeight: 844,
+      insetTop: 59,
+      insetBottom: 34,
+      keyboardInset: 0,
+    });
+    expect(closedLayout.sheetPaddingBottom).toBe(48);
+    expect(closedLayout.maxScrollHeight).toBeGreaterThan(
+      openLayout.maxScrollHeight,
+    );
   });
 });

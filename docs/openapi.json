@@ -912,7 +912,7 @@
    "resultUpdateResponse": {"$ref":"#/components/schemas/Ok"},
    "artifactFileResponse": {"type":"string","format":"binary"},
    "artifactDownloadResponse": {"type":"string","format":"binary"},
-   "snippetListResponse": {"type":"object","properties":{"items":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"title":{"type":"string"},"content":{"type":"string"},"created_at":{"type":"number"}},"required":["id","title","content","created_at"],"additionalProperties":false}}},"required":["items"],"additionalProperties":false},
+   "snippetListResponse": {"type":"object","properties":{"items":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"title":{"type":"string"},"content":{"type":"string"},"created_at":{"type":"number"},"use_count":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["id","title","content","created_at","use_count"],"additionalProperties":false}}},"required":["items"],"additionalProperties":false},
    "uploadCreateResponse": {"$ref":"#/components/schemas/PublicUploadDescriptor"},
    "folderListResponse": {"type":"array","items":{"$ref":"#/components/schemas/PublicFolder"}},
    "folderCreateResponse": {"$ref":"#/components/schemas/PublicFolder"},

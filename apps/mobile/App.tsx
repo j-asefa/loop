@@ -104,6 +104,14 @@ import {
   loadWorkspaceCache,
   saveWorkspaceCache,
 } from "./src/offline-cache";
+import {
+  clearWorkspaceSnippetUsage,
+  loadSnippetUsage,
+  recordSnippetUse,
+  recordSnippetUseInStore,
+  sortSnippetsByUsage,
+  type SnippetUsageMap,
+} from "./src/snippet-usage";
 import { formatScheduledTime } from "./src/schedule-utils";
 import {
   buildSimulatedReply,
@@ -197,6 +205,11 @@ function LoopShell() {
   const [agents, setAgents] = useState<ApiAgent[]>(DEMO_AGENTS);
   const [folders, setFolders] = useState<ApiFolder[]>([]);
   const [snippets, setSnippets] = useState<ApiSnippet[]>([]);
+  const [snippetUsage, setSnippetUsage] = useState<SnippetUsageMap>({});
+  const sortedSnippets = useMemo(
+    () => sortSnippetsByUsage(snippets, snippetUsage),
+    [snippets, snippetUsage],
+  );
   const [connections, setConnections] = useState<ApiConnection[]>([]);
   const [approvals, setApprovals] = useState<ApiApproval[]>([]);
   const [decisions, setDecisions] = useState<ApiNativeDecision[]>([]);
@@ -322,6 +335,7 @@ function LoopShell() {
       clearWorkspaceDrafts(expiredSession.origin);
       clearWorkspaceCache(expiredSession.origin);
       clearWorkspaceNotificationPrefs(expiredSession.origin);
+      clearWorkspaceSnippetUsage(expiredSession.origin);
       void clearPairedSession();
       setSession(null);
       setSocketStatus("offline");
@@ -514,6 +528,7 @@ function LoopShell() {
     setApprovals([]);
     setDecisions([]);
     setSnippets([]);
+    setSnippetUsage({});
     setConnections([]);
     setActiveRuns([]);
     setQueuedFeedItems([]);
@@ -569,6 +584,11 @@ function LoopShell() {
       if (gen === workspaceGenRef.current) {
         setNotificationPrefs(prefs);
         setNotificationPrefsLoaded(true);
+      }
+    });
+    void loadSnippetUsage(origin).then((usage) => {
+      if (gen === workspaceGenRef.current) {
+        setSnippetUsage(usage);
       }
     });
     void loadWorkspaceCache(origin).then((snap) => {
@@ -1370,6 +1390,7 @@ function LoopShell() {
     clearWorkspaceDrafts(signingOutSession?.origin);
     clearWorkspaceCache(signingOutSession?.origin);
     clearWorkspaceNotificationPrefs(signingOutSession?.origin);
+    clearWorkspaceSnippetUsage(signingOutSession?.origin);
     await clearPairedSession();
     if (activeSessionRef.current !== signingOutSession) return;
     setSession(null);
@@ -1844,7 +1865,14 @@ function LoopShell() {
           canPause={openCarouselCanPause}
           liveStream={openCarouselLiveStream}
           client={client}
-          snippets={snippets}
+          snippets={sortedSnippets}
+          onUseSnippet={(snip) => {
+            setSnippetUsage((prev) =>
+              session?.origin
+                ? recordSnippetUse(session.origin, snip.content, snip.use_count)
+                : recordSnippetUseInStore(prev, snip.content, snip.use_count),
+            );
+          }}
           theme={theme}
           onCancelQueuedRun={handleCancelQueuedRun}
           onReorderQueuedRun={handleReorderQueuedRun}
@@ -2087,6 +2115,7 @@ function LoopShell() {
             const prevOrigin = activeSessionRef.current?.origin;
             if (prevOrigin && prevOrigin !== nextSession.origin) {
               clearWorkspaceCache(prevOrigin);
+              clearWorkspaceSnippetUsage(prevOrigin);
             }
             setSession(nextSession);
             setPairingOpen(false);
