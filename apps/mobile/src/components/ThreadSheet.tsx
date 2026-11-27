@@ -146,18 +146,25 @@ export function ThreadSheet({
   const [selectModalCopied, setSelectModalCopied] = useState(false);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const selectCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const selectModalSessionRef = useRef(0);
 
-  useEffect(() => {
-    setSelectingMessage(null);
-    setSelectModalCopied(false);
+  const closeSelectModal = useCallback(() => {
+    selectModalSessionRef.current += 1;
     if (selectCopyTimerRef.current) {
       clearTimeout(selectCopyTimerRef.current);
       selectCopyTimerRef.current = null;
     }
-  }, [conversationId, client]);
+    setSelectModalCopied(false);
+    setSelectingMessage(null);
+  }, []);
+
+  useEffect(() => {
+    closeSelectModal();
+  }, [conversationId, client?.origin, closeSelectModal]);
 
   useEffect(() => {
     return () => {
+      selectModalSessionRef.current += 1;
       if (selectCopyTimerRef.current) clearTimeout(selectCopyTimerRef.current);
     };
   }, []);
@@ -935,6 +942,11 @@ export function ThreadSheet({
                           onPress={() => {
                             haptics.light();
                             Keyboard.dismiss();
+                            selectModalSessionRef.current += 1;
+                            if (selectCopyTimerRef.current) {
+                              clearTimeout(selectCopyTimerRef.current);
+                              selectCopyTimerRef.current = null;
+                            }
                             setSelectModalCopied(false);
                             setSelectingMessage({
                               author: isUser ? "You" : `@${agentName}`,
@@ -1348,22 +1360,13 @@ export function ThreadSheet({
         visible={Boolean(selectingMessage)}
         animationType="slide"
         presentationStyle="pageSheet"
-        onRequestClose={() => {
-          if (selectCopyTimerRef.current) {
-            clearTimeout(selectCopyTimerRef.current);
-            selectCopyTimerRef.current = null;
-          }
-          setSelectModalCopied(false);
-          setSelectingMessage(null);
-        }}
+        onRequestClose={closeSelectModal}
       >
         <View
           style={[
             styles.selectModalRoot,
             {
               backgroundColor: theme.bg,
-              paddingTop:
-                Platform.OS === "ios" ? 0 : Math.max(insets.top + 8, 16),
               paddingBottom: Math.max(insets.bottom, 12),
             },
           ]}
@@ -1399,15 +1402,19 @@ export function ThreadSheet({
                   }
                   onPress={() => {
                     haptics.success();
+                    const session = selectModalSessionRef.current;
                     void Clipboard.setStringAsync(selectingMessage.content)
                       .then(() => {
+                        if (selectModalSessionRef.current !== session) return;
                         setSelectModalCopied(true);
                         if (selectCopyTimerRef.current) {
                           clearTimeout(selectCopyTimerRef.current);
                         }
                         selectCopyTimerRef.current = setTimeout(() => {
                           selectCopyTimerRef.current = null;
-                          setSelectModalCopied(false);
+                          if (selectModalSessionRef.current === session) {
+                            setSelectModalCopied(false);
+                          }
                         }, 1600);
                       })
                       .catch(() => {});
@@ -1440,14 +1447,7 @@ export function ThreadSheet({
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Close text selection"
-                onPress={() => {
-                  if (selectCopyTimerRef.current) {
-                    clearTimeout(selectCopyTimerRef.current);
-                    selectCopyTimerRef.current = null;
-                  }
-                  setSelectModalCopied(false);
-                  setSelectingMessage(null);
-                }}
+                onPress={closeSelectModal}
                 style={[
                   styles.selectModalCloseBtn,
                   {

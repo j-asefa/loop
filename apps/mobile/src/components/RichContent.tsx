@@ -943,7 +943,10 @@ function NativeSpecChart({
       ]}
     >
       {title && (
-        <Text style={[styles.specCardTitle, { color: theme.text }]}>
+        <Text
+          selectable={selectable}
+          style={[styles.specCardTitle, { color: theme.text }]}
+        >
           {title}
         </Text>
       )}
@@ -1043,6 +1046,7 @@ function NativeSpecChart({
           {categories.slice(0, 6).map((c, idx) => (
             <Text
               key={idx}
+              selectable={selectable}
               style={[styles.chartLabelText, { color: theme.muted }]}
               numberOfLines={1}
             >
