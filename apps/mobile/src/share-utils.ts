@@ -76,10 +76,12 @@ export function isSafeHttpUrl(raw: string): boolean {
   }
 }
 
-/** Returns true only for local device file URIs/paths (blocks remote http/https/data file URIs). */
+/** Returns true only for safe local device file URIs/paths (blocks remote URLs, traversal, and Loop internal cache files). */
 export function isSafeLocalShareFileUri(raw: string): boolean {
   const trimmed = raw.trim();
   if (!trimmed) return false;
+  if (/(?:^|[\\/])\.\.(?:[\\/]|$)/.test(trimmed)) return false;
+  if (/loop-(?:cache|drafts|notif-prefs)-/i.test(trimmed)) return false;
   if (trimmed.startsWith("/")) return true;
   return /^(?:file|content|ph|assets-library):/i.test(trimmed);
 }
@@ -229,10 +231,12 @@ export function normalizeIncomingSharePayloads(
     return null;
   }
 
+  // Omit volatile OS temporary cache URIs from the fingerprint so re-sharing the
+  // same file after dismissal or restart still matches its persisted recovery lock.
   const fingerprintSeed = JSON.stringify([
     sourceUrl || "",
     sharedText || "",
-    files.map((f) => [f.name, f.mimeType, f.size ?? 0, f.uri]),
+    files.map((f) => [f.name, f.mimeType, f.size ?? 0]),
   ]);
   const fingerprint = shareContentFingerprint(fingerprintSeed);
 

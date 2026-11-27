@@ -343,7 +343,11 @@ export function ShareInboxSheet({
           (a) => a.name.toLowerCase() === leadingHandle.toLowerCase(),
         )
       : undefined;
-    const targetAgentId = locked?.agentId ?? routedAgent?.id ?? selectedAgentId;
+    const targetAgentId = locked
+      ? (locked.agentId ?? "")
+      : leadingHandle
+        ? (routedAgent?.id ?? "")
+        : selectedAgentId;
     const targetFolderId =
       locked && locked.folderId !== undefined
         ? locked.folderId
@@ -359,6 +363,7 @@ export function ShareInboxSheet({
     haptics.medium();
 
     const shareScope = draftScopeForShare(share.fingerprint);
+    let sendDispatched = wasAlreadyUncertainRetry;
     try {
       const effectiveFolderId = targetFolderId ?? agent?.folder_id ?? undefined;
       let attachmentIds: string[] = [];
@@ -374,16 +379,34 @@ export function ShareInboxSheet({
             attachmentIds.push(existingId);
             continue;
           }
-          const uploaded = await activeClient.uploadFile(
-            { uri: f.uri, name: f.name, mimeType: f.mimeType },
-            {
-              agentId: targetAgentId || undefined,
-              folderId: effectiveFolderId ?? null,
-            },
-          );
-          if (!mountedRef.current || clientRef.current !== activeClient) return;
-          uploadedIdsByKeyRef.current.set(cacheKey, uploaded.id);
-          attachmentIds.push(uploaded.id);
+          try {
+            const uploaded = await activeClient.uploadFile(
+              { uri: f.uri, name: f.name, mimeType: f.mimeType },
+              {
+                agentId: targetAgentId || undefined,
+                folderId: effectiveFolderId ?? null,
+              },
+            );
+            if (!mountedRef.current || clientRef.current !== activeClient) {
+              return;
+            }
+            uploadedIdsByKeyRef.current.set(cacheKey, uploaded.id);
+            attachmentIds.push(uploaded.id);
+          } catch (uploadErr) {
+            if (!mountedRef.current || clientRef.current !== activeClient) {
+              return;
+            }
+            // Upload errors happen BEFORE POST /api/share/send — never falsely claim
+            // an idempotent request lock or replay an uncertain shareSend.
+            setError(
+              isUncertainOutcomeError(uploadErr)
+                ? `Uploading "${f.name}" timed out — check Profile → Files to see if it finished, or tap Send to try uploading again.`
+                : uploadErr instanceof Error
+                  ? uploadErr.message
+                  : `Could not upload "${f.name}".`,
+            );
+            return;
+          }
         }
       }
 
@@ -431,6 +454,7 @@ export function ShareInboxSheet({
         setError("Could not prepare shared request.");
         return;
       }
+      sendDispatched = true;
       const runResult = await activeClient.shareSend(payload);
 
       // Always clear persisted pendingShare on confirmed success even if the sheet
@@ -444,6 +468,16 @@ export function ShareInboxSheet({
         routedAgent?.name ?? leadingHandle ?? agent?.name ?? "agent";
       onSent(`Sent to @${targetName}`, runResult.conversation_id, targetName);
     } catch (err) {
+      if (!sendDispatched) {
+        if (mountedRef.current && clientRef.current === activeClient) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Could not send shared content.",
+          );
+        }
+        return;
+      }
       const outcome = classifyShareSendFailure({
         wasRetry: wasAlreadyUncertainRetry,
         isUncertain: isUncertainOutcomeError(err),

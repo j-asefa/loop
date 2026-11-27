@@ -316,6 +316,9 @@ function LoopShell() {
     (expiredSession: PairedSession) => {
       // Ignore stale 401s from a previous workspace after switching workspaces
       if (activeSessionRef.current !== expiredSession) return;
+      // Invalidate any in-flight workspace loads BEFORE deleting local files so a
+      // sibling fetchAll cannot recreate cache or fire notifications after expiry.
+      workspaceGenRef.current = loadCoordRef.current.reset();
       clearWorkspaceDrafts(expiredSession.origin);
       clearWorkspaceCache(expiredSession.origin);
       clearWorkspaceNotificationPrefs(expiredSession.origin);

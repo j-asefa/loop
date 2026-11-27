@@ -3197,7 +3197,21 @@ describe("mobile incoming share normalization and server contract compatibility"
     ]);
     expect(pipeA?.fingerprint).not.toBe(pipeB?.fingerprint);
 
-    // Local-only file URI validation blocks remote URLs masquerading as shared files
+    // Re-sharing the same file across different OS temp cache URIs produces the same fingerprint
+    const fileShareSecondUri = normalizeIncomingSharePayloads([
+      {
+        shareType: "image",
+        value: "file:///cache/run-2/photo.png",
+        contentUri: "file:///cache/run-2/photo.png",
+        contentMimeType: "image/png",
+        originalName: "diagram.png",
+        contentSize: 2048,
+      },
+      { shareType: "text", value: "What changed here?" },
+    ]);
+    expect(fileShareSecondUri?.fingerprint).toBe(fileShare?.fingerprint);
+
+    // Local-only file URI validation blocks remote URLs, path traversal, and internal Loop cache files
     expect(isSafeLocalShareFileUri("file:///cache/doc.pdf")).toBe(true);
     expect(isSafeLocalShareFileUri("content://media/external/images/1")).toBe(
       true,
@@ -3205,6 +3219,12 @@ describe("mobile incoming share normalization and server contract compatibility"
     expect(isSafeLocalShareFileUri("https://evil.example/payload.bin")).toBe(
       false,
     );
+    expect(isSafeLocalShareFileUri("file:///cache/../secrets.json")).toBe(
+      false,
+    );
+    expect(
+      isSafeLocalShareFileUri("file:///cache/loop-cache-ws_1234.json"),
+    ).toBe(false);
     expect(
       normalizeIncomingSharePayloads([
         { shareType: "file", value: "https://evil.example/payload.bin" },
