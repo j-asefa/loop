@@ -1,3 +1,4 @@
+import { File as ExpoFile } from "expo-file-system";
 import {
   parseArtifactFileMetadata,
   parseContentDispositionFilename,
@@ -382,10 +383,16 @@ export class LoopClient {
     const form = new FormData();
     if (opts?.agentId) form.append("agentId", opts.agentId);
     if (opts?.folderId) form.append("folderId", opts.folderId);
+    // Expo SDK 58 installs its own fetch globally. Its multipart encoder only
+    // accepts a Blob or an object with bytes(); React Native's { uri, name,
+    // type } part throws "Unsupported FormDataPart implementation", so the
+    // upload never left the phone. Read the picked file's bytes instead and
+    // keep the original name and type for the part headers.
+    const source = new ExpoFile(file.uri);
     form.append("file", {
-      uri: file.uri,
       name: file.name || "attachment",
       type: file.mimeType || "application/octet-stream",
+      bytes: () => source.bytes(),
     } as unknown as Blob);
 
     const headers: Record<string, string> = {
