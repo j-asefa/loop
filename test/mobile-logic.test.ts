@@ -3556,6 +3556,53 @@ describe("mobile text selection helpers", () => {
     expect(msgBSuccess).toHaveBeenCalledTimes(1);
   });
 
+  it("clears a prior copied badge immediately when a subsequent copy is slow or rejects", async () => {
+    vi.useFakeTimers();
+    const tracker = new CopySessionTracker();
+    let copiedId: string | null = null;
+    const onError = vi.fn();
+
+    // First copy succeeds and sets badge to msg-a
+    await expect(
+      tracker.copy(() => Promise.resolve(), {
+        restartSession: true,
+        onSuccess: () => {
+          copiedId = "msg-a";
+        },
+        onReset: () => {
+          copiedId = null;
+        },
+        onError,
+      }),
+    ).resolves.toBe(true);
+    expect(copiedId).toBe("msg-a");
+
+    // Within 1.6s, copy msg-b starts with a slow/failing clipboard write
+    let rejectMsgB!: (err: Error) => void;
+    const msgBWrite = new Promise<void>((_, reject) => {
+      rejectMsgB = reject;
+    });
+    const pendingB = tracker.copy(() => msgBWrite, {
+      restartSession: true,
+      onSuccess: () => {
+        copiedId = "msg-b";
+      },
+      onReset: () => {
+        copiedId = null;
+      },
+      onError,
+    });
+
+    // Prior badge must clear immediately while msg-b is in flight
+    expect(copiedId).toBeNull();
+
+    // Rejecting msg-b must keep copiedId cleared and fire onError once
+    rejectMsgB(new Error("clipboard unavailable"));
+    await expect(pendingB).resolves.toBe(false);
+    expect(copiedId).toBeNull();
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+
   it("detects interactive URL and Loop file links including nested formatting", () => {
     expect(
       hasInteractiveInlineLink([{ kind: "text", text: "plain text" }]),
@@ -3590,6 +3637,19 @@ describe("mobile text selection helpers", () => {
         "https://loop.local",
       ),
     ).toBe(true);
+    // Without an onOpenFile handler (e.g. FilePreviewModal), relative Loop file links are non-interactive
+    expect(
+      hasInteractiveInlineLink(
+        [
+          {
+            kind: "link",
+            url: "/api/artifacts/12345678-1234-1234-1234-1234567890ab/file",
+          },
+        ],
+        "https://loop.local",
+        false,
+      ),
+    ).toBe(false);
   });
 
   it("disables inline selectable only on Android paragraphs with interactive links", () => {

@@ -15,11 +15,13 @@ export interface InlineLinkLikeToken {
 export function hasInteractiveInlineLink(
   tokens: readonly InlineLinkLikeToken[],
   workspaceOrigin?: string | null,
+  hasOpenFileHandler = true,
 ): boolean {
   for (const tok of tokens) {
     if (tok.kind === "link" && typeof tok.url === "string") {
       if (resolveLoopFileTarget(tok.url, workspaceOrigin)) {
-        return true;
+        if (hasOpenFileHandler) return true;
+        continue;
       }
       if (!tok.isLocalFile && /^https?:\/\//i.test(tok.url)) {
         return true;
@@ -27,7 +29,11 @@ export function hasInteractiveInlineLink(
     }
     if (
       tok.children &&
-      hasInteractiveInlineLink(tok.children, workspaceOrigin)
+      hasInteractiveInlineLink(
+        tok.children,
+        workspaceOrigin,
+        hasOpenFileHandler,
+      )
     ) {
       return true;
     }
@@ -91,6 +97,7 @@ export class CopySessionTracker {
   ): Promise<boolean> {
     if (callbacks.restartSession) {
       this.invalidate();
+      callbacks.onReset();
     }
     const token = this.session;
     try {

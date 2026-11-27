@@ -541,13 +541,17 @@ function renderInlineTokens(
               {
                 backgroundColor: theme.attention,
                 color: theme.brassText,
-                textDecorationLine: "underline",
+                textDecorationLine: opts?.onOpenFile ? "underline" : "none",
               },
             ]}
-            onPress={() => {
-              haptics.light();
-              opts?.onOpenFile?.(loopFile, tok.label);
-            }}
+            onPress={
+              opts?.onOpenFile
+                ? () => {
+                    haptics.light();
+                    opts.onOpenFile?.(loopFile, tok.label);
+                  }
+                : undefined
+            }
           >
             {` 📎 ${tok.label} `}
           </Text>
@@ -614,10 +618,14 @@ export function InlineFormattedText({
         selectable,
         platformOs: Platform.OS,
         hasInteractiveLinks: selectable
-          ? hasInteractiveInlineLink(tokens, workspaceOrigin)
+          ? hasInteractiveInlineLink(
+              tokens,
+              workspaceOrigin,
+              Boolean(onOpenFile),
+            )
           : false,
       }),
-    [selectable, tokens, workspaceOrigin],
+    [selectable, tokens, workspaceOrigin, onOpenFile],
   );
   return (
     <Text
