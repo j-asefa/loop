@@ -832,7 +832,7 @@ it("pages the carousel by three answer cards with the matching prompts", async (
   };
   for (let n = 1; n <= 7; n++) {
     message("user", `Prompt ${n}`, n * 4);
-    message("assistant", "\n\t ", n * 4 + 1);
+    message("assistant", "\n\t \u00a0\u202f", n * 4 + 1);
     message("assistant", `Answer ${n}`, n * 4 + 2);
   }
   message("user", "Still waiting for an answer", 50);
@@ -864,4 +864,37 @@ it("pages the carousel by three answer cards with the matching prompts", async (
       )
     ).status,
   ).toBe(404);
+});
+
+it("updates an agent's model and advertised effort through the workspace route", async () => {
+  const { agent } = fixture();
+  const connection = id();
+  seedConnection(db, {
+    id: connection,
+    owner_id: owner,
+    secret: seal("fixture-only-key", owner),
+    models: JSON.stringify([
+      { id: "new-model", name: "New model", effortLevels: [{ value: "high" }] },
+    ]),
+    created_at: now(),
+  });
+  const path = `/agents/${agent.id}`;
+  const selection = {
+    connectionId: connection,
+    model: "new-model",
+    effort: "high",
+  };
+  const updated = await request(path, selection, "PATCH");
+  expect(updated.status).toBe(200);
+  expect(workspaceApi.agentUpdate.response.parse(updated.data)).toMatchObject({
+    connection_id: connection,
+    model: "new-model",
+    effort: "high",
+  });
+  expect(
+    (await request(path, { ...selection, effort: "medium" }, "PATCH")).status,
+  ).toBe(400);
+  expect(
+    (await request(path, { ...selection, effort: null }, "PATCH")).data.effort,
+  ).toBeNull();
 });

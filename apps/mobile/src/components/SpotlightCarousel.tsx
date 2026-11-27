@@ -59,6 +59,7 @@ import {
 } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
+  CAROUSEL_PAGE_CARDS,
   resolveCarouselCardHeader,
   searchThreadCards,
   stepMatchIndex,
@@ -76,7 +77,10 @@ import type { ApiSnippet } from "../api/types";
 import type { AgentRunSummary } from "./AgentProfileSheet";
 import { PublishedFilesStrip } from "./FilePreviewModal";
 import {
+  mergeCarouselHistoryPage,
+  openingCarouselCardIds,
   QUICK_REPLIES,
+  type CarouselHistoryPage,
   relativeTime,
   type NativeResultCard,
 } from "../fixtures";
@@ -110,6 +114,7 @@ const EMPTY_PUBLISHED_FILES: PublishedFileItem[] = [];
 
 type SpotlightCarouselProps = {
   cards: NativeResultCard[];
+  openingCard?: NativeResultCard;
   queuedRuns?: AgentRunSummary[];
   activeRun?: AgentRunSummary | null;
   canPause?: boolean;
@@ -198,6 +203,7 @@ function parseConversationPageToSlides(
 
 export function SpotlightCarousel({
   cards,
+  openingCard,
   queuedRuns = [],
   activeRun = null,
   canPause = true,
@@ -231,25 +237,36 @@ export function SpotlightCarousel({
   // Pin the order so a refresh never reshuffles the stack; a newly arriving
   // card re-pins it and takes you to that card (#1) once the reply keyboard
   // is closed.
-  const [pinnedIds, setPinnedIds] = useState<string[]>(() =>
-    cards.map((c) => c.id),
+  const recentCards = useMemo(
+    () => (client ? cards.slice(0, CAROUSEL_PAGE_CARDS) : cards),
+    [cards, client],
+  );
+  const [pinnedIds, setPinnedIds] = useState(() =>
+    openingCarouselCardIds(cards, recentCards, openingCard),
   );
   const cardsById = useMemo(
-    () => new Map(cards.map((c) => [c.id, c])),
+    () => new Map(cards.map((card) => [card.id, card])),
     [cards],
   );
-  const pinnedSet = useMemo(() => new Set(pinnedIds), [pinnedIds]);
-  const hasNewArrival = useMemo(
-    () => cards.some((c) => !pinnedSet.has(c.id)),
-    [cards, pinnedSet],
-  );
+  const cardsByMessageId = useMemo(() => {
+    const byMessageId = new Map<string, NativeResultCard>();
+    for (const card of cards) {
+      if (card.messageId && !byMessageId.has(card.messageId)) {
+        byMessageId.set(card.messageId, card);
+      }
+    }
+    return byMessageId;
+  }, [cards]);
+  const lastTopCardRef = useRef(recentCards[0]?.id);
 
   const conversationId = cards[0]?.conversationId;
   const [initialHistory] = useState(() => {
     const page = conversationId
       ? client?.cachedCarouselPage(conversationId)
       : undefined;
-    return page ? parseConversationPageToSlides(page, cards[0]) : undefined;
+    return page
+      ? { ...parseConversationPageToSlides(page, cards[0]), next: page.next }
+      : undefined;
   });
   // Seed the first render from a cached page, then revalidate in the background.
   const [historyPrompts, setHistoryPrompts] = useState<Map<string, string>>(
@@ -258,12 +275,11 @@ export function SpotlightCarousel({
   const [historyRunIds, setHistoryRunIds] = useState<Map<string, string>>(
     () => initialHistory?.runIdMap ?? new Map(),
   );
-  const [historySlides, setHistorySlides] = useState<NativeResultCard[]>(
-    () => initialHistory?.slides ?? [],
-  );
-  const [historyNextCursor, setHistoryNextCursor] = useState<string | null>(
-    null,
-  );
+  const [history, setHistory] = useState<CarouselHistoryPage>(() => ({
+    cards: initialHistory?.slides ?? [],
+    next: initialHistory?.next ?? null,
+  }));
+  const { cards: historySlides, next: historyNextCursor } = history;
   const [loadingMoreHistory, setLoadingMoreHistory] = useState(false);
   const hasLoadedOlderHistoryRef = useRef(false);
   const loadingOlderRef = useRef(false);
@@ -296,27 +312,22 @@ export function SpotlightCarousel({
           runIdMap,
           slides: extra,
         } = parseConversationPageToSlides(page, baseCardRef.current);
-        const keepOlder = hasLoadedOlderHistoryRef.current;
+        const keepOlder =
+          loadingOlderRef.current || hasLoadedOlderHistoryRef.current;
         setHistoryPrompts((prev) =>
           keepOlder ? new Map([...prev, ...promptMap]) : promptMap,
         );
         setHistoryRunIds((prev) =>
           keepOlder ? new Map([...prev, ...runIdMap]) : runIdMap,
         );
-        setFullBodies((prev) =>
-          keepOlder ? new Map([...prev, ...bodyMap]) : bodyMap,
+        setFullBodies((prev) => new Map([...prev, ...bodyMap]));
+        setHistory((prev) =>
+          mergeCarouselHistoryPage(
+            prev,
+            { cards: extra, next: page.next ?? null },
+            keepOlder ? "refresh" : "replace",
+          ),
         );
-        setHistorySlides((prev) => {
-          if (!hasLoadedOlderHistoryRef.current || prev.length === 0) {
-            return extra;
-          }
-          const seen = new Set(extra.map((c) => c.messageId || c.id));
-          const older = prev.filter((c) => !seen.has(c.messageId || c.id));
-          return [...extra, ...older];
-        });
-        if (!hasLoadedOlderHistoryRef.current) {
-          setHistoryNextCursor(page.next ?? null);
-        }
         setSteerableRunId(page.steerable_run_id ?? null);
       })
       .catch(() => {});
@@ -356,12 +367,13 @@ export function SpotlightCarousel({
         }
         return next;
       });
-      setHistorySlides((prev) => {
-        const seen = new Set(prev.map((c) => c.messageId || c.id));
-        const uniqueOlder = older.filter((c) => !seen.has(c.messageId || c.id));
-        return uniqueOlder.length > 0 ? [...prev, ...uniqueOlder] : prev;
-      });
-      setHistoryNextCursor(page.next ?? null);
+      setHistory((prev) =>
+        mergeCarouselHistoryPage(
+          prev,
+          { cards: older, next: page.next ?? null },
+          "append",
+        ),
+      );
     } catch {
       // keep existing history
     } finally {
@@ -402,18 +414,22 @@ export function SpotlightCarousel({
       if (card) ordered.push(hydrate(card));
     }
     if (!ordered.length) {
-      for (const card of cards) ordered.push(hydrate(card));
+      for (const card of recentCards) ordered.push(hydrate(card));
     }
     for (const hist of historySlides) {
       if (!hist.messageId || !seenMsgs.has(hist.messageId)) {
-        ordered.push(hist);
+        const feedCard = hist.messageId
+          ? cardsByMessageId.get(hist.messageId)
+          : undefined;
+        ordered.push(feedCard ? hydrate(feedCard) : hist);
       }
     }
     return ordered;
   }, [
     pinnedIds,
     cardsById,
-    cards,
+    cardsByMessageId,
+    recentCards,
     historyPrompts,
     historyRunIds,
     historySlides,
@@ -612,11 +628,11 @@ export function SpotlightCarousel({
       activeIndex === 0 &&
       firstPinned?.startsWith("working:") &&
       !cardsById.has(firstPinned) &&
-      cards.length > 0
+      recentCards.length > 0
     ) {
-      setPinnedIds(cards.map((c) => c.id));
+      setPinnedIds(recentCards.map((c) => c.id));
     }
-  }, [activeIndex, cards, cardsById, pinnedIds]);
+  }, [activeIndex, recentCards, cardsById, pinnedIds]);
 
   const scrollRef = useRef<Animated.ScrollView>(null);
   // A table or code block being swiped holds the carousel still.
@@ -953,15 +969,18 @@ export function SpotlightCarousel({
       const matches = (c: NativeResultCard) =>
         c.id === target.id ||
         Boolean(target.messageId && c.messageId === target.messageId);
-      setHistorySlides((prev) =>
-        prev.map((c) => (matches(c) ? { ...c, saved: nextSaved } : c)),
-      );
+      const updateSaved = (saved: boolean) =>
+        setHistory((prev) => ({
+          ...prev,
+          cards: prev.cards.map((card) =>
+            matches(card) ? { ...card, saved } : card,
+          ),
+        }));
+      updateSaved(nextSaved);
       void Promise.resolve(onToggleSaved(target)).catch((err) => {
         // Preserve optimistic state on uncertain timeout/disconnect; only revert on definite rejection
         if (isUncertainOutcomeError(err)) return;
-        setHistorySlides((prev) =>
-          prev.map((c) => (matches(c) ? { ...c, saved: !nextSaved } : c)),
-        );
+        updateSaved(!nextSaved);
       });
     },
     [onToggleSaved],
@@ -1202,11 +1221,14 @@ export function SpotlightCarousel({
   // Hold the move while the reply keyboard is open, so a reply being typed
   // keeps its card; it runs as soon as the keyboard closes.
   useEffect(() => {
-    if (!hasNewArrival || keyboardVisible) return;
+    const top = recentCards[0]?.id;
+    if (keyboardVisible || !top || lastTopCardRef.current === top) return;
+    lastTopCardRef.current = top;
+    if (pinnedIds.includes(top)) return;
     haptics.light();
-    setPinnedIds(cards.map((c) => c.id));
+    setPinnedIds(recentCards.map((c) => c.id));
     requestAnimationFrame(() => scrollToSlide(0, true));
-  }, [hasNewArrival, keyboardVisible, cards, scrollToSlide]);
+  }, [keyboardVisible, pinnedIds, recentCards, scrollToSlide]);
 
   if (!slides.length) return null;
 
@@ -1267,7 +1289,7 @@ export function SpotlightCarousel({
                   ref={searchInputRef}
                   value={searchQuery}
                   onChangeText={setSearchQuery}
-                  placeholder={`Search ${slides.length} ${slides.length === 1 ? "card" : "cards"} in thread…`}
+                  placeholder="Search loaded cards…"
                   placeholderTextColor={theme.muted}
                   style={[styles.searchInput, { color: theme.text }]}
                   returnKeyType="search"
@@ -1772,8 +1794,8 @@ export function SpotlightCarousel({
                       style={[styles.searchMetaText, { color: theme.muted }]}
                     >
                       {liveHits.length === 0
-                        ? "No matching cards"
-                        : `${liveHits.length} ${liveHits.length === 1 ? "match" : "matches"} in ${slides.length} cards`}
+                        ? "No matches in loaded cards"
+                        : `${liveHits.length} ${liveHits.length === 1 ? "match" : "matches"} in ${slides.length} loaded cards`}
                     </Text>
                     {liveHits.length > 0 && (
                       <Text
@@ -1877,9 +1899,24 @@ export function SpotlightCarousel({
                 </>
               ) : (
                 <Text style={[styles.searchEmptyHint, { color: theme.muted }]}>
-                  Try searching “Hetzner”, “residency”, “latency”, or “Fly.io”
-                  across all {slides.length} discrete cards.
+                  Search the {slides.length} loaded{" "}
+                  {slides.length === 1 ? "card" : "cards"}.
                 </Text>
+              )}
+              {historyNextCursor && (
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={loadingMoreHistory}
+                  onPress={() => void loadMoreHistory()}
+                >
+                  <Text
+                    style={[styles.searchEmptyHint, { color: theme.brassText }]}
+                  >
+                    {loadingMoreHistory
+                      ? "Loading older cards…"
+                      : "Load older cards to search them"}
+                  </Text>
+                </Pressable>
               )}
             </View>
           )}

@@ -121,7 +121,6 @@ import {
   type NativeResultCard,
 } from "./src/fixtures";
 import { haptics } from "./src/haptics";
-import { CAROUSEL_PAGE_CARDS } from "../../src/shared/done-stack";
 import { DARK_THEME, LIGHT_THEME } from "./src/theme";
 
 type AppTab = "feed" | "projects" | "pulls" | "search" | "profile";
@@ -719,9 +718,8 @@ function LoopShell() {
     const matching = activeCards.filter(
       (c) => c.conversationId === openConversationId,
     );
-    const cards = mergeCarouselCards(matching, overrides);
-    return client ? cards.slice(0, CAROUSEL_PAGE_CARDS) : cards;
-  }, [activeCards, carouselOverrideCards, client, openConversationId]);
+    return mergeCarouselCards(matching, overrides);
+  }, [activeCards, carouselOverrideCards, openConversationId]);
 
   const isCarouselOpen = Boolean(
     openConversationId && openCarouselCards.length > 0,
@@ -1849,6 +1847,7 @@ function LoopShell() {
         <SpotlightCarousel
           key={openConversationId}
           cards={openCarouselCards}
+          openingCard={carouselOverrideCards?.[0]}
           queuedRuns={openCarouselQueuedRuns}
           activeRun={openCarouselActiveRun}
           canPause={openCarouselCanPause}

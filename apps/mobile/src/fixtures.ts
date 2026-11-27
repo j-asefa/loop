@@ -206,6 +206,52 @@ export function mergeCarouselCards(
   });
 }
 
+export function openingCarouselCardIds(
+  cards: NativeResultCard[],
+  recentCards: NativeResultCard[],
+  openingCard?: NativeResultCard,
+): string[] {
+  const selected =
+    openingCard &&
+    (cards.find((card) => card.id === openingCard.id) ??
+      cards.find(
+        (card) =>
+          openingCard.messageId && card.messageId === openingCard.messageId,
+      ));
+  const ids = recentCards.map((card) => card.id);
+  return selected
+    ? [selected.id, ...ids.filter((id) => id !== selected.id)].slice(
+        0,
+        ids.length,
+      )
+    : ids;
+}
+
+export type CarouselHistoryPage = {
+  cards: NativeResultCard[];
+  next: string | null;
+};
+
+export function mergeCarouselHistoryPage(
+  current: CarouselHistoryPage,
+  incoming: CarouselHistoryPage,
+  mode: "replace" | "refresh" | "append",
+): CarouselHistoryPage {
+  if (mode === "replace") return incoming;
+  const [first, rest] =
+    mode === "refresh"
+      ? [incoming.cards, current.cards]
+      : [current.cards, incoming.cards];
+  const seen = new Set(first.map((card) => card.messageId || card.id));
+  return {
+    cards: [
+      ...first,
+      ...rest.filter((card) => !seen.has(card.messageId || card.id)),
+    ],
+    next: mode === "refresh" ? current.next : incoming.next,
+  };
+}
+
 /**
  * Strips fenced code/spec blocks (including long or unclosed fences) in O(n)
  * before formatting a compact single-line preview for Feed cards.

@@ -20,7 +20,9 @@ export const transcriptPageSql = `WITH page AS MATERIALIZED (
   ORDER BY position DESC,phase DESC,ordinal DESC LIMIT ?
 ) ${projectPageSql}`;
 
-const hasCardBody = "length(trim(m.content, char(9,10,11,12,13,32)))>0";
+// Match ECMAScript trim() used by Expo to decide whether a message is a card.
+const hasCardBody =
+  "length(trim(m.content, char(9,10,11,12,13,32,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288,65279)))>0";
 // Read one extra assistant position for the cursor. Join full message bodies
 // only for the selected cards and the immediately preceding applicable prompts.
 const carouselPageStatement = statement(`WITH candidates AS MATERIALIZED (

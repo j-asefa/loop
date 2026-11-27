@@ -73,6 +73,8 @@ import {
   feedPreviewText,
   getCardDismissTargets,
   mergeCarouselCards,
+  mergeCarouselHistoryPage,
+  openingCarouselCardIds,
   mergeUnifiedFeedCards,
   type NativeResultCard,
 } from "../apps/mobile/src/fixtures.js";
@@ -3941,4 +3943,42 @@ it("reuses a carousel snapshot within one paired client and coalesces its refres
   completeOlder(page);
   await olderRequest;
   expect(client.cachedCarouselPage("thread")).toBe(newPage);
+});
+
+it("keeps the tapped older profile card in the first three carousel positions", () => {
+  const cards = ["D", "C", "B", "A"].map(
+    (id) => ({ id, messageId: id }) as NativeResultCard,
+  );
+  const recent = cards.slice(0, 3);
+  expect(openingCarouselCardIds(cards, recent)).toEqual(["D", "C", "B"]);
+  expect(
+    openingCarouselCardIds(cards, recent, { ...cards[3], id: "profile-card" }),
+  ).toEqual(["A", "D", "C"]);
+});
+
+it("preserves the older cursor boundary when refreshing during an older-page request", () => {
+  const card = (id: string) => ({ id, messageId: id }) as NativeResultCard;
+  const initial = { cards: ["C", "B", "A"].map(card), next: "before-A" };
+  const latest = { cards: ["D", "C", "B"].map(card), next: "before-B" };
+  const older = { cards: ["Z", "Y", "X"].map(card), next: "before-X" };
+  const refreshed = mergeCarouselHistoryPage(initial, latest, "refresh");
+  expect(refreshed.next).toBe("before-A");
+  const paged = mergeCarouselHistoryPage(refreshed, older, "append");
+  expect(paged.cards.map((item) => item.id)).toEqual([
+    "D",
+    "C",
+    "B",
+    "A",
+    "Z",
+    "Y",
+    "X",
+  ]);
+  expect(paged.next).toBe("before-X");
+  expect(
+    mergeCarouselHistoryPage(
+      mergeCarouselHistoryPage(initial, older, "append"),
+      latest,
+      "refresh",
+    ),
+  ).toEqual(paged);
 });
