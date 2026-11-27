@@ -253,13 +253,20 @@ const snippetsStatement = statement(
      )
      WHERE copy = 1
    ),
+   recent_user_messages AS (
+     SELECT m.content, m.metadata, m.created_at, m.run_id
+     FROM messages m
+     WHERE m.owner_id = @owner AND m.role = 'user'
+     ORDER BY m.created_at DESC, m.id DESC
+     LIMIT 2000
+   ),
    usage AS (
      SELECT trim(m.content, ' '||char(9)||char(10)||char(13)) AS norm_content,
        count(*) AS use_count,
        max(m.created_at) AS last_used_at
-     FROM messages m
-     WHERE m.owner_id = @owner AND m.role = 'user'
-       AND m.run_id IS NOT NULL
+     FROM recent_user_messages m
+     WHERE m.run_id IS NOT NULL
+       AND json_extract(m.metadata, '$.personal') = 1
        AND json_extract(m.metadata, '$.progress') IS NOT 1
        AND json_extract(m.metadata, '$.automation') IS NULL
        AND COALESCE(json_extract(m.metadata, '$.shared'), 0) = 0

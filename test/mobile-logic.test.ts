@@ -129,6 +129,7 @@ import {
   computeKeyboardInset,
   computeQuickSheetLayout,
   createEmptySnippetUsageMap,
+  createSnippetUsageStore,
   MAX_TRACKED_SNIPPETS,
   mergeSnippetUsageMaps,
   parseSnippetUsageStore,
@@ -3840,10 +3841,15 @@ describe("mobile snippet usage sorting and quick-reply keyboard layout", () => {
       ).map((s) => s.id),
     ).toEqual(["b", "a"]);
 
-    // Share-intake blocklist rejects the snippet usage cache file.
+    // Share-intake blocklist rejects the snippet usage cache file (raw and percent-encoded).
     expect(
       isSafeLocalShareFileUri(
         "file:///var/mobile/Library/Caches/loop-snippet-usage-abc123.json",
+      ),
+    ).toBe(false);
+    expect(
+      isSafeLocalShareFileUri(
+        "file:///var/mobile/Library/Caches/loop%2dsnippet-usage-abc123.json",
       ),
     ).toBe(false);
 
@@ -3920,5 +3926,48 @@ describe("mobile snippet usage sorting and quick-reply keyboard layout", () => {
     expect(closedLayout.maxScrollHeight).toBeGreaterThan(
       openLayout.maxScrollHeight,
     );
+  });
+
+  it("does not double-count taps made while the usage file is still loading", async () => {
+    const origin = "https://loop.example.test";
+    const bucket = draftWorkspaceBucket(origin);
+    const files = new Map<string, string>([
+      [
+        bucket,
+        serializeSnippetUsageStore({
+          "Existing snippet": { count: 3, lastUsedAt: 1000 },
+        }),
+      ],
+    ]);
+    let resolveRead!: (value: string | null) => void;
+    const store = createSnippetUsageStore({
+      readText: (b) =>
+        new Promise((resolve) => {
+          resolveRead = () => resolve(files.get(b) ?? null);
+        }),
+      writeText: (b, raw) => {
+        files.set(b, raw);
+      },
+      deleteFile: (b) => {
+        files.delete(b);
+      },
+    });
+
+    const loadPromise = store.loadSnippetUsage(origin);
+
+    // Tap once on an uncached snippet and once on an existing snippet while disk load is in flight.
+    const early1 = store.recordSnippetUse(origin, "Brand new snippet", 0, 2000);
+    expect(early1["Brand new snippet"]?.count).toBe(1);
+    const early2 = store.recordSnippetUse(origin, "Existing snippet", 3, 2001);
+    expect(early2["Existing snippet"]?.count).toBe(4);
+
+    resolveRead(files.get(bucket) ?? null);
+    const loaded = await loadPromise;
+    expect(loaded["Brand new snippet"]?.count).toBe(1);
+    expect(loaded["Existing snippet"]?.count).toBe(4);
+
+    const persisted = parseSnippetUsageStore(files.get(bucket)!);
+    expect(persisted["Brand new snippet"]?.count).toBe(1);
+    expect(persisted["Existing snippet"]?.count).toBe(4);
   });
 });

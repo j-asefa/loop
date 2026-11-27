@@ -3532,6 +3532,15 @@ it("orders snippets by usage count then recency while isolating owners", async (
     JSON.stringify({ shared: true }),
     now(),
   );
+  insertMsg.run(
+    id(),
+    w.owner,
+    cid,
+    existingRun,
+    "Summarize thread",
+    JSON.stringify({ personal: false }),
+    now(),
+  );
   expect(
     (await api(w.owner, "/snippets")).data.items.map((s: any) => ({
       content: s.content,
