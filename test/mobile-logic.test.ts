@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { agentStatusLine } from "../src/shared/agent-status-line.js";
+import { agentProfileTagline } from "../apps/mobile/src/agent-profile-tagline.js";
 import { ScheduleInput } from "../src/shared/mobile-contract-schemas.js";
 import {
   CopySessionTracker,
@@ -3766,21 +3766,32 @@ describe("mobile text selection helpers", () => {
 });
 
 describe("mobile agent profile taglines", () => {
-  it("uses the shared tagline selected by the profile agent's stable ID", () => {
+  it("shows a stable tagline for idle agents without instructions", () => {
+    expect(
+      agentProfileTagline({ id: "agent-willow", instructions: "" }, false),
+    ).toBe("The plot thickens. The functions get smaller.");
+    expect(
+      agentProfileTagline({ id: "agent-cedar", instructions: "  " }, false),
+    ).toBe("Every garden needs a little dead code removal.");
+  });
+
+  it("gives instructions and pending work precedence over the tagline", () => {
+    const agent = { id: "agent-willow", instructions: "" };
+    expect(agentProfileTagline(agent, true)).toBeNull();
+    expect(
+      agentProfileTagline({ ...agent, instructions: "Review changes." }, false),
+    ).toBeNull();
+  });
+
+  it("passes the profile's pending work state to the tagline selector", () => {
     const profile = readFileSync(
       "apps/mobile/src/components/AgentProfileSheet.tsx",
       "utf8",
     );
     expect(profile).toContain(
-      'from "../../../../src/shared/agent-status-line"',
+      "agentProfileTagline(agent, agentRuns.length > 0)",
     );
-    expect(profile).toMatch(/\{agentStatusLine\(agent\.id\)\}\s*<\/Text>/);
-    expect(agentStatusLine("agent-willow")).toBe(
-      "The plot thickens. The functions get smaller.",
-    );
-    expect(agentStatusLine("agent-cedar")).toBe(
-      "Every garden needs a little dead code removal.",
-    );
+    expect(profile).toMatch(/\{tagline\s*\?\s*\(\s*<Text[^>]+>\s*\{tagline\}/);
   });
 });
 

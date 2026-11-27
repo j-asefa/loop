@@ -27,7 +27,7 @@ import {
   Terminal,
 } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { agentStatusLine } from "../../../../src/shared/agent-status-line";
+import { agentProfileTagline } from "../agent-profile-tagline";
 import type { LoopClient } from "../api/client";
 import type { ApiAgent, ApiConnection, ApiFolder } from "../api/types";
 import { agentModelLabel, harnessLabel } from "../models";
@@ -307,6 +307,7 @@ export function AgentProfileSheet({
   const connection = connections.find((c) => c.id === agent.connection_id);
   const harness = harnessLabel(connection);
   const modelLabel = agentModelLabel(agent, connections);
+  const tagline = agentProfileTagline(agent, agentRuns.length > 0);
   const cleanModel =
     harness && !modelLabel.startsWith(harness)
       ? `${harness} · ${modelLabel}`
@@ -411,9 +412,11 @@ export function AgentProfileSheet({
               </View>
             </View>
 
-            <Text style={[styles.tagline, { color: theme.muted }]}>
-              {agentStatusLine(agent.id)}
-            </Text>
+            {tagline ? (
+              <Text style={[styles.tagline, { color: theme.muted }]}>
+                {tagline}
+              </Text>
+            ) : null}
 
             <View style={styles.metaChips}>
               {cleanModel ? (
