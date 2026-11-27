@@ -2033,7 +2033,7 @@ function LoopShell() {
       )}
 
       {/* Incoming OS Share Sheet ("Bring into Loop") */}
-      {incomingShare && (
+      {incomingShare && !pairingOpen && (
         <ShareInboxSheet
           key={incomingShare.fingerprint}
           share={incomingShare}

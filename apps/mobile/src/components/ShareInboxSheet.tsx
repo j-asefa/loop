@@ -31,6 +31,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   isUncertainOutcomeError,
+  LoopApiError,
   randomUuid,
   type LoopClient,
 } from "../api/client";
@@ -40,6 +41,7 @@ import {
   draftScopeForShare,
   loadDraftEntry,
   saveDraftAndFlush,
+  type PendingShareDraft,
 } from "../drafts";
 import { haptics } from "../haptics";
 import {
@@ -84,8 +86,10 @@ export function useIncomingShareIntake(): {
   const [incomingShare, setIncomingShare] =
     useState<NormalizedIncomingShare | null>(null);
   const activeKeyRef = useRef<string>("");
+  const pollGenRef = useRef(0);
 
   const poll = useCallback(async () => {
+    const gen = ++pollGenRef.current;
     const raw = readNativeSharedPayloads();
     if (raw.length === 0) {
       activeKeyRef.current = "";
@@ -111,14 +115,17 @@ export function useIncomingShareIntake(): {
     ) {
       try {
         const resolved = await Sharing.getResolvedSharedPayloadsAsync();
+        if (gen !== pollGenRef.current) return;
         if (Array.isArray(resolved) && resolved.length > 0) {
           effective = resolved as RawIncomingSharePayload[];
         }
       } catch {
+        if (gen !== pollGenRef.current) return;
         // Fall back to raw payloads if resolution fails.
       }
     }
 
+    if (gen !== pollGenRef.current) return;
     const normalized = normalizeIncomingSharePayloads(effective);
     if (normalized) {
       setIncomingShare(normalized);
@@ -139,6 +146,7 @@ export function useIncomingShareIntake(): {
   }, [poll]);
 
   const dismissIncomingShare = useCallback(() => {
+    pollGenRef.current += 1;
     setIncomingShare(null);
     clearNativeSharedPayloads();
   }, []);
@@ -180,13 +188,16 @@ export function ShareInboxSheet({
   );
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [pendingLoaded, setPendingLoaded] = useState(!client);
   const [uncertainRetryLocked, setUncertainRetryLocked] = useState(false);
   const [error, setError] = useState("");
   const [routedNotice, setRoutedNotice] = useState("");
 
-  // Durable idempotency key persisted before dispatch; restored if the sheet is
-  // reopened or the app restarts after an uncertain timeout so retries deduplicate.
+  // Durable idempotency key + full send metadata persisted before dispatch;
+  // restored after dismiss or restart so retries reuse identical agent, folder,
+  // attachmentIds, question, and request key.
   const idempotencyKeyRef = useRef<string>(randomUuid());
+  const lockedPendingShareRef = useRef<PendingShareDraft | null>(null);
   const uploadedIdsByKeyRef = useRef<Map<string, string>>(new Map());
   const clientRef = useRef<LoopClient | null>(client);
   const mountedRef = useRef(true);
@@ -197,38 +208,57 @@ export function ShareInboxSheet({
     };
   }, []);
 
-  // Reset state on workspace switch and restore any durable pending share key from disk
+  // Reset state on workspace switch and restore any durable pending share from disk
   useEffect(() => {
     clientRef.current = client;
     idempotencyKeyRef.current = randomUuid();
+    lockedPendingShareRef.current = null;
     uploadedIdsByKeyRef.current = new Map();
     setSending(false);
     setUncertainRetryLocked(false);
     setError("");
     setRoutedNotice("");
-    if (!client) return;
+    if (!client) {
+      setPendingLoaded(true);
+      return;
+    }
+    setPendingLoaded(false);
     let cancelled = false;
     const scope = draftScopeForShare(share.fingerprint);
-    void loadDraftEntry(client.origin, scope).then((entry) => {
-      if (cancelled || !mountedRef.current || clientRef.current !== client) {
-        return;
-      }
-      if (entry?.pendingKey) {
-        idempotencyKeyRef.current = entry.pendingKey;
-        setQuestion(entry.text);
-        setUncertainRetryLocked(true);
-        setError(
-          "A previous send of this shared item timed out — tap Retry safely to reuse the same request ID, or Cancel to check your Feed.",
-        );
-      }
-    });
+    void loadDraftEntry(client.origin, scope)
+      .then((entry) => {
+        if (cancelled || !mountedRef.current || clientRef.current !== client) {
+          return;
+        }
+        const pending = entry?.pendingShare;
+        if (entry && pending?.key) {
+          idempotencyKeyRef.current = pending.key;
+          lockedPendingShareRef.current = pending;
+          setQuestion(entry.text);
+          if (pending.agentId) setSelectedAgentId(pending.agentId);
+          if (pending.folderId !== undefined) {
+            setSelectedFolderId(pending.folderId);
+          }
+          setUncertainRetryLocked(true);
+          setError(
+            "A previous send of this shared item timed out — tap Retry safely to reuse the exact request ID, or Cancel to check your Feed.",
+          );
+        }
+        setPendingLoaded(true);
+      })
+      .catch(() => {
+        if (!cancelled && mountedRef.current && clientRef.current === client) {
+          setPendingLoaded(true);
+        }
+      });
     return () => {
       cancelled = true;
     };
   }, [client, share.fingerprint]);
 
-  // Keep selectedAgentId valid when agent list loads
+  // Keep selectedAgentId valid when agent list loads (without overriding a locked pending retry)
   useEffect(() => {
+    if (lockedPendingShareRef.current?.agentId) return;
     if (
       activeAgents.length > 0 &&
       !activeAgents.some((a) => a.id === selectedAgentId)
@@ -290,8 +320,9 @@ export function ShareInboxSheet({
   ]);
 
   const handleSend = useCallback(async () => {
-    if (!client || sending) return;
+    if (!client || sending || !pendingLoaded) return;
     const activeClient = client;
+    const locked = lockedPendingShareRef.current;
     const trimmed = question.trim() || "Summarize and analyze this.";
     const leadingHandle = extractLeadingShareHandle(trimmed);
     const routedAgent = leadingHandle
@@ -299,9 +330,13 @@ export function ShareInboxSheet({
           (a) => a.name.toLowerCase() === leadingHandle.toLowerCase(),
         )
       : undefined;
-    const agent =
-      routedAgent ?? activeAgents.find((a) => a.id === selectedAgentId);
-    if (!agent && !leadingHandle) {
+    const targetAgentId = locked?.agentId ?? routedAgent?.id ?? selectedAgentId;
+    const targetFolderId =
+      locked && locked.folderId !== undefined
+        ? locked.folderId
+        : selectedFolderId;
+    const agent = activeAgents.find((a) => a.id === targetAgentId);
+    if (!agent && !targetAgentId && !leadingHandle) {
       setError("Choose an agent first.");
       return;
     }
@@ -312,18 +347,13 @@ export function ShareInboxSheet({
 
     const shareScope = draftScopeForShare(share.fingerprint);
     try {
-      // Persist durable idempotency key BEFORE any network dispatch so an uncertain
-      // timeout survives sheet dismissal or app restart.
-      await saveDraftAndFlush(activeClient.origin, shareScope, trimmed, {
-        key: idempotencyKeyRef.current,
-      });
-      if (!mountedRef.current || clientRef.current !== activeClient) return;
-
-      const effectiveFolderId =
-        selectedFolderId ?? agent?.folder_id ?? undefined;
-      const attachmentIds: string[] = [];
-      if (share.files.length > 0) {
-        const destPrefix = `${agent?.id ?? leadingHandle ?? ""}|${effectiveFolderId ?? ""}|`;
+      const effectiveFolderId = targetFolderId ?? agent?.folder_id ?? undefined;
+      let attachmentIds: string[] = [];
+      if (locked?.attachmentIds && locked.attachmentIds.length > 0) {
+        // Reuse the exact persisted artifact IDs from the uncertain original send
+        attachmentIds = locked.attachmentIds;
+      } else if (share.files.length > 0) {
+        const destPrefix = `${targetAgentId || leadingHandle || ""}|${effectiveFolderId ?? ""}|`;
         for (const f of share.files) {
           const cacheKey = `${destPrefix}${f.uri}`;
           const existingId = uploadedIdsByKeyRef.current.get(cacheKey);
@@ -334,7 +364,7 @@ export function ShareInboxSheet({
           const uploaded = await activeClient.uploadFile(
             { uri: f.uri, name: f.name, mimeType: f.mimeType },
             {
-              agentId: agent?.id,
+              agentId: targetAgentId || undefined,
               folderId: effectiveFolderId ?? null,
             },
           );
@@ -344,18 +374,34 @@ export function ShareInboxSheet({
         }
       }
 
+      const pendingMeta: PendingShareDraft = {
+        key: idempotencyKeyRef.current,
+        agentId: targetAgentId || null,
+        folderId: targetFolderId ?? null,
+        ...(attachmentIds.length > 0 ? { attachmentIds } : {}),
+      };
+
+      // Persist durable idempotency key + full send metadata BEFORE POST /api/share/send
+      // so any uncertain timeout or restart retries with 100% identical payload.
+      await saveDraftAndFlush(activeClient.origin, shareScope, trimmed, {
+        share: pendingMeta,
+      });
+      if (!mountedRef.current || clientRef.current !== activeClient) return;
+      lockedPendingShareRef.current = pendingMeta;
+
       // All shares (links, text, and files) route through POST /api/share/send
       // so the server consistently applies untrusted-share handling (`shared: true`).
       const payload = buildShareSendPayload({
         question: trimmed,
         share,
-        folderId: selectedFolderId,
-        agentId: agent?.id,
+        folderId: targetFolderId,
+        agentId: targetAgentId || undefined,
         attachmentIds,
         idempotencyKey: idempotencyKeyRef.current,
       });
       if (!payload) {
         clearDraft(activeClient.origin, shareScope);
+        lockedPendingShareRef.current = null;
         setError("Could not prepare shared request.");
         setSending(false);
         return;
@@ -364,6 +410,7 @@ export function ShareInboxSheet({
 
       if (!mountedRef.current || clientRef.current !== activeClient) return;
       clearDraft(activeClient.origin, shareScope);
+      lockedPendingShareRef.current = null;
       setUncertainRetryLocked(false);
       haptics.success();
       const targetName =
@@ -371,15 +418,22 @@ export function ShareInboxSheet({
       onSent(`Sent to @${targetName}`, runResult.conversation_id, targetName);
     } catch (err) {
       if (!mountedRef.current || clientRef.current !== activeClient) return;
-      if (isUncertainOutcomeError(err)) {
-        // Keep persisted pendingKey and lock inputs so retry safely deduplicates
+      if (
+        isUncertainOutcomeError(err) ||
+        (err instanceof LoopApiError && err.status === 409)
+      ) {
+        // Preserve persisted pendingShare and NEVER rotate key on uncertain outcome
+        // or 409 idempotency conflict — avoids replaying uncertain work as a second run.
         setUncertainRetryLocked(true);
         setError(
-          "Send timed out — tap Retry safely to reuse the same request ID, or Cancel to check your Feed.",
+          err instanceof LoopApiError && err.status === 409
+            ? "This request key is already recorded on the server — check your Feed before sending again."
+            : "Send timed out — tap Retry safely to reuse the exact request ID, or Cancel to check your Feed.",
         );
       } else {
-        // Definite rejection: clear persisted lock and rotate key for a revised send
+        // Definite rejection (400/404/etc.): clear persisted lock and rotate key for a revised send
         clearDraft(activeClient.origin, shareScope);
+        lockedPendingShareRef.current = null;
         setUncertainRetryLocked(false);
         idempotencyKeyRef.current = randomUuid();
         setError(
@@ -395,6 +449,7 @@ export function ShareInboxSheet({
     activeAgents,
     client,
     onSent,
+    pendingLoaded,
     question,
     selectedAgentId,
     selectedFolderId,
@@ -724,13 +779,18 @@ export function ShareInboxSheet({
                 </Text>
               </Pressable>
               <Pressable
-                disabled={sending || activeAgents.length === 0}
+                disabled={
+                  sending || !pendingLoaded || activeAgents.length === 0
+                }
                 onPress={() => void handleSend()}
                 style={[
                   styles.sendBtn,
                   {
                     backgroundColor: theme.brass,
-                    opacity: sending || activeAgents.length === 0 ? 0.55 : 1,
+                    opacity:
+                      sending || !pendingLoaded || activeAgents.length === 0
+                        ? 0.55
+                        : 1,
                   },
                 ]}
               >

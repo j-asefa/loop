@@ -1,10 +1,22 @@
-import { draftWorkspaceBucket } from "./drafts-codec";
-
 export const MAX_SHARE_URL_CHARS = 3_000;
 export const MAX_SHARE_TITLE_CHARS = 300;
 export const MAX_SHARE_TEXT_CHARS = 12_000;
 export const MAX_SHARE_QUESTION_CHARS = 20_000;
 export const MAX_SHARE_FILES = 8;
+
+/** Case-sensitive 64-bit content fingerprint for incoming share deduplication. */
+export function shareContentFingerprint(seed: string): string {
+  let h1 = 0x811c9dc5;
+  let h2 = 0x9e3779b9;
+  for (let i = 0; i < seed.length; i += 1) {
+    const code = seed.charCodeAt(i);
+    h1 ^= code;
+    h1 = Math.imul(h1, 0x01000193);
+    h2 ^= code + i;
+    h2 = Math.imul(h2, 0x85ebca6b);
+  }
+  return `sh_${(h1 >>> 0).toString(16).padStart(8, "0")}${(h2 >>> 0).toString(16).padStart(8, "0")}`;
+}
 
 export type RawIncomingSharePayload = {
   value: string;
@@ -184,7 +196,7 @@ export function normalizeIncomingSharePayloads(
     sharedText || "",
     ...files.map((f) => `${f.name}:${f.mimeType}:${f.size ?? 0}:${f.uri}`),
   ].join("|");
-  const fingerprint = draftWorkspaceBucket(fingerprintSeed);
+  const fingerprint = shareContentFingerprint(fingerprintSeed);
 
   return {
     ...(sourceUrl ? { sourceUrl } : {}),

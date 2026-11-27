@@ -8,10 +8,18 @@ export type PendingScheduleDraft = {
   replyToMessageId?: string;
 };
 
+export type PendingShareDraft = {
+  key: string;
+  agentId?: string | null;
+  folderId?: string | null;
+  attachmentIds?: string[];
+};
+
 export type DraftPendingMeta = {
   key?: string;
   queue?: boolean;
   schedule?: PendingScheduleDraft;
+  share?: PendingShareDraft;
 };
 
 export type DraftEntry = {
@@ -23,7 +31,35 @@ export type DraftEntry = {
   pendingQueue?: boolean;
   /** Durable schedule identity + payload metadata persisted before dispatch / across uncertain timeouts. */
   pendingSchedule?: PendingScheduleDraft;
+  /** Durable share identity + routing/upload metadata persisted before dispatch / across uncertain timeouts. */
+  pendingShare?: PendingShareDraft;
 };
+
+function sanitizePendingShare(raw: unknown): PendingShareDraft | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const item = raw as {
+    key?: unknown;
+    agentId?: unknown;
+    folderId?: unknown;
+    attachmentIds?: unknown;
+  };
+  if (typeof item.key !== "string" || item.key.length < 10) return undefined;
+  const attachmentIds = Array.isArray(item.attachmentIds)
+    ? item.attachmentIds
+        .filter((x): x is string => typeof x === "string" && x.length > 0)
+        .slice(0, 8)
+    : undefined;
+  return {
+    key: item.key,
+    ...(typeof item.agentId === "string" || item.agentId === null
+      ? { agentId: item.agentId }
+      : {}),
+    ...(typeof item.folderId === "string" || item.folderId === null
+      ? { folderId: item.folderId }
+      : {}),
+    ...(attachmentIds && attachmentIds.length > 0 ? { attachmentIds } : {}),
+  };
+}
 
 function sanitizePendingSchedule(
   raw: unknown,
@@ -154,6 +190,7 @@ export function pruneDraftStore(input: DraftMap, now = Date.now()): DraftMap {
       continue;
     }
     const pendingSchedule = sanitizePendingSchedule(entry.pendingSchedule);
+    const pendingShare = sanitizePendingShare(entry.pendingShare);
     const normalized: DraftEntry = {
       text:
         entry.text.length > MAX_DRAFT_CHARS
@@ -167,6 +204,7 @@ export function pruneDraftStore(input: DraftMap, now = Date.now()): DraftMap {
         ? { pendingQueue: entry.pendingQueue }
         : {}),
       ...(pendingSchedule ? { pendingSchedule } : {}),
+      ...(pendingShare ? { pendingShare } : {}),
     };
     if (isDraftEntryExpired(normalized, now)) {
       continue;
@@ -174,10 +212,14 @@ export function pruneDraftStore(input: DraftMap, now = Date.now()): DraftMap {
     valid.push([key, normalized]);
   }
   valid.sort((a, b) => b[1].updatedAt - a[1].updatedAt);
-  // Retain durable pendingSchedule locks ahead of the 80-draft cap so uncertain
-  // scheduled sends cannot be evicted by ordinary draft typing.
-  const locked = valid.filter(([, entry]) => Boolean(entry.pendingSchedule));
-  const unlocked = valid.filter(([, entry]) => !entry.pendingSchedule);
+  // Retain durable pendingSchedule and pendingShare locks ahead of the 80-draft cap
+  // so uncertain sends cannot be evicted by ordinary draft typing.
+  const locked = valid.filter(([, entry]) =>
+    Boolean(entry.pendingSchedule || entry.pendingShare),
+  );
+  const unlocked = valid.filter(
+    ([, entry]) => !entry.pendingSchedule && !entry.pendingShare,
+  );
   const remainingSlots = Math.max(0, MAX_DRAFTS_PER_WORKSPACE - locked.length);
   const out = createEmptyDraftMap();
   for (const [key, entry] of [
@@ -210,6 +252,7 @@ export function parseDraftStore(raw: string, now = Date.now()): DraftMap {
         pendingKey?: unknown;
         pendingQueue?: unknown;
         pendingSchedule?: unknown;
+        pendingShare?: unknown;
       };
       if (
         item &&
@@ -218,6 +261,7 @@ export function parseDraftStore(raw: string, now = Date.now()): DraftMap {
         typeof item.updatedAt === "number"
       ) {
         const pendingSchedule = sanitizePendingSchedule(item.pendingSchedule);
+        const pendingShare = sanitizePendingShare(item.pendingShare);
         loaded[key] = {
           text: item.text,
           updatedAt: item.updatedAt,
@@ -228,6 +272,7 @@ export function parseDraftStore(raw: string, now = Date.now()): DraftMap {
             ? { pendingQueue: item.pendingQueue }
             : {}),
           ...(pendingSchedule ? { pendingSchedule } : {}),
+          ...(pendingShare ? { pendingShare } : {}),
         };
       }
     }
@@ -255,12 +300,14 @@ export function setDraftInStore(
     return pruneDraftStore(next, now);
   }
   const pendingSchedule = sanitizePendingSchedule(pending?.schedule);
+  const pendingShare = sanitizePendingShare(pending?.share);
   next[scope] = {
     text: text.length > MAX_DRAFT_CHARS ? text.slice(0, MAX_DRAFT_CHARS) : text,
     updatedAt: now,
     ...(pending?.key ? { pendingKey: pending.key } : {}),
     ...(pending?.queue !== undefined ? { pendingQueue: pending.queue } : {}),
     ...(pendingSchedule ? { pendingSchedule } : {}),
+    ...(pendingShare ? { pendingShare } : {}),
   };
   return pruneDraftStore(next, now);
 }

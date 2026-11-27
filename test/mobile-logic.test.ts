@@ -78,6 +78,7 @@ import {
   DRAFT_TTL_MS,
   draftScopeForCarousel,
   draftScopeForCompose,
+  draftScopeForShare,
   draftScopeForThread,
   draftWorkspaceBucket,
   MAX_DRAFT_CHARS,
@@ -3149,6 +3150,51 @@ describe("mobile incoming share normalization and server contract compatibility"
     expect(() => ShareSendInput.parse(fileSendBody)).not.toThrow();
     expect(extractLeadingShareHandle("@Willow, check this")).toBe("willow");
     expect(extractLeadingShareHandle("Summarize this")).toBeNull();
+
+    // Share fingerprint is case-sensitive so shares differing only in case do not collide
+    const upperShare = normalizeIncomingSharePayloads([
+      { shareType: "text", value: "Review README" },
+    ]);
+    const lowerShare = normalizeIncomingSharePayloads([
+      { shareType: "text", value: "review readme" },
+    ]);
+    expect(upperShare?.fingerprint).not.toBe(lowerShare?.fingerprint);
+
+    // Durable pendingShare metadata (key, agentId, folderId, attachmentIds) survives serialization
+    // and is protected ahead of the 80-draft cap for uncertain retry recovery
+    const shareScope = draftScopeForShare(upperShare!.fingerprint);
+    const now = 1_780_000_000_000;
+    let draftMap = setDraftInStore(
+      createEmptyDraftMap(),
+      shareScope,
+      "Inspect README",
+      now,
+      {
+        share: {
+          key: "share-retry-key-123456",
+          agentId: "agent-1",
+          folderId: "folder-9",
+          attachmentIds: ["11111111-2222-4333-8444-555555555555"],
+        },
+      },
+    );
+    for (let i = 0; i < MAX_DRAFTS_PER_WORKSPACE + 5; i += 1) {
+      draftMap = setDraftInStore(
+        draftMap,
+        draftScopeForThread(`conv-${i}`),
+        `ordinary draft ${i}`,
+        now + 1000 + i,
+      );
+    }
+    const restored = parseDraftStore(serializeDraftStore(draftMap, now), now);
+    expect(
+      readDraftEntryFromStore(restored, shareScope, now)?.pendingShare,
+    ).toEqual({
+      key: "share-retry-key-123456",
+      agentId: "agent-1",
+      folderId: "folder-9",
+      attachmentIds: ["11111111-2222-4333-8444-555555555555"],
+    });
   });
 });
 
