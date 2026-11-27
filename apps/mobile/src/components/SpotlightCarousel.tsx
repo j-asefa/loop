@@ -281,6 +281,8 @@ export function SpotlightCarousel({
   }));
   const { cards: historySlides, next: historyNextCursor } = history;
   const [loadingMoreHistory, setLoadingMoreHistory] = useState(false);
+  const [historyUnavailable, setHistoryUnavailable] = useState(false);
+  const [historyRetry, setHistoryRetry] = useState(0);
   const hasLoadedOlderHistoryRef = useRef(false);
   const loadingOlderRef = useRef(false);
   const autoLoadedCursorRef = useRef<string | null>(null);
@@ -306,6 +308,7 @@ export function SpotlightCarousel({
       )
       .then((page) => {
         if (cancelled) return;
+        setHistoryUnavailable(false);
         const {
           promptMap,
           bodyMap,
@@ -330,11 +333,13 @@ export function SpotlightCarousel({
         );
         setSteerableRunId(page.steerable_run_id ?? null);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!cancelled) setHistoryUnavailable(true);
+      });
     return () => {
       cancelled = true;
     };
-  }, [client, conversationId, activeRun?.id, activeRun?.state]);
+  }, [client, conversationId, activeRun?.id, activeRun?.state, historyRetry]);
 
   const loadMoreHistory = useCallback(async () => {
     if (
@@ -371,7 +376,7 @@ export function SpotlightCarousel({
         mergeCarouselHistoryPage(
           prev,
           { cards: older, next: page.next ?? null },
-          "append",
+          { before: cursor },
         ),
       );
     } catch {
@@ -424,9 +429,22 @@ export function SpotlightCarousel({
         ordered.push(feedCard ? hydrate(feedCard) : hist);
       }
     }
+    if (historyUnavailable) {
+      const listed = new Set(ordered.map((card) => card.id));
+      for (const card of cards) {
+        if (
+          !listed.has(card.id) &&
+          (!card.messageId || !seenMsgs.has(card.messageId))
+        ) {
+          ordered.push(hydrate(card));
+        }
+      }
+    }
     return ordered;
   }, [
     pinnedIds,
+    cards,
+    historyUnavailable,
     cardsById,
     cardsByMessageId,
     recentCards,
@@ -1381,14 +1399,19 @@ export function SpotlightCarousel({
                       {historyNextCursor ? "+" : ""}
                     </Text>
                   </Pressable>
-                  {historyNextCursor && (
+                  {(historyNextCursor || historyUnavailable) && (
                     <Pressable
                       accessibilityRole="button"
-                      accessibilityLabel="Load earlier cards in thread"
+                      accessibilityLabel={
+                        historyNextCursor
+                          ? "Load earlier cards in thread"
+                          : "Retry loading conversation history"
+                      }
                       disabled={loadingMoreHistory}
                       onPress={() => {
                         haptics.light();
-                        void loadMoreHistory();
+                        if (historyNextCursor) void loadMoreHistory();
+                        else setHistoryRetry((attempt) => attempt + 1);
                       }}
                       style={({ pressed }) => [
                         styles.loadMorePill,
@@ -1407,7 +1430,11 @@ export function SpotlightCarousel({
                           { color: theme.brassText },
                         ]}
                       >
-                        {loadingMoreHistory ? "…" : "+Older"}
+                        {loadingMoreHistory
+                          ? "…"
+                          : historyNextCursor
+                            ? "+Older"
+                            : "Retry history"}
                       </Text>
                     </Pressable>
                   )}

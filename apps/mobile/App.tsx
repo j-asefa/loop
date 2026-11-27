@@ -1096,7 +1096,12 @@ function LoopShell() {
           folderId: input.folderId,
           idempotencyKey: input.idempotencyKey,
         });
-        if (gen !== workspaceGenRef.current) return;
+        if (
+          gen !== workspaceGenRef.current ||
+          activeSessionRef.current !== session
+        ) {
+          throw new LoopApiError(401, "Workspace changed.");
+        }
         showToast(`Started @${created.name}`);
         setAppTab("feed");
         scheduleSilentRefresh(400, gen);

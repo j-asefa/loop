@@ -235,19 +235,21 @@ export type CarouselHistoryPage = {
 export function mergeCarouselHistoryPage(
   current: CarouselHistoryPage,
   incoming: CarouselHistoryPage,
-  mode: "replace" | "refresh" | "append",
+  mode: "replace" | "refresh" | { before: string },
 ): CarouselHistoryPage {
   if (mode === "replace") return incoming;
+  if (typeof mode === "object" && mode.before !== current.next) return current;
   const [first, rest] =
     mode === "refresh"
       ? [incoming.cards, current.cards]
       : [current.cards, incoming.cards];
   const seen = new Set(first.map((card) => card.messageId || card.id));
+  const distinct = rest.filter((card) => !seen.has(card.messageId || card.id));
+  // With no overlap there is no proof that the old cursor covers the
+  // gap. Restart from the incoming cursor so every intervening card is reachable.
+  if (mode === "refresh" && distinct.length === rest.length) return incoming;
   return {
-    cards: [
-      ...first,
-      ...rest.filter((card) => !seen.has(card.messageId || card.id)),
-    ],
+    cards: [...first, ...distinct],
     next: mode === "refresh" ? current.next : incoming.next,
   };
 }

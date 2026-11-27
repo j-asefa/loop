@@ -3963,7 +3963,9 @@ it("preserves the older cursor boundary when refreshing during an older-page req
   const older = { cards: ["Z", "Y", "X"].map(card), next: "before-X" };
   const refreshed = mergeCarouselHistoryPage(initial, latest, "refresh");
   expect(refreshed.next).toBe("before-A");
-  const paged = mergeCarouselHistoryPage(refreshed, older, "append");
+  const paged = mergeCarouselHistoryPage(refreshed, older, {
+    before: "before-A",
+  });
   expect(paged.cards.map((item) => item.id)).toEqual([
     "D",
     "C",
@@ -3976,9 +3978,27 @@ it("preserves the older cursor boundary when refreshing during an older-page req
   expect(paged.next).toBe("before-X");
   expect(
     mergeCarouselHistoryPage(
-      mergeCarouselHistoryPage(initial, older, "append"),
+      mergeCarouselHistoryPage(initial, older, { before: "before-A" }),
       latest,
       "refresh",
     ),
   ).toEqual(paged);
+});
+
+it("uses the new cursor if the refreshed cards no longer overlap and ignores a late page", () => {
+  const card = (id: string) => ({ id, messageId: id }) as NativeResultCard;
+  const initial = { cards: ["C", "B", "A"].map(card), next: "before-A" };
+  const latest = { cards: ["G", "F", "E"].map(card), next: "before-E" };
+  const obsolete = { cards: ["Z"].map(card), next: null };
+  const bridgingPage = { cards: ["D", "C", "B"].map(card), next: "before-B" };
+  const refreshed = mergeCarouselHistoryPage(initial, latest, "refresh");
+  expect(refreshed).toBe(latest);
+  expect(
+    mergeCarouselHistoryPage(refreshed, obsolete, { before: "before-A" }),
+  ).toBe(latest);
+  expect(
+    mergeCarouselHistoryPage(refreshed, bridgingPage, {
+      before: "before-E",
+    }).cards.map(({ id }) => id),
+  ).toEqual(["G", "F", "E", "D", "C", "B"]);
 });
