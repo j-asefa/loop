@@ -1,10 +1,31 @@
 import type { PairedSession } from "./types";
 
+export function validatedWorkspaceIdentity(value: unknown): string | undefined {
+  return typeof value === "string" && /^[a-f0-9]{64}$/.test(value)
+    ? value
+    : undefined;
+}
+
+export function workspaceRecoveryKey(origin: string, identity: unknown) {
+  const validated = validatedWorkspaceIdentity(identity);
+  if (!validated) return undefined;
+  const originKey = Array.from(origin, (char) =>
+    char.charCodeAt(0).toString(16),
+  ).join("-");
+  return `loop.recovery-scope.${validated}.${originKey}`;
+}
+
 export function isSamePairedDevice(
   previous: PairedSession | null,
   next: PairedSession,
 ): boolean {
   if (!previous || previous.origin !== next.origin) return false;
+  if (
+    previous.workspaceIdentity &&
+    next.workspaceIdentity &&
+    previous.workspaceIdentity !== next.workspaceIdentity
+  )
+    return false;
   if (previous.deviceId && next.deviceId)
     return previous.deviceId === next.deviceId;
   return Boolean(previous.cookie && previous.cookie === next.cookie);
@@ -20,6 +41,7 @@ export function preserveProbedCredentials(
     cookie: next.cookie || previous.cookie,
     deviceId: next.deviceId || previous.deviceId,
     pairedAt: previous.pairedAt,
+    workspaceIdentity: next.workspaceIdentity ?? previous.workspaceIdentity,
     localDataScope: previous.localDataScope,
   };
 }
@@ -40,10 +62,11 @@ export function assignPairingStorage(
 ): PairedSession {
   if (isSamePairedDevice(previous, next))
     return preserveProbedCredentials(previous, next);
-  const scope = next.workspaceIdentity
-    ? (recoveredScope ?? `loop-workspace:${next.workspaceIdentity}`)
+  const workspaceIdentity = validatedWorkspaceIdentity(next.workspaceIdentity);
+  const scope = workspaceIdentity
+    ? (recoveredScope ?? `${next.origin}/workspace/${workspaceIdentity}`)
     : `${next.origin}/paired-device/${encodeURIComponent(next.deviceId || nonce)}`;
-  return { ...next, localDataScope: scope };
+  return { ...next, workspaceIdentity, localDataScope: scope };
 }
 
 export type ParsedPairingLink = {

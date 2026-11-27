@@ -8,6 +8,7 @@ import React, {
 } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
@@ -586,6 +587,7 @@ export function SpotlightCarousel({
       }
       if (!draftTouchedRef.current) {
         if (entry.pendingKey) {
+          setRetryModeLocked(true);
           restoredPendingReplyRef.current = {
             idempotencyKey: entry.pendingKey,
             replyToMessageId: entry.pendingReplyToMessageId,
@@ -726,6 +728,12 @@ export function SpotlightCarousel({
   }, [draft, conversationId, attachmentKeySig]);
 
   const scheduleLocked = Boolean(pendingSchedule?.locked);
+  const replyEditingLocked =
+    !draftLoaded ||
+    scheduleLocked ||
+    retryModeLocked ||
+    sending ||
+    scheduleBusy;
 
   // If the user opened a synthetic working:* placeholder at slide 0 and the run
   // finishes (superseding the placeholder with a live Done card), promote it smoothly.
@@ -1078,7 +1086,7 @@ export function SpotlightCarousel({
 
   const prefillReply = useCallback(
     (prompt: string) => {
-      if (scheduleLocked) return;
+      if (replyEditingLocked) return;
       draftTouchedRef.current = true;
       pendingReplyRef.current = null;
       setReplyError("");
@@ -1087,7 +1095,7 @@ export function SpotlightCarousel({
       setQuickReplyOpen(false);
       setTimeout(() => replyInputRef.current?.focus(), 60);
     },
-    [client?.localDataScope, draftScope, scheduleLocked],
+    [client?.localDataScope, draftScope, replyEditingLocked],
   );
 
   const handleSlideToggleSaved = useCallback(
@@ -1133,6 +1141,7 @@ export function SpotlightCarousel({
     const { readyIds, readyNames, uploading, hasErrors, clearAttachments } =
       replyAttachments;
     if (
+      !draftLoaded ||
       (!trimmed && readyIds.length === 0) ||
       uploading ||
       hasErrors ||
@@ -1152,6 +1161,7 @@ export function SpotlightCarousel({
     // Keep one durable idempotency key, reply target, and queue flag per unsent draft so
     // retries after uncertain failures never duplicate or mutate the run request semantics.
     if (!pendingReplyRef.current) {
+      if (retryModeLocked) return;
       pendingReplyRef.current = {
         idempotencyKey: randomUuid(),
         replyToMessageId: activeCard.messageId,
@@ -1159,6 +1169,7 @@ export function SpotlightCarousel({
       };
     }
     const { idempotencyKey, replyToMessageId, queue } = pendingReplyRef.current;
+    const wasUncertain = retryModeLocked;
     const targetCard =
       replyToMessageId === activeCard.messageId
         ? activeCard
@@ -1191,7 +1202,7 @@ export function SpotlightCarousel({
       clearAttachments();
       Keyboard.dismiss();
     } catch (err) {
-      if (isUncertainOutcomeError(err)) {
+      if (wasUncertain || isUncertainOutcomeError(err)) {
         setRetryModeLocked(true);
       } else {
         if (origin && persisted) {
@@ -1210,6 +1221,8 @@ export function SpotlightCarousel({
     }
   }, [
     draft,
+    draftLoaded,
+    retryModeLocked,
     recordingAudio,
     scheduleBusy,
     pendingSchedule,
@@ -1221,6 +1234,33 @@ export function SpotlightCarousel({
     deliveryMode,
     draftScope,
   ]);
+
+  const discardPendingReply = useCallback(() => {
+    const request = pendingReplyRef.current;
+    const scope = client?.localDataScope;
+    if (!scope || !request || sendingRef.current) return;
+    Alert.alert(
+      "Discard pending reply?",
+      "The earlier send may already have gone through.",
+      [
+        { text: "Keep reply", style: "cancel" },
+        {
+          text: "Discard",
+          style: "destructive",
+          onPress: () => {
+            if (request !== pendingReplyRef.current || sendingRef.current)
+              return;
+            settlePendingReplyDraft(scope, draftScope, request.idempotencyKey);
+            pendingReplyRef.current = null;
+            setRetryModeLocked(false);
+            setReplyError("");
+            setDraft("");
+            replyAttachments.clearAttachments();
+          },
+        },
+      ],
+    );
+  }, [client?.localDataScope, draftScope, replyAttachments.clearAttachments]);
 
   const submitScheduledReply = useCallback(
     async (sendAt: number) => {
@@ -2225,10 +2265,22 @@ export function SpotlightCarousel({
                 {replyError}
               </Text>
             ) : null}
+            {retryModeLocked && !sending && (
+              <Pressable
+                accessibilityRole="button"
+                onPress={discardPendingReply}
+              >
+                <Text
+                  style={[styles.replyErrorText, { color: theme.brassText }]}
+                >
+                  Discard pending reply
+                </Text>
+              </Pressable>
+            )}
             <AttachmentChipStrip
               attachments={replyAttachments.attachments}
               theme={theme}
-              locked={scheduleLocked}
+              locked={replyEditingLocked}
               onRemove={replyAttachments.removeAttachment}
               onRetry={(id) => void replyAttachments.retryAttachment(id)}
             />
@@ -2243,12 +2295,7 @@ export function SpotlightCarousel({
             >
               <Pressable
                 accessibilityLabel="Attach photo or file"
-                disabled={
-                  !replyAttachments.canAddMore ||
-                  sending ||
-                  scheduleBusy ||
-                  scheduleLocked
-                }
+                disabled={!replyAttachments.canAddMore || replyEditingLocked}
                 onPress={() => {
                   haptics.light();
                   Keyboard.dismiss();
@@ -2256,10 +2303,7 @@ export function SpotlightCarousel({
                 }}
                 style={[
                   styles.replyQuickBtn,
-                  (!replyAttachments.canAddMore ||
-                    sending ||
-                    scheduleBusy ||
-                    scheduleLocked) && {
+                  (!replyAttachments.canAddMore || replyEditingLocked) && {
                     opacity: 0.4,
                   },
                 ]}
@@ -2275,12 +2319,7 @@ export function SpotlightCarousel({
               </Pressable>
               <VoiceRecorderButton
                 theme={theme}
-                disabled={
-                  !replyAttachments.canAddMore ||
-                  sending ||
-                  scheduleBusy ||
-                  scheduleLocked
-                }
+                disabled={!replyAttachments.canAddMore || replyEditingLocked}
                 onRecordingChange={setRecordingAudio}
                 onRecorded={(file) => {
                   setReplyError("");
@@ -2290,14 +2329,14 @@ export function SpotlightCarousel({
               />
               <Pressable
                 accessibilityLabel="Quick replies and snippets"
-                disabled={scheduleLocked}
+                disabled={replyEditingLocked}
                 onPress={() => {
                   haptics.light();
                   setQuickReplyOpen(true);
                 }}
                 style={[
                   styles.replyQuickBtn,
-                  scheduleLocked && { opacity: 0.4 },
+                  replyEditingLocked && { opacity: 0.4 },
                 ]}
               >
                 <Zap size={16} color={theme.brassText} />
@@ -2305,7 +2344,7 @@ export function SpotlightCarousel({
               <TextInput
                 ref={replyInputRef}
                 value={draft}
-                editable={!sending && !scheduleBusy && !scheduleLocked}
+                editable={!replyEditingLocked}
                 onChangeText={(next) => {
                   draftTouchedRef.current = true;
                   pendingReplyRef.current = null;
@@ -2375,6 +2414,7 @@ export function SpotlightCarousel({
               <Pressable
                 accessibilityLabel="Send reply"
                 disabled={
+                  !draftLoaded ||
                   (!draft.trim() && replyAttachments.readyIds.length === 0) ||
                   replyAttachments.uploading ||
                   replyAttachments.hasErrors ||
@@ -2389,6 +2429,7 @@ export function SpotlightCarousel({
                   {
                     backgroundColor: theme.brass,
                     opacity:
+                      !draftLoaded ||
                       (!draft.trim() &&
                         replyAttachments.readyIds.length === 0) ||
                       replyAttachments.uploading ||

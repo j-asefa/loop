@@ -387,9 +387,10 @@ function LoopShell() {
           const refreshed = await client.refreshSession();
           if (gen === workspaceGenRef.current) {
             await rememberRecoveryScope(
+              client.origin,
               refreshed.workspaceIdentity,
               client.localDataScope,
-            );
+            ).catch(() => {});
           }
         },
         fetchAll: async () => {
@@ -1410,7 +1411,7 @@ function LoopShell() {
     [handleControlRun],
   );
 
-  const handleSignOut = useCallback(() => {
+  const handleSignOut = useCallback(async () => {
     if (
       !session ||
       (activeSessionRef.current && activeSessionRef.current !== session)
@@ -1421,13 +1422,13 @@ function LoopShell() {
     const scope = localDataScope(session);
     clearWorkspaceDrafts(scope);
     clearEphemeralWorkspaceData(scope);
-    void clearPairedSession();
+    const signOut = Promise.all([clearPairedSession(), client?.signOut()]);
     setComposeTarget(null);
     setSession(null);
     setLiveCards([]);
     setSocketStatus("offline");
     showToast("Signed out — switched to Demo Deck");
-    void client?.signOut();
+    await signOut;
   }, [client, session, showToast]);
 
   const openAgentByName = useCallback(
@@ -2174,7 +2175,10 @@ function LoopShell() {
                 previous,
                 nextSession,
                 randomUuid(),
-                await loadRecoveryScope(nextSession.workspaceIdentity),
+                await loadRecoveryScope(
+                  nextSession.origin,
+                  nextSession.workspaceIdentity,
+                ),
               );
               // A failed SecureStore write leaves the existing session and all
               // of its recovery data untouched.

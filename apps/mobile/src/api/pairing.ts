@@ -7,6 +7,8 @@ import {
   normalizeWorkspaceUrl,
   parsePairingLink,
   preserveProbedCredentials,
+  validatedWorkspaceIdentity,
+  workspaceRecoveryKey,
   tryParsePairingLink,
   type ParsedPairingLink,
 } from "./pairing-url";
@@ -64,7 +66,7 @@ export async function probeWorkspaceUrl(rawUrl: string): Promise<{
         origin,
         cookie,
         csrf: data.csrf,
-        workspaceIdentity: data.workspaceIdentity,
+        workspaceIdentity: validatedWorkspaceIdentity(data.workspaceIdentity),
         deviceId: data.device?.id,
         deviceName: data.device?.name || "Loop iPhone",
         pairedAt: Date.now(),
@@ -138,7 +140,9 @@ async function redeemPairing(
     origin: parsed.origin,
     cookie,
     csrf: sessionJson.csrf,
-    workspaceIdentity: sessionJson.workspaceIdentity,
+    workspaceIdentity: validatedWorkspaceIdentity(
+      sessionJson.workspaceIdentity,
+    ),
     deviceId: sessionJson.device?.id,
     deviceName: sessionJson.device?.name || deviceName,
     pairedAt: Date.now(),
@@ -194,7 +198,7 @@ export async function loadPairedSession(): Promise<PairedSession | null> {
       deviceId: parsed.deviceId,
       deviceName: parsed.deviceName || "Loop iPhone",
       pairedAt: parsed.pairedAt || Date.now(),
-      workspaceIdentity: parsed.workspaceIdentity,
+      workspaceIdentity: validatedWorkspaceIdentity(parsed.workspaceIdentity),
       ...(typeof parsed.localDataScope === "string"
         ? { localDataScope: parsed.localDataScope }
         : {}),
@@ -205,29 +209,26 @@ export async function loadPairedSession(): Promise<PairedSession | null> {
 }
 
 // Retain the local namespace without retaining expired authentication material.
-function recoveryScopeKey(identity?: string) {
-  return identity && /^[a-f0-9]{64}$/.test(identity)
-    ? `loop.recovery-scope.${identity}`
-    : undefined;
-}
-
 export async function loadRecoveryScope(
+  origin: string,
   identity?: string,
 ): Promise<string | undefined> {
-  const key = recoveryScopeKey(identity);
+  const key = workspaceRecoveryKey(origin, identity);
   return key ? ((await SecureStore.getItemAsync(key)) ?? undefined) : undefined;
 }
 
 export async function rememberRecoveryScope(
+  origin: string,
   identity: string | undefined,
   scope: string,
 ): Promise<void> {
-  const key = recoveryScopeKey(identity);
+  const key = workspaceRecoveryKey(origin, identity);
   if (key) await SecureStore.setItemAsync(key, scope);
 }
 
 export async function savePairedSession(session: PairedSession): Promise<void> {
   await rememberRecoveryScope(
+    session.origin,
     session.workspaceIdentity,
     localDataScope(session) ?? session.origin,
   );

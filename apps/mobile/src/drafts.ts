@@ -141,6 +141,7 @@ async function ensureBucketLoaded(bucket: string): Promise<DraftMap> {
     if (ops) {
       for (const scope of ops.deletes) {
         if (
+          merged[scope]?.pendingKey ||
           merged[scope]?.pendingSchedule ||
           merged[scope]?.pendingShare ||
           merged[scope]?.pendingAgentCreate
@@ -152,7 +153,12 @@ async function ensureBucketLoaded(bucket: string): Promise<DraftMap> {
       }
       for (const [scope, op] of ops.saves) {
         // Never allow an ordinary typing save queued during initial disk load
-        // to overwrite a persisted pendingSchedule or pendingShare lock on disk.
+        // to overwrite a persisted request lock on disk.
+        if (
+          merged[scope]?.pendingKey &&
+          merged[scope]?.pendingKey !== op.pending?.key
+        )
+          continue;
         if (merged[scope]?.pendingSchedule && !op.pending?.schedule) continue;
         if (merged[scope]?.pendingShare && !op.pending?.share) continue;
         if (merged[scope]?.pendingAgentCreate && !op.pending?.agentCreate)
@@ -288,6 +294,9 @@ export async function saveDraftAndFlush(
     );
   }
   const next = setDraftInStore(current, scope, text, Date.now(), pending);
+  if (pending?.key && next[scope]?.pendingKey !== pending.key) {
+    throw new Error("Could not save recovery state for this reply.");
+  }
   if (pending?.agentCreate && !next[scope]?.pendingAgentCreate) {
     throw new Error("Could not save the settings for this agent creation.");
   }

@@ -194,7 +194,8 @@ const SCHEDULE_GRACE_MS = 24 * 60 * 60 * 1000;
 
 function isDraftEntryExpired(entry: DraftEntry, now: number): boolean {
   // Keep pending creation and share sends available until resolved after reconnecting.
-  if (entry.pendingShare || entry.pendingAgentCreate) return false;
+  if (entry.pendingKey || entry.pendingShare || entry.pendingAgentCreate)
+    return false;
   if (entry.pendingSchedule) {
     const scheduleExpiry = Math.max(
       entry.updatedAt + DRAFT_TTL_MS,
@@ -299,7 +300,10 @@ export function pruneDraftStore(input: DraftMap, now = Date.now()): DraftMap {
   // Pending sends take priority so ordinary drafts cannot evict their request details.
   const hasPendingSend = ([, entry]: [string, DraftEntry]) =>
     Boolean(
-      entry.pendingSchedule || entry.pendingShare || entry.pendingAgentCreate,
+      entry.pendingKey ||
+      entry.pendingSchedule ||
+      entry.pendingShare ||
+      entry.pendingAgentCreate,
     );
   const locked = valid.filter(hasPendingSend);
   const unlocked = valid.filter((entry) => !hasPendingSend(entry));

@@ -69,6 +69,7 @@ import {
   isSamePairedDevice,
   localDataScope,
   preserveProbedCredentials,
+  workspaceRecoveryKey,
   normalizeWorkspaceUrl,
   tryParsePairingLink,
 } from "../apps/mobile/src/api/pairing-url.js";
@@ -4087,6 +4088,27 @@ it("uses the most recently started bookmark read and preserves a newer local cha
   ).toBe(false);
 });
 
+it("keeps an older pending carousel reply through draft age and capacity limits", () => {
+  const now = Date.now();
+  const scope = "carousel:pending";
+  let stored = setDraftInStore(createEmptyDraftMap(), scope, "Reply", now, {
+    key: "retry-key-123",
+  });
+  const afterTtl = now + DRAFT_TTL_MS + 1;
+  for (let index = 0; index < MAX_DRAFTS_PER_WORKSPACE + 1; index += 1) {
+    stored = setDraftInStore(
+      stored,
+      "carousel:" + index,
+      "New draft",
+      afterTtl,
+    );
+  }
+  expect(Object.keys(stored)).toHaveLength(MAX_DRAFTS_PER_WORKSPACE);
+  expect(readDraftEntryFromStore(stored, scope, afterTtl)?.pendingKey).toBe(
+    "retry-key-123",
+  );
+});
+
 it("round-trips the original target and attachments for a pending carousel reply", () => {
   const scope = "carousel:thread";
   const now = Date.now();
@@ -4210,6 +4232,20 @@ it("recovers an expired pairing's scope only with the authenticated workspace id
       assignPairingStorage(null, { ...renewed, deviceId: "device-c" }, "nonce"),
     ),
   ).toBe(localDataScope(fresh));
+  const alteredOrigin = "https://other.example.com";
+  expect(workspaceRecoveryKey(base.origin, workspaceIdentity)).not.toBe(
+    workspaceRecoveryKey(alteredOrigin, workspaceIdentity),
+  );
+  expect(workspaceRecoveryKey(base.origin, "malformed")).toBeUndefined();
+  expect(
+    localDataScope(
+      assignPairingStorage(
+        null,
+        { ...renewed, origin: alteredOrigin },
+        "nonce",
+      ),
+    ),
+  ).not.toBe(localDataScope(fresh));
   const other = assignPairingStorage(
     null,
     { ...renewed, workspaceIdentity: "b".repeat(64) },

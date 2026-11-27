@@ -4,7 +4,10 @@ import {
   parseContentDispositionFilename,
   type PublishedFileItem,
 } from "./files";
-import { assertSameOriginResponse } from "./pairing-url";
+import {
+  assertSameOriginResponse,
+  validatedWorkspaceIdentity,
+} from "./pairing-url";
 import type {
   ApiAgent,
   ApiApproval,
@@ -247,10 +250,28 @@ export class LoopClient {
       csrf: string;
       workspaceIdentity?: string;
     }>("GET", "/session");
-    if (data.csrf) {
-      this.session = { ...this.session, csrf: data.csrf };
+    const workspaceIdentity = validatedWorkspaceIdentity(
+      data.workspaceIdentity,
+    );
+    if (
+      this.session.workspaceIdentity &&
+      workspaceIdentity &&
+      this.session.workspaceIdentity !== workspaceIdentity
+    ) {
+      this.onUnauthorized?.();
+      throw new LoopApiError(
+        401,
+        "Workspace identity changed. Pair this phone again.",
+      );
     }
-    return data;
+    if (data.csrf) {
+      this.session = {
+        ...this.session,
+        csrf: data.csrf,
+        workspaceIdentity: workspaceIdentity ?? this.session.workspaceIdentity,
+      };
+    }
+    return { ...data, workspaceIdentity };
   }
 
   bootstrap(): Promise<ApiBootstrap> {
