@@ -3969,9 +3969,11 @@ it("reuses a carousel snapshot within one paired client and coalesces its refres
     await client.setSaved("bookmark", true, "thread");
     completePreSave(newPage);
     await preSave;
-    expect(client.cachedCarouselPage("thread")?.page.saved).toEqual([
-      "bookmark",
-    ]);
+    const patched = client.cachedCarouselPage("thread");
+    expect(patched?.page.saved).toEqual(["bookmark"]);
+    expect(patched?.messageObservedAt?.get("bookmark")).toEqual(
+      expect.any(Number),
+    );
 
     let finishUnsave!: (response: Response) => void;
     transport.mockReturnValueOnce(
@@ -4082,6 +4084,17 @@ it("uses the most recently started bookmark read and preserves a newer local cha
   ).toBe(true);
   const newerFeed = { ...card, savedObservedAt: 30 };
   expect(resolveCarouselSaved(card, newerFeed, history, undefined)).toBe(false);
+  expect(
+    resolveCarouselSaved(
+      card,
+      newerFeed,
+      {
+        ...history,
+        messageObservedAt: new Map([["reply", 32]]),
+      },
+      undefined,
+    ),
+  ).toBe(true);
   const edit = { saved: true, revision: 2, settledAt: 35 };
   expect(resolveCarouselSaved(card, newerFeed, history, edit)).toBe(true);
   expect(
@@ -4155,6 +4168,7 @@ it("round-trips the original target and attachments for a pending carousel reply
     queue: true,
     replyToMessageId: "answer-a",
     replyAttachmentIds: ["upload-1"],
+    replyAttemptId: "attempt-a",
   });
   expect(
     readDraftEntryFromStore(
@@ -4167,7 +4181,23 @@ it("round-trips the original target and attachments for a pending carousel reply
     pendingQueue: true,
     pendingReplyToMessageId: "answer-a",
     pendingReplyAttachmentIds: ["upload-1"],
+    pendingReplyAttemptId: "attempt-a",
   });
+  const retry = setDraftInStore(stored, scope, "Reply", now + 1, {
+    key: "retry-key-123",
+    replyAttemptId: "attempt-b",
+  });
+  expect(
+    settlePendingReplyInStore(retry, scope, "retry-key-123", {
+      text: "Reply",
+      attemptId: "attempt-a",
+    }),
+  ).toBe(retry);
+  expect(
+    settlePendingReplyInStore(retry, scope, "retry-key-123", {
+      attemptId: "attempt-b",
+    })[scope],
+  ).toBeUndefined();
   const newer = setDraftInStore(stored, scope, "New draft", now + 1, {
     key: "retry-key-456",
   });

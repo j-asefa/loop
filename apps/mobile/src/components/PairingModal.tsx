@@ -53,9 +53,9 @@ export function PairingModal({
   const [tokenText, setTokenText] = useState("");
   const [verifiedOrigin, setVerifiedOrigin] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [committing, setCommitting] = useState(false);
+  const [redeeming, setRedeeming] = useState(false);
   const pendingAttempt = useRef<AbortController | null>(null);
-  const committingRef = useRef(false);
+  const redeemingRef = useRef(false);
   const closedRef = useRef(false);
   const [error, setError] = useState("");
 
@@ -76,10 +76,19 @@ export function PairingModal({
     const attempt = new AbortController();
     pendingAttempt.current = attempt;
     const { signal } = attempt;
+    let timedOut = false;
+    const deadline = setTimeout(() => {
+      timedOut = true;
+      attempt.abort();
+    }, 20_000);
+    const lockRedemption = () => {
+      redeemingRef.current = true;
+      setRedeeming(true);
+    };
     const commit = async (session: PairedSession) => {
       if (signal.aborted || closedRef.current) return;
-      committingRef.current = true;
-      setCommitting(true);
+      clearTimeout(deadline);
+      lockRedemption();
       await onPaired(session);
       haptics.success();
     };
@@ -88,11 +97,13 @@ export function PairingModal({
     try {
       const { origin, pairing } = tryParsePairingLink(rawUrl);
       if (pairing) {
+        lockRedemption();
         await commit(await pairWithCompanion(rawUrl, signal));
         return;
       }
 
       if (rawToken.trim()) {
+        lockRedemption();
         await commit(await pairWithOriginAndToken(origin, rawToken, signal));
         return;
       }
@@ -107,17 +118,22 @@ export function PairingModal({
       setVerifiedOrigin(probe.origin);
       haptics.light();
     } catch (err) {
-      if (signal.aborted) return;
+      if (closedRef.current || (signal.aborted && !timedOut)) return;
       haptics.warning();
       setError(
-        err instanceof Error ? err.message : "Could not connect to workspace.",
+        timedOut
+          ? "The connection timed out. Check the workspace URL before using a new pairing link."
+          : err instanceof Error
+            ? err.message
+            : "Could not connect to workspace.",
       );
       if (mode === "qr") setMode("url");
     } finally {
+      clearTimeout(deadline);
       pendingAttempt.current = null;
-      committingRef.current = false;
-      if (!signal.aborted) {
-        setCommitting(false);
+      redeemingRef.current = false;
+      if (!closedRef.current) {
+        setRedeeming(false);
         setBusy(false);
       }
     }
@@ -202,9 +218,9 @@ export function PairingModal({
               {canClose && (
                 <Pressable
                   accessibilityLabel="Close pairing"
-                  disabled={committing}
+                  disabled={redeeming}
                   onPress={() => {
-                    if (committingRef.current) return;
+                    if (redeemingRef.current) return;
                     closedRef.current = true;
                     pendingAttempt.current?.abort();
                     haptics.light();

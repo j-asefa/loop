@@ -89,6 +89,7 @@ import {
   QUICK_REPLIES,
   type CarouselHistoryPage,
   type CarouselSaveEdit,
+  type CarouselBookmarkSnapshot,
   relativeTime,
   type NativeResultCard,
 } from "../fixtures";
@@ -284,6 +285,7 @@ export function SpotlightCarousel({
           saved: {
             ids: new Set(cached.page.saved),
             startedAt: cached.startedAt,
+            messageObservedAt: cached.messageObservedAt,
           },
         }
       : undefined;
@@ -304,7 +306,9 @@ export function SpotlightCarousel({
   const [historyUnavailable, setHistoryUnavailable] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(Boolean(initialHistory));
   const [historyRetry, setHistoryRetry] = useState<string>();
-  const [serverSaved, setServerSaved] = useState(initialHistory?.saved);
+  const [serverSaved, setServerSaved] = useState<
+    CarouselBookmarkSnapshot | undefined
+  >(initialHistory?.saved);
   const lastSavedReadRef = useRef(initialHistory?.saved.startedAt ?? -Infinity);
   const [savedEdits, setSavedEdits] = useState(
     new Map<string, CarouselSaveEdit>(),
@@ -562,6 +566,7 @@ export function SpotlightCarousel({
   const draftTouchedRef = useRef(false);
   const restoredPendingReplyRef = useRef<{
     idempotencyKey: string;
+    attemptId?: string;
     replyToMessageId?: string;
     queue?: boolean;
   } | null>(null);
@@ -606,6 +611,7 @@ export function SpotlightCarousel({
             setRetryModeLocked(true);
             restoredPendingReplyRef.current = {
               idempotencyKey: entry.pendingKey,
+              attemptId: entry.pendingReplyAttemptId,
               replyToMessageId: entry.pendingReplyToMessageId,
               queue: entry.pendingQueue,
             };
@@ -673,6 +679,7 @@ export function SpotlightCarousel({
   // uncertain errors so retrying never mutates the request semantics for the same idempotencyKey.
   const pendingReplyRef = useRef<{
     idempotencyKey: string;
+    attemptId?: string;
     replyToMessageId?: string;
     queue?: boolean;
   } | null>(null);
@@ -774,6 +781,7 @@ export function SpotlightCarousel({
     if (restoredPendingReplyRef.current) {
       pendingReplyRef.current = {
         idempotencyKey: restoredPendingReplyRef.current.idempotencyKey,
+        attemptId: restoredPendingReplyRef.current.attemptId,
         replyToMessageId: restoredPendingReplyRef.current.replyToMessageId,
         queue: restoredPendingReplyRef.current.queue,
       };
@@ -1243,6 +1251,7 @@ export function SpotlightCarousel({
     }
     const { idempotencyKey, replyToMessageId, queue } = pendingReplyRef.current;
     const wasUncertain = retryModeLocked;
+    const attemptId = randomUuid();
     const targetCard =
       replyToMessageId === activeCard.messageId
         ? activeCard
@@ -1259,9 +1268,16 @@ export function SpotlightCarousel({
           key: idempotencyKey,
           replyToMessageId,
           replyAttachmentIds: readyIds,
+          replyAttemptId: attemptId,
           queue,
         });
         persisted = true;
+        pendingReplyRef.current = {
+          idempotencyKey,
+          replyToMessageId,
+          queue,
+          attemptId,
+        };
       }
       await Promise.resolve(
         onSendReply(targetCard, finalPrompt, readyIds, idempotencyKey, queue),
@@ -1269,8 +1285,9 @@ export function SpotlightCarousel({
       if (
         origin &&
         persisted &&
-        settlePendingReplyDraft(origin, draftScope, idempotencyKey) ===
-          "write-failed"
+        settlePendingReplyDraft(origin, draftScope, idempotencyKey, {
+          attemptId,
+        }) === "write-failed"
       ) {
         setReplyConfirmed(true);
         setRetryModeLocked(true);
@@ -1291,8 +1308,10 @@ export function SpotlightCarousel({
         const settleFailed =
           origin &&
           persisted &&
-          settlePendingReplyDraft(origin, draftScope, idempotencyKey, draft) ===
-            "write-failed";
+          settlePendingReplyDraft(origin, draftScope, idempotencyKey, {
+            text: draft,
+            attemptId,
+          }) === "write-failed";
         if (settleFailed) {
           setRetryModeLocked(true);
         } else {
@@ -1349,6 +1368,7 @@ export function SpotlightCarousel({
                 scope,
                 draftScope,
                 request.idempotencyKey,
+                { attemptId: request.attemptId ?? null },
               ) === "write-failed"
             ) {
               setReplyError(

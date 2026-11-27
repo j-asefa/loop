@@ -254,15 +254,23 @@ export function reconcileCarouselSaves(
   return next;
 }
 
+export type CarouselBookmarkSnapshot = {
+  ids: Set<string>;
+  startedAt: number;
+  messageObservedAt?: ReadonlyMap<string, number>;
+};
+
 export function resolveCarouselSaved(
   card: NativeResultCard,
   feedCard: NativeResultCard | undefined,
-  history: { ids: Set<string>; startedAt: number } | undefined,
+  history: CarouselBookmarkSnapshot | undefined,
   edit: CarouselSaveEdit | undefined,
 ): boolean {
   const feedObservedAt = feedCard?.savedObservedAt ?? -Infinity;
   const historyObservedAt =
-    card.messageId && history ? history.startedAt : -Infinity;
+    card.messageId && history
+      ? (history.messageObservedAt?.get(card.messageId) ?? history.startedAt)
+      : -Infinity;
   if (
     edit &&
     (edit.pending ||

@@ -113,6 +113,7 @@ async function fetchWithTimeout(
 type CarouselPageSnapshot = {
   page: ApiConversationPage;
   startedAt: number;
+  messageObservedAt?: ReadonlyMap<string, number>;
 };
 
 /**
@@ -733,6 +734,10 @@ export class LoopClient {
             snapshot: {
               ...cached.snapshot,
               page: { ...cached.snapshot.page, saved: [...ids] },
+              messageObservedAt: new Map(cached.snapshot.messageObservedAt).set(
+                messageId,
+                performance.now(),
+              ),
             },
           });
         }

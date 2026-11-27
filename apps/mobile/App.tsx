@@ -838,13 +838,23 @@ function LoopShell() {
   );
 
   const handleToggleSaved = useCallback(
-    async (card: NativeResultCard) => {
+    async (
+      card: Pick<
+        NativeResultCard,
+        "id" | "messageId" | "conversationId" | "saved"
+      >,
+    ) => {
       const nextSaved = !card.saved;
       const matchesCard = (c: NativeResultCard) =>
         c.id === card.id ||
         Boolean(card.messageId && c.messageId === card.messageId);
-      const applySaved = (saved: boolean) => (prev: NativeResultCard[]) =>
-        prev.map((c) => (matchesCard(c) ? { ...c, saved } : c));
+      const applySaved = (saved: boolean) => {
+        const savedObservedAt = performance.now();
+        return (prev: NativeResultCard[]) =>
+          prev.map((c) =>
+            matchesCard(c) ? { ...c, saved, savedObservedAt } : c,
+          );
+      };
       if (client) {
         if (!card.messageId) return;
         const msgId = card.messageId;
@@ -2031,20 +2041,12 @@ function LoopShell() {
               : undefined
           }
           onToggleSaved={async (msgId, currentlySaved) => {
-            if (client) {
-              await client.setSaved(
-                msgId,
-                !currentlySaved,
-                threadOverlay.conversationId,
-              );
-              showToast(!currentlySaved ? "Saved" : "Unsaved");
-            } else {
-              setDemoCards((prev) =>
-                prev.map((c) =>
-                  c.id === msgId ? { ...c, saved: !currentlySaved } : c,
-                ),
-              );
-            }
+            await handleToggleSaved({
+              id: msgId,
+              messageId: msgId,
+              conversationId: threadOverlay.conversationId,
+              saved: currentlySaved,
+            });
           }}
         />
       )}

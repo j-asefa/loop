@@ -14,6 +14,7 @@ import {
   type DraftEntry,
   type DraftMap,
   type DraftPendingMeta,
+  type PendingReplySettlement,
 } from "./drafts-codec";
 
 export {
@@ -424,12 +425,12 @@ export function settlePendingReplyDraft(
   origin: string,
   scope: string,
   key: string,
-  text?: string,
+  settlement?: PendingReplySettlement,
 ): "settled" | "stale" | "write-failed" {
   const bucket = draftWorkspaceBucket(origin);
   const current = memoryBuckets.get(bucket);
   if (!current) return "stale";
-  const next = settlePendingReplyInStore(current, scope, key, text);
+  const next = settlePendingReplyInStore(current, scope, key, settlement);
   if (next === current) return "stale";
   try {
     writeBucketFile(bucket, next);
