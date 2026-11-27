@@ -1,11 +1,14 @@
 import React, {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
 import {
+  ActivityIndicator,
+  Alert,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
@@ -62,6 +65,7 @@ import {
 } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
+  CAROUSEL_PAGE_CARDS,
   resolveCarouselCardHeader,
   searchThreadCards,
   stepMatchIndex,
@@ -75,11 +79,21 @@ import {
 } from "../api/client";
 import type { LoopFileTarget, PublishedFileItem } from "../api/files";
 import type { LiveStreamOverlay } from "../api/socket";
-import type { ApiSnippet } from "../api/types";
+import type { ApiConversationPage, ApiSnippet } from "../api/types";
 import type { AgentRunSummary } from "./AgentProfileSheet";
 import { PublishedFilesStrip } from "./FilePreviewModal";
 import {
+  carouselCardKey,
+  keepsCarouselReplyTarget,
+  mergeCarouselHistoryPage,
+  openingCarouselCardIds,
+  reconcileCarouselSaves,
+  resolveCarouselSaved,
+  resolveCarouselSelection,
   QUICK_REPLIES,
+  type CarouselHistoryPage,
+  type CarouselSaveEdit,
+  type CarouselBookmarkSnapshot,
   relativeTime,
   type NativeResultCard,
 } from "../fixtures";
@@ -89,6 +103,7 @@ import {
   loadDraftEntry,
   saveDraft,
   saveDraftAndFlush,
+  settlePendingReplyDraft,
 } from "../drafts";
 import { haptics } from "../haptics";
 import { runModelLabel } from "../models";
@@ -113,6 +128,7 @@ const EMPTY_PUBLISHED_FILES: PublishedFileItem[] = [];
 
 type SpotlightCarouselProps = {
   cards: NativeResultCard[];
+  openingCard?: NativeResultCard;
   queuedRuns?: AgentRunSummary[];
   activeRun?: AgentRunSummary | null;
   canPause?: boolean;
@@ -132,7 +148,9 @@ type SpotlightCarouselProps = {
   onOpenFile?: (file: PublishedFileItem) => void;
   onOpenFileTarget?: (target: LoopFileTarget, label?: string) => void;
   onMarkRead: (card: NativeResultCard) => void;
-  onToggleSaved: (card: NativeResultCard) => Promise<void> | void;
+  onToggleSaved: (
+    card: NativeResultCard,
+  ) => Promise<"committed" | "uncertain" | "stale" | void> | void;
   onRemind: (card: NativeResultCard) => void;
   onDismissCard: (card: NativeResultCard) => void;
   onNotify?: (message: string) => void;
@@ -152,8 +170,57 @@ type SpotlightCarouselProps = {
   ) => Promise<void>;
 };
 
+function parseConversationPageToSlides(
+  page: ApiConversationPage,
+  base: NativeResultCard | undefined,
+): {
+  promptMap: Map<string, string>;
+  bodyMap: Map<string, string>;
+  runIdMap: Map<string, string>;
+  slides: NativeResultCard[];
+} {
+  const promptMap = new Map<string, string>();
+  const bodyMap = new Map<string, string>();
+  const runIdMap = new Map<string, string>();
+  const savedSet = new Set(page.saved);
+  const extra: NativeResultCard[] = [];
+  let lastPrompt = "";
+  for (const msg of page.messages) {
+    if (msg.role === "user") {
+      lastPrompt = msg.content;
+      continue;
+    }
+    if (msg.role !== "assistant" || !msg.content.trim()) continue;
+    const prompt = msg.carousel_prompt || lastPrompt;
+    if (prompt) promptMap.set(msg.id, prompt);
+    if (msg.run_id) runIdMap.set(msg.id, msg.run_id);
+    bodyMap.set(msg.id, msg.content);
+    extra.push({
+      id: msg.id,
+      conversationId: page.conversation.id,
+      tab: "done",
+      agentId: base?.agentId,
+      agentName: base?.agentName ?? "agent",
+      projectName: base?.projectName ?? "Workspace",
+      model: base?.model ?? "",
+      prompt: prompt || page.conversation.title,
+      fallbackTitle: page.conversation.title || "Result",
+      body: msg.content,
+      createdAt: msg.created_at,
+      saved: savedSet.has(msg.id),
+      unread: false,
+      messageId: msg.id,
+      runId: msg.run_id ?? undefined,
+    });
+    lastPrompt = "";
+  }
+  extra.reverse();
+  return { promptMap, bodyMap, runIdMap, slides: extra };
+}
+
 export function SpotlightCarousel({
   cards,
+  openingCard,
   queuedRuns = [],
   activeRun = null,
   canPause = true,
@@ -187,92 +254,96 @@ export function SpotlightCarousel({
   // Pin the order so a refresh never reshuffles the stack; a newly arriving
   // card re-pins it and takes you to that card (#1) once the reply keyboard
   // is closed.
-  const [pinnedIds, setPinnedIds] = useState<string[]>(() =>
-    cards.map((c) => c.id),
+  const recentCards = useMemo(
+    () => (client ? cards.slice(0, CAROUSEL_PAGE_CARDS) : cards),
+    [cards, client],
+  );
+  const [pinnedIds, setPinnedIds] = useState(() =>
+    openingCarouselCardIds(cards, recentCards, openingCard),
   );
   const cardsById = useMemo(
-    () => new Map(cards.map((c) => [c.id, c])),
+    () => new Map(cards.map((card) => [card.id, card])),
     [cards],
   );
-  const pinnedSet = useMemo(() => new Set(pinnedIds), [pinnedIds]);
-  const hasNewArrival = useMemo(
-    () => cards.some((c) => !pinnedSet.has(c.id)),
-    [cards, pinnedSet],
-  );
+  const cardsByMessageId = useMemo(() => {
+    const byMessageId = new Map<string, NativeResultCard>();
+    for (const card of cards) {
+      if (card.messageId && !byMessageId.has(card.messageId)) {
+        byMessageId.set(card.messageId, card);
+      }
+    }
+    return byMessageId;
+  }, [cards]);
+  const topCardId = recentCards[0]?.id;
+  const lastTopCardRef = useRef(topCardId);
 
-  // In live mode, lazily hydrate full conversation history + truncated bodies + run IDs
+  const conversationId = cards[0]?.conversationId;
+  const [initialHistory] = useState(() => {
+    const cached = conversationId
+      ? client?.cachedCarouselPage(conversationId)
+      : undefined;
+    return cached
+      ? {
+          ...parseConversationPageToSlides(cached.page, cards[0]),
+          next: cached.page.next,
+          saved: {
+            ids: new Set(cached.page.saved),
+            startedAt: cached.startedAt,
+            messageObservedAt: cached.messageObservedAt,
+          },
+        }
+      : undefined;
+  });
+  // Seed the first render from a cached page, then revalidate in the background.
   const [historyPrompts, setHistoryPrompts] = useState<Map<string, string>>(
-    () => new Map(),
+    () => initialHistory?.promptMap ?? new Map(),
   );
   const [historyRunIds, setHistoryRunIds] = useState<Map<string, string>>(
-    () => new Map(),
+    () => initialHistory?.runIdMap ?? new Map(),
   );
-  const [historySlides, setHistorySlides] = useState<NativeResultCard[]>([]);
-  const [historyNextCursor, setHistoryNextCursor] = useState<string | null>(
-    null,
-  );
+  const [history, setHistory] = useState<CarouselHistoryPage>(() => ({
+    cards: initialHistory?.slides ?? [],
+    next: initialHistory?.next ?? null,
+  }));
+  const { cards: historySlides, next: historyNextCursor } = history;
   const [loadingMoreHistory, setLoadingMoreHistory] = useState(false);
+  const [historyUnavailable, setHistoryUnavailable] = useState(false);
+  const [historyLoaded, setHistoryLoaded] = useState(Boolean(initialHistory));
+  const [historyRetry, setHistoryRetry] = useState<string>();
+  const [serverSaved, setServerSaved] = useState<
+    CarouselBookmarkSnapshot | undefined
+  >(initialHistory?.saved);
+  const lastSavedReadRef = useRef(initialHistory?.saved.startedAt ?? -Infinity);
+  const [savedEdits, setSavedEdits] = useState(
+    new Map<string, CarouselSaveEdit>(),
+  );
+  const saveRevisionRef = useRef(0);
+  const savingCardKeysRef = useRef(new Set<string>());
+  const [fetchedHistory, setFetchedHistory] = useState<ApiConversationPage>();
+  const appliedHistoryRef = useRef<ApiConversationPage | undefined>(undefined);
   const hasLoadedOlderHistoryRef = useRef(false);
+  const loadingOlderRef = useRef(false);
+  const autoLoadedCursorRef = useRef<string | null>(null);
   const [fullBodies, setFullBodies] = useState<Map<string, string>>(
-    () => new Map(),
+    () => initialHistory?.bodyMap ?? new Map(),
   );
   const [runFilesByRunId, setRunFilesByRunId] = useState<
     Map<string, PublishedFileItem[]>
   >(() => new Map());
   const fetchedRunsRef = useRef(new Set<string>());
-  const conversationId = cards[0]?.conversationId;
   // Read slide metadata through a ref so mark-read/save/silent reloads do not re-fire
   // `client.conversation(conversationId)` on every `cards` array identity change.
   const baseCardRef = useRef(cards[0]);
   baseCardRef.current = cards[0];
 
-  const parseConversationPageToSlides = useCallback(
-    (
-      page: import("../api/types").ApiConversationPage,
-      convId: string,
-    ): {
-      promptMap: Map<string, string>;
-      bodyMap: Map<string, string>;
-      runIdMap: Map<string, string>;
-      slides: NativeResultCard[];
-    } => {
-      const promptMap = new Map<string, string>();
-      const bodyMap = new Map<string, string>();
-      const runIdMap = new Map<string, string>();
-      const savedSet = new Set(page.saved);
-      const extra: NativeResultCard[] = [];
-      let lastPrompt = "";
-      const base = baseCardRef.current;
-      for (const msg of page.messages) {
-        if (msg.role === "user") {
-          lastPrompt = msg.content;
-          continue;
-        }
-        if (msg.role !== "assistant" || !msg.content.trim()) continue;
-        if (lastPrompt) promptMap.set(msg.id, lastPrompt);
-        if (msg.run_id) runIdMap.set(msg.id, msg.run_id);
-        bodyMap.set(msg.id, msg.content);
-        extra.push({
-          id: msg.id,
-          conversationId: convId,
-          tab: "done",
-          agentId: base?.agentId,
-          agentName: base?.agentName ?? "agent",
-          projectName: base?.projectName ?? "Workspace",
-          model: base?.model ?? "",
-          prompt: lastPrompt || page.conversation.title,
-          fallbackTitle: page.conversation.title || "Result",
-          body: msg.content,
-          createdAt: msg.created_at,
-          saved: savedSet.has(msg.id),
-          unread: false,
-          messageId: msg.id,
-          runId: msg.run_id ?? undefined,
-        });
-        lastPrompt = "";
-      }
-      extra.reverse();
-      return { promptMap, bodyMap, runIdMap, slides: extra };
+  const applySavedRead = useCallback(
+    (saved: string[], startedAt: number, requestRevision: number) => {
+      if (startedAt < lastSavedReadRef.current) return;
+      lastSavedReadRef.current = startedAt;
+      setServerSaved({ ids: new Set(saved), startedAt });
+      setSavedEdits((prev) =>
+        reconcileCarouselSaves(prev, saved, requestRevision),
+      );
     },
     [],
   );
@@ -280,56 +351,37 @@ export function SpotlightCarousel({
   useEffect(() => {
     if (!client || !conversationId) return;
     let cancelled = false;
-    // Defer full-thread history fetch until after the opening spring renders frame 1
-    const timer = setTimeout(() => {
-      if (cancelled) return;
-      void client
-        .conversation(conversationId)
-        .then((page) => {
-          if (cancelled) return;
-          const {
-            promptMap,
-            bodyMap,
-            runIdMap,
-            slides: extra,
-          } = parseConversationPageToSlides(page, conversationId);
-          setHistoryPrompts((prev) => new Map([...prev, ...promptMap]));
-          setHistoryRunIds((prev) => new Map([...prev, ...runIdMap]));
-          setFullBodies((prev) => {
-            const next = new Map(prev);
-            for (const [id, content] of bodyMap) {
-              const existing = next.get(id);
-              if (!existing || content.length > existing.length) {
-                next.set(id, content);
-              }
-            }
-            return next;
-          });
-          setHistorySlides((prev) => {
-            if (!hasLoadedOlderHistoryRef.current || prev.length === 0) {
-              return extra;
-            }
-            const seen = new Set(extra.map((c) => c.messageId || c.id));
-            const older = prev.filter((c) => !seen.has(c.messageId || c.id));
-            return [...extra, ...older];
-          });
-          if (!hasLoadedOlderHistoryRef.current) {
-            setHistoryNextCursor(page.next ?? null);
-          }
-          setSteerableRunId(page.steerable_run_id ?? null);
-        })
-        .catch(() => {});
-    }, 140);
+    const requestRevision = saveRevisionRef.current;
+    void client
+      .refreshCarouselPage(
+        conversationId,
+        JSON.stringify([
+          activeRun?.id,
+          activeRun?.state,
+          topCardId,
+          historyRetry,
+        ]),
+      )
+      .then(({ page, startedAt }) => {
+        if (cancelled) return;
+        applySavedRead(page.saved, startedAt, requestRevision);
+        setFetchedHistory(page);
+        setSteerableRunId(page.steerable_run_id ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setHistoryUnavailable(true);
+      });
     return () => {
       cancelled = true;
-      clearTimeout(timer);
     };
   }, [
     client,
     conversationId,
     activeRun?.id,
     activeRun?.state,
-    parseConversationPageToSlides,
+    historyRetry,
+    topCardId,
+    applySavedRead,
   ]);
 
   const loadMoreHistory = useCallback(async () => {
@@ -337,20 +389,25 @@ export function SpotlightCarousel({
       !client ||
       !conversationId ||
       !historyNextCursor ||
-      loadingMoreHistory
+      loadingOlderRef.current
     ) {
       return;
     }
     const cursor = historyNextCursor;
+    const startedAt = performance.now();
+    const requestRevision = saveRevisionRef.current;
+    loadingOlderRef.current = true;
+    autoLoadedCursorRef.current = cursor;
     setLoadingMoreHistory(true);
     try {
-      const page = await client.conversation(conversationId, cursor);
+      const page = await client.carouselPage(conversationId, cursor);
+      applySavedRead(page.saved, startedAt, requestRevision);
       const {
         promptMap,
         bodyMap,
         runIdMap,
         slides: older,
-      } = parseConversationPageToSlides(page, conversationId);
+      } = parseConversationPageToSlides(page, baseCardRef.current);
       hasLoadedOlderHistoryRef.current = true;
       setHistoryPrompts((prev) => new Map([...promptMap, ...prev]));
       setHistoryRunIds((prev) => new Map([...runIdMap, ...prev]));
@@ -361,24 +418,31 @@ export function SpotlightCarousel({
         }
         return next;
       });
-      setHistorySlides((prev) => {
-        const seen = new Set(prev.map((c) => c.messageId || c.id));
-        const uniqueOlder = older.filter((c) => !seen.has(c.messageId || c.id));
-        return uniqueOlder.length > 0 ? [...prev, ...uniqueOlder] : prev;
-      });
-      setHistoryNextCursor(page.next ?? null);
+      setHistory((prev) =>
+        mergeCarouselHistoryPage(
+          prev,
+          { cards: older, next: page.next ?? null },
+          { before: cursor },
+        ),
+      );
     } catch {
       // keep existing history
     } finally {
+      loadingOlderRef.current = false;
       setLoadingMoreHistory(false);
     }
-  }, [
-    client,
-    conversationId,
-    historyNextCursor,
-    loadingMoreHistory,
-    parseConversationPageToSlides,
-  ]);
+  }, [client, conversationId, historyNextCursor, applySavedRead]);
+
+  const displayedCardSaved = useCallback(
+    (card: NativeResultCard) => {
+      const edited = savedEdits.get(carouselCardKey(card));
+      const feedCard =
+        (card.messageId && cardsByMessageId.get(card.messageId)) ||
+        cardsById.get(card.id);
+      return resolveCarouselSaved(card, feedCard, serverSaved, edited);
+    },
+    [cardsById, cardsByMessageId, savedEdits, serverSaved],
+  );
 
   const slides = useMemo(() => {
     const ordered: NativeResultCard[] = [];
@@ -412,18 +476,41 @@ export function SpotlightCarousel({
       if (card) ordered.push(hydrate(card));
     }
     if (!ordered.length) {
-      for (const card of cards) ordered.push(hydrate(card));
+      for (const card of recentCards) ordered.push(hydrate(card));
     }
     for (const hist of historySlides) {
       if (!hist.messageId || !seenMsgs.has(hist.messageId)) {
-        ordered.push(hist);
+        const feedCard = hist.messageId
+          ? cardsByMessageId.get(hist.messageId)
+          : undefined;
+        ordered.push(hydrate(feedCard ?? hist));
       }
     }
-    return ordered;
+    if (historyUnavailable || (historyLoaded && !historyNextCursor)) {
+      const listed = new Set(ordered.map((card) => card.id));
+      for (const card of cards) {
+        if (
+          !listed.has(card.id) &&
+          (!card.messageId || !seenMsgs.has(card.messageId))
+        ) {
+          ordered.push(hydrate(card));
+        }
+      }
+    }
+    return ordered.map((card) => {
+      const saved = displayedCardSaved(card);
+      return saved === card.saved ? card : { ...card, saved };
+    });
   }, [
     pinnedIds,
-    cardsById,
+    displayedCardSaved,
     cards,
+    historyUnavailable,
+    historyLoaded,
+    historyNextCursor,
+    cardsById,
+    cardsByMessageId,
+    recentCards,
     historyPrompts,
     historyRunIds,
     historySlides,
@@ -433,12 +520,35 @@ export function SpotlightCarousel({
     liveStream?.truncated,
   ]);
 
-  const [activeIndex, setActiveIndex] = useState(0);
-  const safeIndex = Math.max(
-    0,
-    Math.min(activeIndex, Math.max(0, slides.length - 1)),
-  );
+  const [selection, setSelection] = useState<{ index: number; key?: string }>({
+    index: 0,
+  });
+  const safeIndex = resolveCarouselSelection(slides, selection);
   const activeCard = slides[safeIndex];
+  const replyAttachments = useAttachments(client, {
+    agentId: activeCard?.agentId,
+  });
+  const { restoreUploadedAttachments } = replyAttachments;
+
+  useEffect(() => {
+    // Wait until the user moves toward the older end of the loaded cards.
+    if (
+      historyNextCursor &&
+      !loadingMoreHistory &&
+      safeIndex > 0 &&
+      safeIndex >= slides.length - 2 &&
+      autoLoadedCursorRef.current !== historyNextCursor
+    ) {
+      void loadMoreHistory();
+    }
+  }, [
+    historyNextCursor,
+    loadMoreHistory,
+    loadingMoreHistory,
+    safeIndex,
+    slides.length,
+  ]);
+
   const agentName = activeCard?.agentName ?? cards[0]?.agentName ?? "agent";
 
   // Mode-A Live Search Overlay + persistent Prev/Next match chip
@@ -452,12 +562,16 @@ export function SpotlightCarousel({
   const [actionSheetCard, setActionSheetCard] =
     useState<NativeResultCard | null>(null);
   const [draft, setDraft] = useState("");
+  const [draftLoaded, setDraftLoaded] = useState(false);
+  const [draftLoadFailed, setDraftLoadFailed] = useState(false);
   const draftScope = conversationId
     ? draftScopeForCarousel(conversationId)
     : "";
   const draftTouchedRef = useRef(false);
   const restoredPendingReplyRef = useRef<{
     idempotencyKey: string;
+    attemptId?: string;
+    replyToMessageId?: string;
     queue?: boolean;
   } | null>(null);
   const restoredPendingScheduleRef = useRef<{
@@ -470,46 +584,64 @@ export function SpotlightCarousel({
     locked: boolean;
   } | null>(null);
   const [sending, setSending] = useState(false);
+  const sendingRef = useRef(false);
 
   useEffect(() => {
     if (!draftScope) return;
     let cancelled = false;
     draftTouchedRef.current = false;
-    void loadDraftEntry(client?.origin, draftScope).then((entry) => {
-      if (cancelled || !entry?.text) return;
-      if (entry.pendingSchedule) {
-        const restored = {
-          idempotencyKey: entry.pendingSchedule.key,
-          sendAt: entry.pendingSchedule.sendAt,
-          input: entry.pendingSchedule.input ?? entry.text,
-          agentId: entry.pendingSchedule.agentId,
-          attachmentIds: entry.pendingSchedule.attachmentIds ?? [],
-          replyToMessageId: entry.pendingSchedule.replyToMessageId,
-          locked: true,
-        };
-        restoredPendingScheduleRef.current = restored;
-        setPendingSchedule(restored);
-        setDraft(entry.text);
-        return;
-      }
-      if (!draftTouchedRef.current) {
-        if (entry.pendingKey) {
-          restoredPendingReplyRef.current = {
-            idempotencyKey: entry.pendingKey,
-            queue: entry.pendingQueue,
+    void loadDraftEntry(client?.localDataScope, draftScope)
+      .then((entry) => {
+        if (cancelled) return;
+        setDraftLoaded(true);
+        if (!entry?.text) return;
+        if (entry.pendingSchedule) {
+          const restored = {
+            idempotencyKey: entry.pendingSchedule.key,
+            sendAt: entry.pendingSchedule.sendAt,
+            input: entry.pendingSchedule.input ?? entry.text,
+            agentId: entry.pendingSchedule.agentId,
+            attachmentIds: entry.pendingSchedule.attachmentIds ?? [],
+            replyToMessageId: entry.pendingSchedule.replyToMessageId,
+            locked: true,
           };
-          if (entry.pendingQueue !== undefined) {
-            setDeliveryMode(entry.pendingQueue ? "queue" : "steer");
-          }
+          restoredPendingScheduleRef.current = restored;
+          setPendingSchedule(restored);
+          setDraft(entry.text);
+          return;
         }
-        setDraft(entry.text);
-      }
-    });
+        if (!draftTouchedRef.current) {
+          if (entry.pendingKey) {
+            setRetryModeLocked(true);
+            restoredPendingReplyRef.current = {
+              idempotencyKey: entry.pendingKey,
+              attemptId: entry.pendingReplyAttemptId,
+              replyToMessageId: entry.pendingReplyToMessageId,
+              queue: entry.pendingQueue,
+            };
+            if (entry.pendingReplyAttachmentIds)
+              restoreUploadedAttachments(entry.pendingReplyAttachmentIds);
+            if (entry.pendingQueue !== undefined) {
+              setDeliveryMode(entry.pendingQueue ? "queue" : "steer");
+            }
+          }
+          setDraft(entry.text);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setDraftLoadFailed(true);
+          setReplyError(
+            "Could not load the saved draft. Close and reopen to retry.",
+          );
+        }
+      });
     return () => {
       cancelled = true;
     };
-  }, [client?.origin, draftScope]);
+  }, [client?.localDataScope, draftScope, restoreUploadedAttachments]);
   const [replyError, setReplyError] = useState("");
+  const [replyConfirmed, setReplyConfirmed] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleBusy, setScheduleBusy] = useState(false);
   const [scheduleError, setScheduleError] = useState("");
@@ -551,12 +683,84 @@ export function SpotlightCarousel({
   // uncertain errors so retrying never mutates the request semantics for the same idempotencyKey.
   const pendingReplyRef = useRef<{
     idempotencyKey: string;
+    attemptId?: string;
     replyToMessageId?: string;
     queue?: boolean;
   } | null>(null);
-  const replyAttachments = useAttachments(client, {
-    agentId: activeCard?.agentId,
-  });
+  const waitingForDraft = !draftLoaded && !draftLoadFailed;
+  const holdHistoryUpdates =
+    waitingForDraft || keyboardVisible || recordingAudio || sending;
+  const holdSelection =
+    holdHistoryUpdates ||
+    draft.trim().length > 0 ||
+    replyAttachments.attachments.length > 0;
+  useEffect(() => {
+    const page = fetchedHistory;
+    if (
+      !page ||
+      appliedHistoryRef.current === page ||
+      waitingForDraft ||
+      (historyLoaded && holdHistoryUpdates)
+    )
+      return;
+    const {
+      promptMap,
+      bodyMap,
+      runIdMap,
+      slides: extra,
+    } = parseConversationPageToSlides(page, baseCardRef.current);
+    const keepOlder =
+      loadingOlderRef.current || hasLoadedOlderHistoryRef.current;
+    const incoming = { cards: extra, next: page.next ?? null };
+    const mode = keepOlder ? "refresh" : "replace";
+    const protectedCard = holdSelection ? activeCard : undefined;
+    const protectedKey = protectedCard && carouselCardKey(protectedCard);
+    const next = mergeCarouselHistoryPage(
+      history,
+      incoming,
+      mode,
+      protectedKey,
+    );
+    const pinnedCards = pinnedIds.flatMap((id) => {
+      const card = cardsById.get(id);
+      return card ? [card] : [];
+    });
+    if (
+      next === history ||
+      !keepsCarouselReplyTarget(
+        next,
+        pinnedCards.length ? pinnedCards : recentCards,
+        protectedCard,
+        historyUnavailable || (historyLoaded && !history.next),
+      )
+    )
+      return;
+    appliedHistoryRef.current = page;
+    setHistoryLoaded(true);
+    setHistoryUnavailable(false);
+    setHistoryPrompts((prev) =>
+      keepOlder ? new Map([...prev, ...promptMap]) : promptMap,
+    );
+    setHistoryRunIds((prev) =>
+      keepOlder ? new Map([...prev, ...runIdMap]) : runIdMap,
+    );
+    setFullBodies((prev) => new Map([...prev, ...bodyMap]));
+    setHistory((prev) =>
+      mergeCarouselHistoryPage(prev, incoming, mode, protectedKey),
+    );
+  }, [
+    waitingForDraft,
+    fetchedHistory,
+    historyLoaded,
+    holdHistoryUpdates,
+    holdSelection,
+    activeCard,
+    history,
+    historyUnavailable,
+    pinnedIds,
+    cardsById,
+    recentCards,
+  ]);
 
   // Authoritative server capability: only show Steer/Queue toggle when the server reports
   // `steerable_run_id` matching the active run (harnesses with `midTurn: "steer"` / active live input).
@@ -581,6 +785,8 @@ export function SpotlightCarousel({
     if (restoredPendingReplyRef.current) {
       pendingReplyRef.current = {
         idempotencyKey: restoredPendingReplyRef.current.idempotencyKey,
+        attemptId: restoredPendingReplyRef.current.attemptId,
+        replyToMessageId: restoredPendingReplyRef.current.replyToMessageId,
         queue: restoredPendingReplyRef.current.queue,
       };
       restoredPendingReplyRef.current = null;
@@ -592,20 +798,27 @@ export function SpotlightCarousel({
   }, [draft, conversationId, attachmentKeySig]);
 
   const scheduleLocked = Boolean(pendingSchedule?.locked);
+  const replyEditingLocked =
+    !draftLoaded ||
+    scheduleLocked ||
+    retryModeLocked ||
+    sending ||
+    scheduleBusy;
 
   // If the user opened a synthetic working:* placeholder at slide 0 and the run
   // finishes (superseding the placeholder with a live Done card), promote it smoothly.
   useEffect(() => {
     const firstPinned = pinnedIds[0];
     if (
-      activeIndex === 0 &&
+      !holdSelection &&
+      safeIndex === 0 &&
       firstPinned?.startsWith("working:") &&
       !cardsById.has(firstPinned) &&
-      cards.length > 0
+      recentCards.length > 0
     ) {
-      setPinnedIds(cards.map((c) => c.id));
+      setPinnedIds(recentCards.map((c) => c.id));
     }
-  }, [activeIndex, cards, cardsById, pinnedIds]);
+  }, [holdSelection, safeIndex, recentCards, cardsById, pinnedIds]);
 
   const scrollRef = useRef<Animated.ScrollView>(null);
   // Tables and code blocks inside cards block this gesture while their own
@@ -624,7 +837,7 @@ export function SpotlightCarousel({
 
   useEffect(() => {
     entrance.value = withSpring(1, { damping: 24, stiffness: 280, mass: 0.85 });
-  }, []);
+  }, [entrance]);
 
   useEffect(() => {
     const onShow = (e?: {
@@ -739,10 +952,18 @@ export function SpotlightCarousel({
     });
   }, [onClose]);
 
+  const selectSlideAt = useCallback(
+    (index: number) => {
+      const card = slides[index];
+      setSelection({ index, key: card && carouselCardKey(card) });
+    },
+    [slides],
+  );
+
   const scrollToSlide = useCallback(
     (index: number, animated = true) => {
       const clamped = Math.max(0, Math.min(index, slides.length - 1));
-      setActiveIndex(clamped);
+      selectSlideAt(clamped);
       lastCenteredIdx.value = clamped;
       scrollRef.current?.scrollTo({
         x: clamped * snapInterval,
@@ -750,13 +971,24 @@ export function SpotlightCarousel({
         animated,
       });
     },
-    [slides.length, snapInterval],
+    [lastCenteredIdx, selectSlideAt, slides.length, snapInterval],
   );
 
-  const handleCenteredChange = useCallback((nextIdx: number) => {
-    haptics.selection();
-    setActiveIndex(nextIdx);
-  }, []);
+  // Keep the displayed position and the reply target on the same card
+  // when a background response changes the order of the deck.
+  useLayoutEffect(() => {
+    if (selection.index !== safeIndex) scrollToSlide(safeIndex, false);
+    else if (activeCard && selection.key !== carouselCardKey(activeCard))
+      selectSlideAt(safeIndex);
+  }, [activeCard, safeIndex, scrollToSlide, selectSlideAt, selection]);
+
+  const handleCenteredChange = useCallback(
+    (nextIdx: number) => {
+      haptics.selection();
+      selectSlideAt(nextIdx);
+    },
+    [selectSlideAt],
+  );
 
   const scrollHandler = useAnimatedScrollHandler({
     onScroll: (event) => {
@@ -925,36 +1157,68 @@ export function SpotlightCarousel({
 
   const prefillReply = useCallback(
     (prompt: string) => {
-      if (scheduleLocked) return;
+      if (replyEditingLocked) return;
       draftTouchedRef.current = true;
       pendingReplyRef.current = null;
       setReplyError("");
       setDraft(prompt);
-      if (draftScope) saveDraft(client?.origin, draftScope, prompt);
+      if (draftScope) saveDraft(client?.localDataScope, draftScope, prompt);
       setQuickReplyOpen(false);
       setTimeout(() => replyInputRef.current?.focus(), 60);
     },
-    [client?.origin, draftScope, scheduleLocked],
+    [client?.localDataScope, draftScope, replyEditingLocked],
   );
 
   const handleSlideToggleSaved = useCallback(
     (target: NativeResultCard) => {
-      const nextSaved = !target.saved;
-      const matches = (c: NativeResultCard) =>
-        c.id === target.id ||
-        Boolean(target.messageId && c.messageId === target.messageId);
-      setHistorySlides((prev) =>
-        prev.map((c) => (matches(c) ? { ...c, saved: nextSaved } : c)),
-      );
-      void Promise.resolve(onToggleSaved(target)).catch((err) => {
-        // Preserve optimistic state on uncertain timeout/disconnect; only revert on definite rejection
-        if (isUncertainOutcomeError(err)) return;
-        setHistorySlides((prev) =>
-          prev.map((c) => (matches(c) ? { ...c, saved: !nextSaved } : c)),
+      if (client && !target.messageId) return;
+      const key = carouselCardKey(target);
+      const inFlight = savingCardKeysRef.current;
+      if (inFlight.has(key)) return;
+      inFlight.add(key);
+      const retry = savedEdits.get(key);
+      const retrying = retry?.uncertain === true;
+      const optimistic = {
+        revision: ++saveRevisionRef.current,
+        saved: retrying ? retry.saved : !target.saved,
+        pending: true,
+      };
+      setSavedEdits((prev) => new Map(prev).set(key, optimistic));
+      const settle = (saved: boolean, uncertain = false) => {
+        // Reads started before the mutation settled can still carry the old state.
+        const settled = {
+          revision: ++saveRevisionRef.current,
+          settledAt: performance.now(),
+          saved,
+          uncertain,
+        };
+        setSavedEdits((prev) =>
+          prev.get(key) === optimistic ? new Map(prev).set(key, settled) : prev,
         );
-      });
+        if (uncertain) setHistoryRetry(randomUuid());
+      };
+      void Promise.resolve()
+        .then(() => onToggleSaved({ ...target, saved: !optimistic.saved }))
+        .then((outcome) => {
+          if (outcome !== "stale") {
+            settle(optimistic.saved, outcome === "uncertain");
+            return;
+          }
+          setSavedEdits((prev) => {
+            if (prev.get(key) !== optimistic) return prev;
+            const next = new Map(prev);
+            next.delete(key);
+            return next;
+          });
+        })
+        .catch((err) => {
+          if (retrying || isUncertainOutcomeError(err))
+            settle(optimistic.saved, true);
+          else settle(target.saved);
+        })
+        .finally(() => inFlight.delete(key));
     },
-    [onToggleSaved],
+    [client, onToggleSaved, savedEdits],
   );
 
   const submitReply = useCallback(async () => {
@@ -962,11 +1226,13 @@ export function SpotlightCarousel({
     const { readyIds, readyNames, uploading, hasErrors, clearAttachments } =
       replyAttachments;
     if (
+      !draftLoaded ||
+      replyConfirmed ||
       (!trimmed && readyIds.length === 0) ||
       uploading ||
       hasErrors ||
       recordingAudio ||
-      sending ||
+      sendingRef.current ||
       scheduleBusy ||
       pendingSchedule ||
       !activeCard
@@ -981,6 +1247,7 @@ export function SpotlightCarousel({
     // Keep one durable idempotency key, reply target, and queue flag per unsent draft so
     // retries after uncertain failures never duplicate or mutate the run request semantics.
     if (!pendingReplyRef.current) {
+      if (retryModeLocked) return;
       pendingReplyRef.current = {
         idempotencyKey: randomUuid(),
         replyToMessageId: activeCard.messageId,
@@ -988,34 +1255,73 @@ export function SpotlightCarousel({
       };
     }
     const { idempotencyKey, replyToMessageId, queue } = pendingReplyRef.current;
+    const wasUncertain = retryModeLocked;
+    const attemptId = randomUuid();
     const targetCard =
       replyToMessageId === activeCard.messageId
         ? activeCard
         : { ...activeCard, messageId: replyToMessageId };
+    sendingRef.current = true;
     haptics.medium();
     setSending(true);
     setReplyError("");
+    const origin = client?.localDataScope;
+    let persisted = false;
     try {
+      if (origin && draftScope) {
+        await saveDraftAndFlush(origin, draftScope, finalPrompt, {
+          key: idempotencyKey,
+          replyToMessageId,
+          replyAttachmentIds: readyIds,
+          replyAttemptId: attemptId,
+          queue,
+        });
+        persisted = true;
+        pendingReplyRef.current = {
+          idempotencyKey,
+          replyToMessageId,
+          queue,
+          attemptId,
+        };
+      }
       await Promise.resolve(
         onSendReply(targetCard, finalPrompt, readyIds, idempotencyKey, queue),
       );
+      if (
+        origin &&
+        persisted &&
+        settlePendingReplyDraft(origin, draftScope, idempotencyKey, {
+          attemptId,
+        }) === "write-failed"
+      ) {
+        setReplyConfirmed(true);
+        setRetryModeLocked(true);
+        setReplyError("Reply sent. Could not clear its local recovery record.");
+        Keyboard.dismiss();
+        return;
+      }
       pendingReplyRef.current = null;
       setRetryModeLocked(false);
-      if (draftScope) clearDraft(client?.origin, draftScope);
+      if (!origin && draftScope) clearDraft(origin, draftScope);
       setDraft("");
       clearAttachments();
       Keyboard.dismiss();
     } catch (err) {
-      if (!isUncertainOutcomeError(err)) {
-        pendingReplyRef.current = null;
-        setRetryModeLocked(false);
-      } else {
+      if (wasUncertain || isUncertainOutcomeError(err)) {
         setRetryModeLocked(true);
-        if (draftScope) {
-          saveDraft(client?.origin, draftScope, draft, {
-            key: idempotencyKey,
-            queue,
-          });
+      } else {
+        const settleFailed =
+          origin &&
+          persisted &&
+          settlePendingReplyDraft(origin, draftScope, idempotencyKey, {
+            text: draft,
+            attemptId,
+          }) === "write-failed";
+        if (settleFailed) {
+          setRetryModeLocked(true);
+        } else {
+          pendingReplyRef.current = null;
+          setRetryModeLocked(false);
         }
       }
       haptics.warning();
@@ -1023,11 +1329,14 @@ export function SpotlightCarousel({
         err instanceof Error ? err.message : "Could not send reply. Try again.",
       );
     } finally {
-      setTimeout(() => setSending(false), client ? 250 : 1150);
+      sendingRef.current = false;
+      setSending(false);
     }
   }, [
     draft,
-    sending,
+    draftLoaded,
+    replyConfirmed,
+    retryModeLocked,
     recordingAudio,
     scheduleBusy,
     pendingSchedule,
@@ -1038,6 +1347,55 @@ export function SpotlightCarousel({
     canSteerActiveRun,
     deliveryMode,
     draftScope,
+  ]);
+
+  const discardPendingReply = useCallback(() => {
+    const request = pendingReplyRef.current;
+    const scope = client?.localDataScope;
+    if (!scope || !request || sendingRef.current) return;
+    Alert.alert(
+      replyConfirmed
+        ? "Clear reply recovery record?"
+        : "Discard pending reply?",
+      replyConfirmed
+        ? "Your reply was already sent."
+        : "The earlier send may already have gone through.",
+      [
+        { text: "Keep reply", style: "cancel" },
+        {
+          text: replyConfirmed ? "Clear" : "Discard",
+          style: "destructive",
+          onPress: () => {
+            if (request !== pendingReplyRef.current || sendingRef.current)
+              return;
+            if (
+              settlePendingReplyDraft(
+                scope,
+                draftScope,
+                request.idempotencyKey,
+                { attemptId: request.attemptId ?? null },
+              ) === "write-failed"
+            ) {
+              setReplyError(
+                "Could not clear the local recovery record. Try again.",
+              );
+              return;
+            }
+            setReplyConfirmed(false);
+            pendingReplyRef.current = null;
+            setRetryModeLocked(false);
+            setReplyError("");
+            setDraft("");
+            replyAttachments.clearAttachments();
+          },
+        },
+      ],
+    );
+  }, [
+    client?.localDataScope,
+    draftScope,
+    replyAttachments.clearAttachments,
+    replyConfirmed,
   ]);
 
   const submitScheduledReply = useCallback(
@@ -1076,7 +1434,7 @@ export function SpotlightCarousel({
       if (draftScope) {
         try {
           await saveDraftAndFlush(
-            client?.origin,
+            client?.localDataScope,
             draftScope,
             trimmed || finalPrompt,
             {
@@ -1118,7 +1476,7 @@ export function SpotlightCarousel({
         setScheduleOpen(false);
         pendingReplyRef.current = null;
         setRetryModeLocked(false);
-        if (draftScope) clearDraft(client?.origin, draftScope);
+        if (draftScope) clearDraft(client?.localDataScope, draftScope);
         setDraft("");
         clearAttachments();
         Keyboard.dismiss();
@@ -1144,8 +1502,9 @@ export function SpotlightCarousel({
         } else {
           setPendingSchedule(null);
           if (draftScope) {
-            if (draft.trim()) saveDraft(client?.origin, draftScope, draft);
-            else clearDraft(client?.origin, draftScope);
+            if (draft.trim())
+              saveDraft(client?.localDataScope, draftScope, draft);
+            else clearDraft(client?.localDataScope, draftScope);
           }
         }
         haptics.warning();
@@ -1160,7 +1519,7 @@ export function SpotlightCarousel({
     },
     [
       activeCard,
-      client?.origin,
+      client?.localDataScope,
       draft,
       draftScope,
       onScheduleReply,
@@ -1188,14 +1547,39 @@ export function SpotlightCarousel({
     openSearch();
   }, [openSearch]);
 
-  // Hold the move while the reply keyboard is open, so a reply being typed
-  // keeps its card; it runs as soon as the keyboard closes.
+  // Hold repinning while the composer is active.
   useEffect(() => {
-    if (!hasNewArrival || keyboardVisible) return;
+    const top = recentCards[0]?.id;
+    if (holdSelection || !top || lastTopCardRef.current === top) return;
+    lastTopCardRef.current = top;
+    if (pinnedIds.includes(top)) return;
     haptics.light();
-    setPinnedIds(cards.map((c) => c.id));
-    requestAnimationFrame(() => scrollToSlide(0, true));
-  }, [hasNewArrival, keyboardVisible, cards, scrollToSlide]);
+    const nextPinned = openingCarouselCardIds(
+      cards,
+      recentCards,
+      openingCard,
+      false,
+    );
+    const newest = cardsById.get(nextPinned[0]);
+    setPinnedIds(nextPinned);
+    setSelection({ index: 0, key: newest && carouselCardKey(newest) });
+    lastCenteredIdx.value = 0;
+    scrollRef.current?.scrollTo({ x: 0, y: 0, animated: true });
+  }, [
+    cards,
+    cardsById,
+    holdSelection,
+    lastCenteredIdx,
+    openingCard,
+    pinnedIds,
+    recentCards,
+  ]);
+
+  const actionSavedEdit =
+    actionSheetCard && savedEdits.get(carouselCardKey(actionSheetCard));
+  const actionSaved = actionSheetCard && displayedCardSaved(actionSheetCard);
+  const actionSavePending = Boolean(actionSavedEdit?.pending);
+  const actionSaveUncertain = Boolean(actionSavedEdit?.uncertain);
 
   if (!slides.length) return null;
 
@@ -1256,7 +1640,7 @@ export function SpotlightCarousel({
                   ref={searchInputRef}
                   value={searchQuery}
                   onChangeText={setSearchQuery}
-                  placeholder={`Search ${slides.length} ${slides.length === 1 ? "card" : "cards"} in thread…`}
+                  placeholder="Search loaded cards…"
                   placeholderTextColor={theme.muted}
                   style={[styles.searchInput, { color: theme.text }]}
                   returnKeyType="search"
@@ -1348,14 +1732,19 @@ export function SpotlightCarousel({
                       {historyNextCursor ? "+" : ""}
                     </Text>
                   </Pressable>
-                  {historyNextCursor && (
+                  {(historyNextCursor || historyUnavailable) && (
                     <Pressable
                       accessibilityRole="button"
-                      accessibilityLabel="Load earlier cards in thread"
+                      accessibilityLabel={
+                        historyUnavailable
+                          ? "Retry loading conversation history"
+                          : "Load earlier cards in thread"
+                      }
                       disabled={loadingMoreHistory}
                       onPress={() => {
                         haptics.light();
-                        void loadMoreHistory();
+                        if (historyUnavailable) setHistoryRetry(randomUuid());
+                        else void loadMoreHistory();
                       }}
                       style={({ pressed }) => [
                         styles.loadMorePill,
@@ -1374,7 +1763,11 @@ export function SpotlightCarousel({
                           { color: theme.brassText },
                         ]}
                       >
-                        {loadingMoreHistory ? "…" : "+Older"}
+                        {loadingMoreHistory
+                          ? "…"
+                          : historyUnavailable
+                            ? "Retry history"
+                            : "+Older"}
                       </Text>
                     </Pressable>
                   )}
@@ -1574,26 +1967,6 @@ export function SpotlightCarousel({
             </View>
           )}
 
-          {/* Simulated arrival / sending status pills */}
-          {!searchOpen && sending && !activeRun && (
-            <View style={styles.statusBannerWrap}>
-              <View
-                style={[
-                  styles.statusBannerPill,
-                  {
-                    backgroundColor: theme.pillBg,
-                    borderColor: theme.line,
-                  },
-                ]}
-              >
-                <Sparkles size={13} color={theme.brassText} />
-                <Text style={[styles.statusBannerText, { color: theme.muted }]}>
-                  @{agentName} is writing a new card…
-                </Text>
-              </View>
-            </View>
-          )}
-
           {!searchOpen && queuedRuns.length > 0 && (
             <View style={styles.statusBannerWrap}>
               <Pressable
@@ -1782,8 +2155,8 @@ export function SpotlightCarousel({
                       style={[styles.searchMetaText, { color: theme.muted }]}
                     >
                       {liveHits.length === 0
-                        ? "No matching cards"
-                        : `${liveHits.length} ${liveHits.length === 1 ? "match" : "matches"} in ${slides.length} cards`}
+                        ? "No matches in loaded cards"
+                        : `${liveHits.length} ${liveHits.length === 1 ? "match" : "matches"} in ${slides.length} loaded cards`}
                     </Text>
                     {liveHits.length > 0 && (
                       <Text
@@ -1887,9 +2260,24 @@ export function SpotlightCarousel({
                 </>
               ) : (
                 <Text style={[styles.searchEmptyHint, { color: theme.muted }]}>
-                  Try searching “Hetzner”, “residency”, “latency”, or “Fly.io”
-                  across all {slides.length} discrete cards.
+                  Search the {slides.length} loaded{" "}
+                  {slides.length === 1 ? "card" : "cards"}.
                 </Text>
+              )}
+              {historyNextCursor && (
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={loadingMoreHistory}
+                  onPress={() => void loadMoreHistory()}
+                >
+                  <Text
+                    style={[styles.searchEmptyHint, { color: theme.brassText }]}
+                  >
+                    {loadingMoreHistory
+                      ? "Loading older cards…"
+                      : "Load older cards to search them"}
+                  </Text>
+                </Pressable>
               )}
             </View>
           )}
@@ -1909,8 +2297,28 @@ export function SpotlightCarousel({
             />
           )}
 
+          {sending && (
+            <View style={styles.replyFloatWrap}>
+              <View
+                accessibilityLiveRegion="polite"
+                style={[
+                  styles.replyPill,
+                  styles.pendingReply,
+                  { backgroundColor: theme.pillBg, borderColor: theme.line },
+                ]}
+              >
+                <ActivityIndicator size="small" color={theme.brassText} />
+                <Text style={[styles.statusBannerText, { color: theme.text }]}>
+                  Sending reply…
+                </Text>
+              </View>
+            </View>
+          )}
+
           {/* Detached Floating Reply Pill along the bottom */}
-          <View style={styles.replyFloatWrap}>
+          <View
+            style={[styles.replyFloatWrap, sending && styles.hiddenComposer]}
+          >
             {canSteerActiveRun && (
               <View style={styles.deliveryModeRow}>
                 <Pressable
@@ -1993,10 +2401,24 @@ export function SpotlightCarousel({
                 {replyError}
               </Text>
             ) : null}
+            {retryModeLocked && !sending && (
+              <Pressable
+                accessibilityRole="button"
+                onPress={discardPendingReply}
+              >
+                <Text
+                  style={[styles.replyErrorText, { color: theme.brassText }]}
+                >
+                  {replyConfirmed
+                    ? "Clear recovery record"
+                    : "Discard pending reply"}
+                </Text>
+              </Pressable>
+            )}
             <AttachmentChipStrip
               attachments={replyAttachments.attachments}
               theme={theme}
-              locked={scheduleLocked}
+              locked={replyEditingLocked}
               onRemove={replyAttachments.removeAttachment}
               onRetry={(id) => void replyAttachments.retryAttachment(id)}
             />
@@ -2011,12 +2433,7 @@ export function SpotlightCarousel({
             >
               <Pressable
                 accessibilityLabel="Attach photo or file"
-                disabled={
-                  !replyAttachments.canAddMore ||
-                  sending ||
-                  scheduleBusy ||
-                  scheduleLocked
-                }
+                disabled={!replyAttachments.canAddMore || replyEditingLocked}
                 onPress={() => {
                   haptics.light();
                   Keyboard.dismiss();
@@ -2024,10 +2441,7 @@ export function SpotlightCarousel({
                 }}
                 style={[
                   styles.replyQuickBtn,
-                  (!replyAttachments.canAddMore ||
-                    sending ||
-                    scheduleBusy ||
-                    scheduleLocked) && {
+                  (!replyAttachments.canAddMore || replyEditingLocked) && {
                     opacity: 0.4,
                   },
                 ]}
@@ -2043,12 +2457,7 @@ export function SpotlightCarousel({
               </Pressable>
               <VoiceRecorderButton
                 theme={theme}
-                disabled={
-                  !replyAttachments.canAddMore ||
-                  sending ||
-                  scheduleBusy ||
-                  scheduleLocked
-                }
+                disabled={!replyAttachments.canAddMore || replyEditingLocked}
                 onRecordingChange={setRecordingAudio}
                 onRecorded={(file) => {
                   setReplyError("");
@@ -2058,14 +2467,14 @@ export function SpotlightCarousel({
               />
               <Pressable
                 accessibilityLabel="Quick replies and snippets"
-                disabled={scheduleLocked}
+                disabled={replyEditingLocked}
                 onPress={() => {
                   haptics.light();
                   setQuickReplyOpen(true);
                 }}
                 style={[
                   styles.replyQuickBtn,
-                  scheduleLocked && { opacity: 0.4 },
+                  replyEditingLocked && { opacity: 0.4 },
                 ]}
               >
                 <Zap size={16} color={theme.brassText} />
@@ -2073,13 +2482,14 @@ export function SpotlightCarousel({
               <TextInput
                 ref={replyInputRef}
                 value={draft}
-                editable={!sending && !scheduleBusy && !scheduleLocked}
+                editable={!replyEditingLocked}
                 onChangeText={(next) => {
                   draftTouchedRef.current = true;
                   pendingReplyRef.current = null;
                   if (replyError) setReplyError("");
                   setDraft(next);
-                  if (draftScope) saveDraft(client?.origin, draftScope, next);
+                  if (draftScope)
+                    saveDraft(client?.localDataScope, draftScope, next);
                 }}
                 placeholder={`Reply to @${agentName}…`}
                 placeholderTextColor={theme.muted}
@@ -2142,6 +2552,8 @@ export function SpotlightCarousel({
               <Pressable
                 accessibilityLabel="Send reply"
                 disabled={
+                  !draftLoaded ||
+                  replyConfirmed ||
                   (!draft.trim() && replyAttachments.readyIds.length === 0) ||
                   replyAttachments.uploading ||
                   replyAttachments.hasErrors ||
@@ -2156,6 +2568,8 @@ export function SpotlightCarousel({
                   {
                     backgroundColor: theme.brass,
                     opacity:
+                      !draftLoaded ||
+                      replyConfirmed ||
                       (!draft.trim() &&
                         replyAttachments.readyIds.length === 0) ||
                       replyAttachments.uploading ||
@@ -2208,8 +2622,9 @@ export function SpotlightCarousel({
           setScheduleError("");
           setScheduleOpen(false);
           if (draftScope) {
-            if (draft.trim()) saveDraft(client?.origin, draftScope, draft);
-            else clearDraft(client?.origin, draftScope);
+            if (draft.trim())
+              saveDraft(client?.localDataScope, draftScope, draft);
+            else clearDraft(client?.localDataScope, draftScope);
           }
         }}
       />
@@ -2476,8 +2891,12 @@ export function SpotlightCarousel({
               </Pressable>
 
               <Pressable
+                disabled={actionSavePending}
                 onPress={() => {
-                  const target = actionSheetCard;
+                  const target = {
+                    ...actionSheetCard,
+                    saved: Boolean(actionSaved),
+                  };
                   setActionSheetCard(null);
                   haptics.medium();
                   handleSlideToggleSaved(target);
@@ -2486,13 +2905,11 @@ export function SpotlightCarousel({
                   styles.quickOption,
                   {
                     backgroundColor: pressed ? theme.attention : theme.soft,
-                    borderColor: actionSheetCard.saved
-                      ? theme.attentionLine
-                      : theme.line,
+                    borderColor: actionSaved ? theme.attentionLine : theme.line,
                   },
                 ]}
               >
-                {actionSheetCard.saved ? (
+                {actionSaved ? (
                   <BookmarkCheck size={18} color={theme.brassText} />
                 ) : (
                   <Bookmark size={18} color={theme.brassText} />
@@ -2501,14 +2918,24 @@ export function SpotlightCarousel({
                   <Text
                     style={[styles.quickOptionLabel, { color: theme.text }]}
                   >
-                    {actionSheetCard.saved ? "Remove from Saved" : "Save card"}
+                    {actionSavePending
+                      ? "Updating Saved…"
+                      : actionSaveUncertain
+                        ? actionSaved
+                          ? "Retry saving card"
+                          : "Retry removing card"
+                        : actionSaved
+                          ? "Remove from Saved"
+                          : "Save card"}
                   </Text>
                   <Text
                     style={[styles.quickOptionHint, { color: theme.muted }]}
                   >
-                    {actionSheetCard.saved
-                      ? "Unbookmark this answer"
-                      : "Keep this answer in your Saved library"}
+                    {actionSaveUncertain
+                      ? "The previous update is unconfirmed"
+                      : actionSaved
+                        ? "Unbookmark this answer"
+                        : "Keep this answer in your Saved library"}
                   </Text>
                 </View>
               </Pressable>
@@ -2834,11 +3261,6 @@ const FloatingCarouselCard = React.memo(function FloatingCarouselCard({
   const pullArmedRef = useRef(false);
   const dragStartAtTopRef = useRef(false);
   const lastPullYRef = useRef(0);
-  // Render full Markdown only on the active slide; peeking neighbors render a fast top-half slice
-  const renderedBody = useMemo(
-    () => (isActive ? slide.body : slide.body.slice(0, 1200)),
-    [isActive, slide.body],
-  );
 
   const animatedCardStyle = useAnimatedStyle(() => {
     const inputRange = [
@@ -3067,7 +3489,7 @@ const FloatingCarouselCard = React.memo(function FloatingCarouselCard({
           )}
 
           <RichContent
-            content={renderedBody}
+            content={isActive ? slide.body : slide.body.slice(0, 1200)}
             theme={theme}
             workspaceOrigin={client?.origin}
             onReplyButton={onReplyButton}
@@ -3806,6 +4228,12 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     paddingHorizontal: 8,
     paddingBottom: 6,
+  },
+  hiddenComposer: { display: "none" },
+  pendingReply: {
+    justifyContent: "center",
+    alignItems: "center",
+    minHeight: 46,
   },
   replyPill: {
     flexDirection: "row",

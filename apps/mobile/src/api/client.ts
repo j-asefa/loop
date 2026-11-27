@@ -1,9 +1,13 @@
+import type { AgentModelSelection } from "../models";
 import {
   parseArtifactFileMetadata,
   parseContentDispositionFilename,
   type PublishedFileItem,
 } from "./files";
-import { assertSameOriginResponse } from "./pairing-url";
+import {
+  assertSameOriginResponse,
+  validatedWorkspaceIdentity,
+} from "./pairing-url";
 import type {
   ApiAgent,
   ApiApproval,
@@ -106,13 +110,40 @@ async function fetchWithTimeout(
   }
 }
 
+type CarouselPageSnapshot = {
+  page: ApiConversationPage;
+  startedAt: number;
+  messageObservedAt?: ReadonlyMap<string, number>;
+};
+
 /**
  * Typed HTTP client talking directly to a paired Loop companion server over
- * Loop's native cookie + Origin + X-Loop-CSRF protocol (zero server changes).
+ * Loop's native cookie + Origin + X-Loop-CSRF protocol.
  */
 export class LoopClient {
   private session: PairedSession;
   private onUnauthorized?: () => void;
+  private readonly carouselPages = new Map<
+    string,
+    {
+      snapshot: CarouselPageSnapshot;
+      fetchedAt: number;
+    }
+  >();
+  private readonly carouselRequests = new Map<
+    string,
+    { version: string; request: Promise<CarouselPageSnapshot> }
+  >();
+
+  private readonly bookmarkRequests = new Map<
+    string,
+    Promise<{ ok: boolean; saved: boolean }>
+  >();
+
+  private readonly carouselSaveRequests = new Map<
+    string,
+    Set<Promise<unknown>>
+  >();
 
   constructor(session: PairedSession, onUnauthorized?: () => void) {
     this.session = session;
@@ -121,6 +152,10 @@ export class LoopClient {
 
   get origin(): string {
     return this.session.origin;
+  }
+
+  get localDataScope(): string {
+    return this.session.localDataScope ?? this.session.origin;
   }
 
   get currentSession(): PairedSession {
@@ -213,12 +248,36 @@ export class LoopClient {
     return parsed as T;
   }
 
-  async refreshSession(): Promise<{ csrf: string }> {
-    const data = await this.request<{ csrf: string }>("GET", "/session");
-    if (data.csrf) {
-      this.session = { ...this.session, csrf: data.csrf };
+  async refreshSession(): Promise<{
+    csrf: string;
+    workspaceIdentity?: string;
+  }> {
+    const data = await this.request<{
+      csrf: string;
+      workspaceIdentity?: string;
+    }>("GET", "/session");
+    const workspaceIdentity = validatedWorkspaceIdentity(
+      data.workspaceIdentity,
+    );
+    if (
+      this.session.workspaceIdentity &&
+      workspaceIdentity &&
+      this.session.workspaceIdentity !== workspaceIdentity
+    ) {
+      this.onUnauthorized?.();
+      throw new LoopApiError(
+        401,
+        "Workspace identity changed. Pair this phone again.",
+      );
     }
-    return data;
+    if (data.csrf) {
+      this.session = {
+        ...this.session,
+        csrf: data.csrf,
+        workspaceIdentity: workspaceIdentity ?? this.session.workspaceIdentity,
+      };
+    }
+    return { ...data, workspaceIdentity };
   }
 
   bootstrap(): Promise<ApiBootstrap> {
@@ -360,6 +419,63 @@ export class LoopClient {
     );
   }
 
+  carouselPage(id: string, before?: string): Promise<ApiConversationPage> {
+    const query = new URLSearchParams({ view: "carousel" });
+    if (before) query.set("before", before);
+    return this.request<ApiConversationPage>(
+      "GET",
+      `/api/conversations/${encodeURIComponent(id)}?${query}`,
+    );
+  }
+
+  // A short-lived snapshot for instant reopen. Only this paired client can
+  // see it, and the carousel revalidates it on every open.
+  cachedCarouselPage(id: string): CarouselPageSnapshot | undefined {
+    const cached = this.carouselPages.get(id);
+    if (!cached) return;
+    if (Date.now() - cached.fetchedAt > 60_000) return;
+    return cached.snapshot;
+  }
+
+  refreshCarouselPage(id: string, version = ""): Promise<CarouselPageSnapshot> {
+    const saves = this.carouselSaveRequests.get(id);
+    if (saves?.size) {
+      return Promise.allSettled(saves).then(() =>
+        this.refreshCarouselPage(id, version),
+      );
+    }
+    const pending = this.carouselRequests.get(id);
+    if (pending?.version === version) return pending.request;
+    const startedAt = performance.now();
+    const request = this.carouselPage(id)
+      .then((page) => {
+        const snapshot = { page, startedAt };
+        if (this.carouselRequests.get(id)?.request !== request) return snapshot;
+        this.carouselPages.delete(id);
+        // Bound retained transcript size as well as the number of cached pages.
+        if (
+          page.messages.reduce(
+            (length, message) => length + message.content.length,
+            0,
+          ) <= 300_000
+        ) {
+          this.carouselPages.set(id, { snapshot, fetchedAt: Date.now() });
+          if (this.carouselPages.size > 12) {
+            const oldest = this.carouselPages.keys().next().value;
+            if (oldest !== undefined) this.carouselPages.delete(oldest);
+          }
+        }
+        return snapshot;
+      })
+      .finally(() => {
+        if (this.carouselRequests.get(id)?.request === request) {
+          this.carouselRequests.delete(id);
+        }
+      });
+    this.carouselRequests.set(id, { version, request });
+    return request;
+  }
+
   messageDetail(id: string): Promise<ApiMessage> {
     return this.request<ApiMessage>(
       "GET",
@@ -460,6 +576,7 @@ export class LoopClient {
     name: string;
     connectionId: string;
     model: string;
+    effort?: string | null;
     initialPrompt: string;
     attachmentIds?: string[];
     folderId?: string | null;
@@ -474,12 +591,24 @@ export class LoopClient {
         name: input.name,
         connectionId: input.connectionId,
         model: input.model,
+        ...(input.effort != null ? { effort: input.effort } : {}),
         initialPrompt: input.initialPrompt,
         attachmentIds: input.attachmentIds ?? [],
         ...(input.folderId ? { folderId: input.folderId } : {}),
         idempotencyKey: input.idempotencyKey,
       },
       RUN_REQUEST_TIMEOUT_MS,
+    );
+  }
+
+  updateAgentModel(
+    agentId: string,
+    selection: AgentModelSelection,
+  ): Promise<ApiAgent> {
+    return this.request(
+      "PATCH",
+      `/api/agents/${encodeURIComponent(agentId)}`,
+      selection,
     );
   }
 
@@ -579,15 +708,66 @@ export class LoopClient {
     );
   }
 
-  setSaved(
+  async setSaved(
     messageId: string,
     saved: boolean,
+    conversationId?: string,
   ): Promise<{ ok: boolean; saved: boolean }> {
-    return this.request(
-      saved ? "POST" : "DELETE",
-      `/api/messages/${encodeURIComponent(messageId)}/saved`,
-      {},
-    );
+    const dispatch = () =>
+      this.request<{ ok: boolean; saved: boolean }>(
+        saved ? "POST" : "DELETE",
+        `/api/messages/${encodeURIComponent(messageId)}/saved`,
+        {},
+      );
+    const previous = this.bookmarkRequests.get(messageId);
+    const request = previous ? previous.then(dispatch, dispatch) : dispatch();
+    this.bookmarkRequests.set(messageId, request);
+    const saves = conversationId
+      ? (this.carouselSaveRequests.get(conversationId) ??
+        new Set<Promise<unknown>>())
+      : undefined;
+    if (conversationId && saves) {
+      saves.add(request);
+      this.carouselSaveRequests.set(conversationId, saves);
+    }
+    try {
+      const result = await request;
+      if (conversationId) {
+        const cached = this.carouselPages.get(conversationId);
+        if (cached) {
+          const ids = new Set(cached.snapshot.page.saved);
+          if (result.saved) ids.add(messageId);
+          else ids.delete(messageId);
+          this.carouselPages.set(conversationId, {
+            ...cached,
+            snapshot: {
+              ...cached.snapshot,
+              page: { ...cached.snapshot.page, saved: [...ids] },
+              messageObservedAt: new Map(cached.snapshot.messageObservedAt).set(
+                messageId,
+                performance.now(),
+              ),
+            },
+          });
+        }
+        // A GET already in flight may still contain the pre-save state.
+        this.carouselRequests.delete(conversationId);
+      }
+      return result;
+    } catch (error) {
+      if (conversationId && isUncertainOutcomeError(error)) {
+        this.carouselPages.delete(conversationId);
+        this.carouselRequests.delete(conversationId);
+      }
+      throw error;
+    } finally {
+      if (this.bookmarkRequests.get(messageId) === request)
+        this.bookmarkRequests.delete(messageId);
+      if (conversationId && saves) {
+        saves.delete(request);
+        if (!saves.size) this.carouselSaveRequests.delete(conversationId);
+      }
+    }
   }
 
   createReminder(input: {

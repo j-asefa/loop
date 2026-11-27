@@ -812,3 +812,279 @@ it("projects every approval lifecycle result from the production writers without
     result: "simulated rejection",
   });
 });
+
+it("pages the carousel by three answer cards with the matching prompts", async () => {
+  const { run } = fixture();
+  const conversationId = run.conversation_id!;
+  const message = (
+    role: "user" | "assistant",
+    content: string,
+    order: number,
+    metadata = "{}",
+  ) => {
+    const messageId = id();
+    seedMessage(db, {
+      id: messageId,
+      owner_id: owner,
+      conversation_id: conversationId,
+      role,
+      content,
+      created_at: order,
+      metadata,
+    });
+    return messageId;
+  };
+  const answers: string[] = [];
+  const prompts: string[] = [];
+  for (let n = 1; n <= 7; n++) {
+    prompts.push(message("user", `Prompt ${n}`, n * 4));
+    message("assistant", "\n\t \u00a0\u202f", n * 4 + 1);
+    message("assistant", `Progress ${n}`, n * 4 + 2, '{"progress":true}');
+    answers.push(message("assistant", `Answer ${n}`, n * 4 + 3));
+  }
+  message("user", "Still waiting for an answer", 50);
+  const path = `/conversations/${conversationId}`;
+  const ordinary = workspaceApi.conversation.response.parse(
+    (await request(path)).data,
+  );
+  expect(
+    ordinary.messages.filter(({ content }) => content.startsWith("Answer ")),
+  ).toHaveLength(7);
+  expect(
+    ordinary.messages.some(({ content }) => content === "Progress 7"),
+  ).toBe(true);
+  let before: string | null = null;
+  for (const expected of [[5, 6, 7], [2, 3, 4], [1]]) {
+    const query = new URLSearchParams({ view: "carousel" });
+    if (before) query.set("before", before);
+    const response = await request(`${path}?${query}`);
+    expect(response.status).toBe(200);
+    const page = workspaceApi.conversation.response.parse(response.data);
+    expect(page.messages.map(({ content }) => content)).toEqual(
+      expected.flatMap((n) => [`Prompt ${n}`, `Answer ${n}`]),
+    );
+    before = page.next;
+    expect(Boolean(before)).toBe(expected.length === 3);
+  }
+  expect(
+    (
+      await request(
+        `${path}/position`,
+        { positionMessageId: prompts[1] },
+        "PUT",
+      )
+    ).status,
+  ).toBe(200);
+  const unresumed = await request(`${path}?view=carousel&resume=1`);
+  expect(unresumed.data.resumed).toBe(false);
+  expect(unresumed.data.messages.at(-1).id).toBe(answers[6]);
+  expect(
+    (
+      await request(
+        `${path}/position`,
+        { positionMessageId: answers[1] },
+        "PUT",
+      )
+    ).status,
+  ).toBe(200);
+  const resumed = await request(`${path}?view=carousel&resume=1`);
+  expect(resumed.data.resumed).toBe(true);
+  expect(resumed.data.messages.at(-1).id).toBe(answers[1]);
+  const anchored = await request(`${path}?view=carousel&message=${answers[3]}`);
+  expect(anchored.data.messages.at(-1).id).toBe(answers[3]);
+  expect(
+    (await request(`${path}?view=carousel&message=${prompts[3]}`)).status,
+  ).toBe(404);
+
+  const foreign = fixture("another-owner");
+  expect(
+    (
+      await request(
+        `/conversations/${foreign.run.conversation_id}?view=carousel`,
+      )
+    ).status,
+  ).toBe(404);
+});
+
+it("updates an agent's model and advertised effort through the workspace route", async () => {
+  const { agent } = fixture();
+  const connection = id();
+  seedConnection(db, {
+    id: connection,
+    owner_id: owner,
+    secret: seal("fixture-only-key", owner),
+    models: JSON.stringify([
+      { id: "new-model", name: "New model", effortLevels: [{ value: "high" }] },
+    ]),
+    created_at: now(),
+  });
+  const path = `/agents/${agent.id}`;
+  const selection = {
+    connectionId: connection,
+    model: "new-model",
+    effort: "high",
+  };
+  const created = await request("/agents", {
+    ...selection,
+    name: "route-" + id().slice(0, 8),
+    idempotencyKey: id(),
+  });
+  expect(created.status).toBe(201);
+  expect(workspaceApi.agentCreate.response.parse(created.data).effort).toBe(
+    "high",
+  );
+
+  const updated = await request(path, selection, "PATCH");
+  expect(updated.status).toBe(200);
+  expect(workspaceApi.agentUpdate.response.parse(updated.data)).toMatchObject({
+    connection_id: connection,
+    model: "new-model",
+    effort: "high",
+  });
+  expect(
+    (await request(path, { ...selection, effort: "medium" }, "PATCH")).status,
+  ).toBe(400);
+  expect(
+    (await request(path, { ...selection, effort: null }, "PATCH")).data.effort,
+  ).toBeNull();
+});
+
+it("uses and saves the sealed text of a published steering reply in carousel history", async () => {
+  const { run } = fixture();
+  const conversationId = run.conversation_id!;
+  const runSteering = await import("../src/server/sql/run-steering.js");
+  const steeringReplies = await import("../src/server/sql/steering-replies.js");
+  const messages = await import("../src/server/sql/messages.js");
+  const { publishSteeringReplyResult } =
+    await import("../src/server/result-publication.js");
+  const userMessage = id();
+  const steeringId = id();
+  const reply = id();
+  seedMessage(db, {
+    id: userMessage,
+    owner_id: owner,
+    run_id: run.id,
+    conversation_id: conversationId,
+    role: "user",
+    content: "Which option?",
+    metadata: JSON.stringify({ steeringId }),
+    created_at: now(),
+  });
+  seedMessage(db, {
+    id: id(),
+    owner_id: owner,
+    run_id: run.id,
+    conversation_id: conversationId,
+    role: "user",
+    content: "An unrelated later prompt",
+    metadata: JSON.stringify({ steeringId: id() }),
+    created_at: now(),
+  });
+  runSteering.insert(
+    db,
+    steeringId,
+    owner,
+    run.id,
+    userMessage,
+    id(),
+    "{}",
+    now(),
+  );
+  const metadata = JSON.stringify({
+    progress: true,
+    reply: { to: userMessage, published: true },
+  });
+  seedMessage(db, {
+    id: reply,
+    owner_id: owner,
+    run_id: run.id,
+    conversation_id: conversationId,
+    role: "assistant",
+    content: "The sealed reply",
+    metadata,
+    created_at: now() + 1,
+  });
+  steeringReplies.insert(db, reply, owner, steeringId, now());
+  publishSteeringReplyResult(
+    { ownerId: owner, messageId: reply, steeringId },
+    db,
+  );
+  messages.updateContentAndMetadata(db, "Edited transcript", metadata, reply);
+
+  const unsealed = id();
+  seedMessage(db, {
+    id: unsealed,
+    owner_id: owner,
+    run_id: run.id,
+    conversation_id: conversationId,
+    role: "assistant",
+    content: "Unsealed steering reply",
+    metadata,
+    created_at: now() + 2,
+  });
+  steeringReplies.insert(db, unsealed, owner, steeringId, now());
+  const blank = id();
+  seedMessage(db, {
+    id: blank,
+    owner_id: owner,
+    run_id: run.id,
+    conversation_id: conversationId,
+    role: "assistant",
+    content: "\n\t",
+    metadata,
+    created_at: now() + 3,
+  });
+  steeringReplies.insert(db, blank, owner, steeringId, now());
+  publishSteeringReplyResult(
+    { ownerId: owner, messageId: blank, steeringId },
+    db,
+  );
+
+  const path = `/conversations/${conversationId}`;
+  const regular = workspaceApi.conversation.response.parse(
+    (await request(path)).data,
+  );
+  const carousel = workspaceApi.conversation.response.parse(
+    (await request(`${path}?view=carousel`)).data,
+  );
+  expect(regular.messages.find(({ id }) => id === reply)?.content).toBe(
+    "Edited transcript",
+  );
+  expect(carousel.messages.map(({ id }) => id)).not.toContain(unsealed);
+  expect(carousel.messages.map(({ id }) => id)).not.toContain(blank);
+  expect(carousel.messages.find(({ id }) => id === reply)).toMatchObject({
+    content: "The sealed reply",
+    carousel_prompt: "Which option?",
+  });
+  const savedPath = `/messages/${reply}/saved`;
+  expect((await request(savedPath, {})).data).toEqual({
+    ok: true,
+    saved: true,
+  });
+  expect((await request(`${path}?view=carousel`)).data.saved).toContain(reply);
+  expect((await request("/saved")).data.items).toContainEqual(
+    expect.objectContaining({
+      message: expect.objectContaining({
+        message_id: reply,
+        content: "The sealed reply",
+      }),
+    }),
+  );
+  expect((await request(savedPath, undefined, "DELETE")).data).toEqual({
+    ok: true,
+    saved: false,
+  });
+
+  const progress = id();
+  seedMessage(db, {
+    id: progress,
+    owner_id: owner,
+    run_id: run.id,
+    conversation_id: conversationId,
+    role: "assistant",
+    content: "Work in progress",
+    metadata: '{"progress":true}',
+    created_at: now(),
+  });
+  expect((await request(`/messages/${progress}/saved`, {})).status).toBe(400);
+});

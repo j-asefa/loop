@@ -50,7 +50,7 @@ export function saveWorkspaceCache(
   cacheEpoch.set(bucket, (cacheEpoch.get(bucket) ?? 0) + 1);
   try {
     const file = cacheFileForBucket(bucket);
-    file.write(serializeWorkspaceCache(snapshot));
+    file.writeSync(serializeWorkspaceCache(snapshot));
   } catch {
     // Best-effort offline cache write; never disrupt live workspace sync.
   }
@@ -65,6 +65,6 @@ export function clearWorkspaceCache(origin: string | null | undefined): void {
     const file = cacheFileForBucket(bucket);
     if (file.exists) file.delete();
   } catch {
-    // ignore
+    // Best-effort cleanup for this session.
   }
 }

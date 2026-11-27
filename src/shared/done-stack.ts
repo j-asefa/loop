@@ -1,3 +1,5 @@
+export const CAROUSEL_PAGE_CARDS = 3;
+
 export type StackableCardRow<TItem> = {
   key: string;
   item: TItem;

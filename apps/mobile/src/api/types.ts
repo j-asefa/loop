@@ -5,6 +5,8 @@ export type PairedSession = {
   deviceId?: string;
   deviceName: string;
   pairedAt: number;
+  localDataScope?: string;
+  workspaceIdentity?: string;
 };
 
 export type ApiAgent = {
@@ -177,6 +179,7 @@ export type ApiMessage = {
   created_at: number;
   run_state?: string | null;
   run_error?: string | null;
+  carousel_prompt?: string;
 };
 
 export type ApiConversationPage = {

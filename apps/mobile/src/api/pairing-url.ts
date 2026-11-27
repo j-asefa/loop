@@ -1,3 +1,74 @@
+import type { PairedSession } from "./types";
+
+export function validatedWorkspaceIdentity(value: unknown): string | undefined {
+  return typeof value === "string" && /^[a-f0-9]{64}$/.test(value)
+    ? value
+    : undefined;
+}
+
+export function workspaceRecoveryKey(origin: string, identity: unknown) {
+  const validated = validatedWorkspaceIdentity(identity);
+  if (!validated) return undefined;
+  const originKey = Array.from(origin, (char) =>
+    char.charCodeAt(0).toString(16),
+  ).join("-");
+  return `loop.recovery-scope.${validated}.${originKey}`;
+}
+
+export function isSamePairedDevice(
+  previous: PairedSession | null,
+  next: PairedSession,
+): boolean {
+  if (!previous || previous.origin !== next.origin) return false;
+  if (
+    previous.workspaceIdentity &&
+    next.workspaceIdentity &&
+    previous.workspaceIdentity !== next.workspaceIdentity
+  )
+    return false;
+  if (previous.deviceId && next.deviceId)
+    return previous.deviceId === next.deviceId;
+  return Boolean(previous.cookie && previous.cookie === next.cookie);
+}
+
+export function preserveProbedCredentials(
+  previous: PairedSession | null,
+  next: PairedSession,
+): PairedSession {
+  if (!previous || !isSamePairedDevice(previous, next)) return next;
+  return {
+    ...next,
+    cookie: next.cookie || previous.cookie,
+    deviceId: next.deviceId || previous.deviceId,
+    pairedAt: previous.pairedAt,
+    workspaceIdentity: next.workspaceIdentity ?? previous.workspaceIdentity,
+    localDataScope: previous.localDataScope,
+  };
+}
+
+// Sessions saved by earlier builds keep their origin-scoped files. Newly
+// paired devices reuse a namespace only when they share a workspace identity.
+export function localDataScope(
+  session: PairedSession | null | undefined,
+): string | undefined {
+  return session?.localDataScope ?? session?.origin;
+}
+
+export function assignPairingStorage(
+  previous: PairedSession | null,
+  next: PairedSession,
+  nonce: string,
+  recoveredScope?: string,
+): PairedSession {
+  if (isSamePairedDevice(previous, next))
+    return preserveProbedCredentials(previous, next);
+  const workspaceIdentity = validatedWorkspaceIdentity(next.workspaceIdentity);
+  const scope = workspaceIdentity
+    ? (recoveredScope ?? `${next.origin}/workspace/${workspaceIdentity}`)
+    : `${next.origin}/paired-device/${encodeURIComponent(next.deviceId || nonce)}`;
+  return { ...next, workspaceIdentity, localDataScope: scope };
+}
+
 export type ParsedPairingLink = {
   origin: string;
   secret: string;

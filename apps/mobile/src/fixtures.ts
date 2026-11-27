@@ -16,6 +16,7 @@ export type NativeResultCard = {
   bodyTruncated?: boolean;
   createdAt: number;
   saved: boolean;
+  savedObservedAt?: number;
   unread: boolean;
   doneUnread?: boolean;
   replyUnread?: boolean;
@@ -204,6 +205,156 @@ export function mergeCarouselCards(
     const bLive = liveIds.has(b.id) ? 1 : 0;
     return bLive - aLive;
   });
+}
+
+export function carouselCardKey(card: NativeResultCard): string {
+  return card.messageId || card.id;
+}
+
+export function resolveCarouselSelection(
+  cards: NativeResultCard[],
+  selection: { index: number; key?: string },
+): number {
+  const current = cards[selection.index];
+  if (current && carouselCardKey(current) === selection.key)
+    return selection.index;
+  const matching = cards.findIndex(
+    (card) => carouselCardKey(card) === selection.key,
+  );
+  return matching >= 0
+    ? matching
+    : Math.max(0, Math.min(selection.index, cards.length - 1));
+}
+
+export type CarouselSaveEdit = {
+  saved: boolean;
+  revision: number;
+  settledAt?: number;
+  pending?: boolean;
+  uncertain?: boolean;
+};
+
+export function reconcileCarouselSaves(
+  edits: Map<string, CarouselSaveEdit>,
+  savedIds: string[],
+  requestRevision: number,
+): Map<string, CarouselSaveEdit> {
+  const saved = new Set(savedIds);
+  let next = edits;
+  for (const [key, edit] of edits) {
+    if (edit.pending || edit.revision > requestRevision) continue;
+    const serverSaved = saved.has(key);
+    // A read can overtake the write that timed out. It confirms an uncertain
+    // change only after it actually observes the requested bookmark state.
+    const observedDesiredState = edit.saved === serverSaved;
+    if (edit.uncertain ? !observedDesiredState : observedDesiredState) continue;
+    if (next === edits) next = new Map(edits);
+    next.set(key, { ...edit, saved: serverSaved, uncertain: undefined });
+  }
+  return next;
+}
+
+export type CarouselBookmarkSnapshot = {
+  ids: Set<string>;
+  startedAt: number;
+  messageObservedAt?: ReadonlyMap<string, number>;
+};
+
+export function resolveCarouselSaved(
+  card: NativeResultCard,
+  feedCard: NativeResultCard | undefined,
+  history: CarouselBookmarkSnapshot | undefined,
+  edit: CarouselSaveEdit | undefined,
+): boolean {
+  const feedObservedAt = feedCard?.savedObservedAt ?? -Infinity;
+  const historyObservedAt =
+    card.messageId && history
+      ? (history.messageObservedAt?.get(card.messageId) ?? history.startedAt)
+      : -Infinity;
+  if (
+    edit &&
+    (edit.pending ||
+      edit.uncertain ||
+      (edit.settledAt ?? Infinity) >=
+        Math.max(feedObservedAt, historyObservedAt))
+  ) {
+    return edit.saved;
+  }
+  if (history && card.messageId && historyObservedAt >= feedObservedAt) {
+    return history.ids.has(card.messageId);
+  }
+  return feedCard?.saved ?? card.saved;
+}
+
+export function openingCarouselCardIds(
+  cards: NativeResultCard[],
+  recentCards: NativeResultCard[],
+  openingCard?: NativeResultCard,
+  prioritizeOpening = true,
+): string[] {
+  const selected =
+    openingCard &&
+    (cards.find((card) => card.id === openingCard.id) ??
+      cards.find(
+        (card) =>
+          openingCard.messageId && card.messageId === openingCard.messageId,
+      ));
+  const ids = recentCards.map((card) => card.id);
+  if (!selected) return ids;
+  if (prioritizeOpening) {
+    return [selected.id, ...ids.filter((id) => id !== selected.id)].slice(
+      0,
+      ids.length,
+    );
+  }
+  return ids.includes(selected.id) ? ids : [...ids.slice(0, -1), selected.id];
+}
+
+export type CarouselHistoryPage = {
+  cards: NativeResultCard[];
+  next: string | null;
+};
+
+export function keepsCarouselReplyTarget(
+  page: CarouselHistoryPage,
+  pinned: NativeResultCard[],
+  protect: NativeResultCard | undefined,
+  showingFallback: boolean,
+): boolean {
+  if (!protect || !page.next || !showingFallback) return true;
+  const key = carouselCardKey(protect);
+  return [...pinned, ...page.cards].some(
+    (card) => carouselCardKey(card) === key,
+  );
+}
+
+export function mergeCarouselHistoryPage(
+  current: CarouselHistoryPage,
+  incoming: CarouselHistoryPage,
+  mode: "replace" | "refresh" | { before: string },
+  protectedKey?: string,
+): CarouselHistoryPage {
+  const wouldRemoveProtectedCard =
+    protectedKey !== undefined &&
+    current.cards.some((card) => carouselCardKey(card) === protectedKey) &&
+    !incoming.cards.some((card) => carouselCardKey(card) === protectedKey);
+  if (mode === "replace") return wouldRemoveProtectedCard ? current : incoming;
+  if (typeof mode === "object" && mode.before !== current.next) return current;
+  const [first, rest] =
+    mode === "refresh"
+      ? [incoming.cards, current.cards]
+      : [current.cards, incoming.cards];
+  const seen = new Set(first.map(carouselCardKey));
+  const distinct = rest.filter((card) => !seen.has(carouselCardKey(card)));
+  // With no overlap there is no proof that the old cursor covers the
+  // gap. Restart from the incoming cursor so every intervening card is reachable.
+  if (mode === "refresh" && distinct.length === rest.length) {
+    return wouldRemoveProtectedCard ? current : incoming;
+  }
+  return {
+    cards: [...first, ...distinct],
+    next: mode === "refresh" ? current.next : incoming.next,
+  };
 }
 
 /**

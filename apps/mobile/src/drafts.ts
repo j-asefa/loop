@@ -1,15 +1,20 @@
 import { File as ExpoFile, Paths } from "expo-file-system";
+import { Alert } from "react-native";
 import {
+  UnreadableDraftStore,
   createEmptyDraftMap,
   deleteDraftFromStore,
   draftWorkspaceBucket,
   parseDraftStore,
   readDraftEntryFromStore,
   serializeDraftStore,
+  settlePendingAgentCreateInStore,
+  settlePendingReplyInStore,
   setDraftInStore,
   type DraftEntry,
   type DraftMap,
   type DraftPendingMeta,
+  type PendingReplySettlement,
 } from "./drafts-codec";
 
 export {
@@ -20,6 +25,7 @@ export {
   type DraftEntry,
   type DraftPendingMeta,
   type PendingScheduleDraft,
+  type PendingAgentCreate,
   type PendingShareDraft,
 } from "./drafts-codec";
 
@@ -38,11 +44,24 @@ type PendingOps = {
 const memoryBuckets = new Map<string, DraftMap>();
 const loadedBuckets = new Set<string>();
 const pendingLoads = new Map<string, Promise<DraftMap>>();
+const resetPrompts = new Map<string, Promise<boolean>>();
 const pendingOpsByBucket = new Map<string, PendingOps>();
 const flushTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const bucketEpoch = new Map<string, number>();
 
 function draftFileForBucket(bucket: string): ExpoFile {
+  return new ExpoFile(Paths.document, `loop-drafts-${bucket}.json`);
+}
+
+function stagedDraftFileForBucket(bucket: string): ExpoFile {
+  return new ExpoFile(Paths.document, `loop-drafts-${bucket}.staged.json`);
+}
+
+function previousDraftFileForBucket(bucket: string): ExpoFile {
+  return new ExpoFile(Paths.document, `loop-drafts-${bucket}.previous.json`);
+}
+
+function legacyDraftFileForBucket(bucket: string): ExpoFile {
   return new ExpoFile(Paths.cache, `loop-drafts-${bucket}.json`);
 }
 
@@ -57,11 +76,27 @@ function getOrCreatePendingOps(bucket: string): PendingOps {
 
 function writeBucketFile(bucket: string, map: DraftMap): void {
   const file = draftFileForBucket(bucket);
-  if (Object.keys(map).length === 0) {
-    if (file.exists) file.delete();
-    return;
+  const staged = stagedDraftFileForBucket(bucket);
+  const previous = previousDraftFileForBucket(bucket);
+  const legacy = legacyDraftFileForBucket(bucket);
+
+  // Write the full snapshot before replacing the committed file. Preserve the
+  // old snapshot across the rename so an interrupted commit remains readable.
+  staged.writeSync(serializeDraftStore(map));
+  if (file.exists) {
+    if (previous.exists) previous.delete();
+    file.moveSync(previous);
   }
-  file.write(serializeDraftStore(map));
+  staged.moveSync(draftFileForBucket(bucket));
+
+  // Even an empty committed snapshot masks older drafts after settlement.
+  for (const obsolete of [previous, legacy]) {
+    try {
+      if (obsolete.exists) obsolete.delete();
+    } catch {
+      // The committed file takes precedence on the next read.
+    }
+  }
 }
 
 function flushBucketNow(bucket: string): void {
@@ -90,7 +125,10 @@ function scheduleBucketFlush(bucket: string): void {
   flushTimers.set(bucket, timer);
 }
 
-async function ensureBucketLoaded(bucket: string): Promise<DraftMap> {
+async function ensureBucketLoaded(
+  bucket: string,
+  resetUnreadable = false,
+): Promise<DraftMap> {
   if (loadedBuckets.has(bucket)) {
     return memoryBuckets.get(bucket) ?? createEmptyDraftMap();
   }
@@ -100,18 +138,46 @@ async function ensureBucketLoaded(bucket: string): Promise<DraftMap> {
   const epochAtStart = bucketEpoch.get(bucket) ?? 0;
   const loadPromise = (async () => {
     let loaded = createEmptyDraftMap();
-    try {
-      const file = draftFileForBucket(bucket);
-      if (file.exists) {
-        const raw = await file.text();
+    let recovered = false;
+    let foundReadable = false;
+    const unreadable: ExpoFile[] = [];
+    const candidates = [
+      draftFileForBucket(bucket),
+      previousDraftFileForBucket(bucket),
+      legacyDraftFileForBucket(bucket),
+    ];
+    for (const [index, file] of candidates.entries()) {
+      if (!file.exists) continue;
+      // I/O failures leave the bucket unloaded. Malformed bytes are kept
+      // separately so the next readable snapshot can restore the workspace.
+      const raw = await file.text();
+      if ((bucketEpoch.get(bucket) ?? 0) !== epochAtStart) break;
+      try {
         loaded = parseDraftStore(raw);
+        foundReadable = true;
+        recovered = index > 0;
+        break;
+      } catch (error) {
+        if (!(error instanceof UnreadableDraftStore)) throw error;
+        unreadable.push(file);
       }
-    } catch {
-      loaded = createEmptyDraftMap();
     }
     // If `clearWorkspaceDrafts` bumped the epoch while reading disk, discard the stale read.
     if ((bucketEpoch.get(bucket) ?? 0) !== epochAtStart) {
       return memoryBuckets.get(bucket) ?? createEmptyDraftMap();
+    }
+    if (unreadable.length > 0) {
+      if (!foundReadable && !resetUnreadable) throw new UnreadableDraftStore();
+      for (const file of unreadable) {
+        const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        file.moveSync(
+          new ExpoFile(
+            Paths.document,
+            `loop-drafts-${bucket}.unreadable-${suffix}.json`,
+          ),
+        );
+      }
+      recovered = true;
     }
     // Replay any saves/deletes queued while the initial disk read was in flight so we
     // never overwrite unrelated scopes on disk or resurrect a just-sent draft.
@@ -121,7 +187,12 @@ async function ensureBucketLoaded(bucket: string): Promise<DraftMap> {
     let dirty = false;
     if (ops) {
       for (const scope of ops.deletes) {
-        if (merged[scope]?.pendingSchedule || merged[scope]?.pendingShare) {
+        if (
+          merged[scope]?.pendingKey ||
+          merged[scope]?.pendingSchedule ||
+          merged[scope]?.pendingShare ||
+          merged[scope]?.pendingAgentCreate
+        ) {
           continue;
         }
         merged = deleteDraftFromStore(merged, scope);
@@ -129,9 +200,16 @@ async function ensureBucketLoaded(bucket: string): Promise<DraftMap> {
       }
       for (const [scope, op] of ops.saves) {
         // Never allow an ordinary typing save queued during initial disk load
-        // to overwrite a persisted pendingSchedule or pendingShare lock on disk.
+        // to overwrite a persisted request lock on disk.
+        if (
+          merged[scope]?.pendingKey &&
+          merged[scope]?.pendingKey !== op.pending?.key
+        )
+          continue;
         if (merged[scope]?.pendingSchedule && !op.pending?.schedule) continue;
         if (merged[scope]?.pendingShare && !op.pending?.share) continue;
+        if (merged[scope]?.pendingAgentCreate && !op.pending?.agentCreate)
+          continue;
         merged = setDraftInStore(
           merged,
           scope,
@@ -144,7 +222,7 @@ async function ensureBucketLoaded(bucket: string): Promise<DraftMap> {
     }
     memoryBuckets.set(bucket, merged);
     loadedBuckets.add(bucket);
-    if (dirty) {
+    if (dirty || recovered) {
       flushBucketNow(bucket);
     }
     return merged;
@@ -158,13 +236,47 @@ async function ensureBucketLoaded(bucket: string): Promise<DraftMap> {
   return loadPromise;
 }
 
+function confirmDraftStoreReset(bucket: string): Promise<boolean> {
+  const pending = resetPrompts.get(bucket);
+  if (pending) return pending;
+  const confirmation = new Promise<boolean>((resolve) => {
+    Alert.alert(
+      "Saved drafts are unreadable",
+      "Loop can keep a copy of the damaged files and start a fresh draft store. Check your conversation first if an earlier send may have gone through.",
+      [
+        { text: "Keep drafts", style: "cancel", onPress: () => resolve(false) },
+        {
+          text: "Start fresh",
+          style: "destructive",
+          onPress: () => resolve(true),
+        },
+      ],
+      { cancelable: true, onDismiss: () => resolve(false) },
+    );
+  }).finally(() => resetPrompts.delete(bucket));
+  resetPrompts.set(bucket, confirmation);
+  return confirmation;
+}
+
 export async function loadDraftEntry(
   origin: string | null | undefined,
   scope: string,
 ): Promise<DraftEntry | null> {
   const bucket = draftWorkspaceBucket(origin);
-  const map = await ensureBucketLoaded(bucket);
-  return readDraftEntryFromStore(map, scope);
+  const epoch = bucketEpoch.get(bucket);
+  try {
+    const map = await ensureBucketLoaded(bucket);
+    return readDraftEntryFromStore(map, scope);
+  } catch (error) {
+    if (
+      !(error instanceof UnreadableDraftStore) ||
+      !(await confirmDraftStoreReset(bucket)) ||
+      bucketEpoch.get(bucket) !== epoch
+    )
+      throw error;
+    const recovered = await ensureBucketLoaded(bucket, true);
+    return readDraftEntryFromStore(recovered, scope);
+  }
 }
 
 export async function loadDraft(
@@ -190,13 +302,24 @@ export function saveDraft(
       ops.saves.delete(scope);
       ops.deletes.add(scope);
     }
-    void ensureBucketLoaded(bucket);
+    void ensureBucketLoaded(bucket).catch(() => {});
     return;
   }
   const current = memoryBuckets.get(bucket) ?? createEmptyDraftMap();
+  const pendingCreate = current[scope]?.pendingAgentCreate;
+  if (
+    pendingCreate &&
+    pendingCreate.idempotencyKey !== pending?.agentCreate?.idempotencyKey
+  )
+    return;
   const next = setDraftInStore(current, scope, text, Date.now(), pending);
   memoryBuckets.set(bucket, next);
-  if (pending?.key || pending?.schedule || pending?.share) {
+  if (
+    pending?.key ||
+    pending?.schedule ||
+    pending?.share ||
+    pending?.agentCreate
+  ) {
     flushBucketNow(bucket);
   } else {
     scheduleBucketFlush(bucket);
@@ -210,8 +333,27 @@ export async function saveDraftAndFlush(
   pending?: DraftPendingMeta,
 ): Promise<void> {
   const bucket = draftWorkspaceBucket(origin);
+  const epoch = bucketEpoch.get(bucket);
   await ensureBucketLoaded(bucket);
+  if (bucketEpoch.get(bucket) !== epoch) {
+    throw new Error("Workspace changed while saving the draft.");
+  }
   const current = memoryBuckets.get(bucket) ?? createEmptyDraftMap();
+  if (
+    current[scope]?.pendingKey &&
+    pending?.key &&
+    current[scope].pendingKey !== pending.key
+  ) {
+    throw new Error("A pending reply already exists for this draft.");
+  }
+  const existingAgentCreate = current[scope]?.pendingAgentCreate;
+  if (
+    existingAgentCreate &&
+    pending?.agentCreate &&
+    existingAgentCreate.idempotencyKey !== pending.agentCreate.idempotencyKey
+  ) {
+    throw new Error("A pending agent creation already exists for this draft.");
+  }
   const existingSchedule = current[scope]?.pendingSchedule;
   if (
     existingSchedule &&
@@ -233,6 +375,12 @@ export async function saveDraftAndFlush(
     );
   }
   const next = setDraftInStore(current, scope, text, Date.now(), pending);
+  if (pending?.key && next[scope]?.pendingKey !== pending.key) {
+    throw new Error("Could not save recovery state for this reply.");
+  }
+  if (pending?.agentCreate && !next[scope]?.pendingAgentCreate) {
+    throw new Error("Could not save the settings for this agent creation.");
+  }
   const timer = flushTimers.get(bucket);
   if (timer) {
     clearTimeout(timer);
@@ -242,10 +390,55 @@ export async function saveDraftAndFlush(
     writeBucketFile(bucket, next);
   } catch {
     throw new Error(
-      "Could not persist schedule recovery state locally. Please try again.",
+      "Could not persist send recovery state locally. Please try again.",
     );
   }
   memoryBuckets.set(bucket, next);
+}
+
+export function settlePendingAgentCreate(
+  origin: string,
+  scope: string,
+  idempotencyKey: string,
+  text?: string,
+): "settled" | "stale" | "write-failed" {
+  const bucket = draftWorkspaceBucket(origin);
+  const current = memoryBuckets.get(bucket);
+  if (!current) return "stale";
+  const next = settlePendingAgentCreateInStore(
+    current,
+    scope,
+    idempotencyKey,
+    text,
+  );
+  if (next === current) return "stale";
+  try {
+    writeBucketFile(bucket, next);
+  } catch {
+    return "write-failed";
+  }
+  memoryBuckets.set(bucket, next);
+  return "settled";
+}
+
+export function settlePendingReplyDraft(
+  origin: string,
+  scope: string,
+  key: string,
+  settlement?: PendingReplySettlement,
+): "settled" | "stale" | "write-failed" {
+  const bucket = draftWorkspaceBucket(origin);
+  const current = memoryBuckets.get(bucket);
+  if (!current) return "stale";
+  const next = settlePendingReplyInStore(current, scope, key, settlement);
+  if (next === current) return "stale";
+  try {
+    writeBucketFile(bucket, next);
+  } catch {
+    return "write-failed";
+  }
+  memoryBuckets.set(bucket, next);
+  return "settled";
 }
 
 export function clearDraft(
@@ -257,7 +450,7 @@ export function clearDraft(
     const ops = getOrCreatePendingOps(bucket);
     ops.saves.delete(scope);
     ops.deletes.add(scope);
-    void ensureBucketLoaded(bucket);
+    void ensureBucketLoaded(bucket).catch(() => {});
     return;
   }
   const current = memoryBuckets.get(bucket) ?? createEmptyDraftMap();
@@ -266,9 +459,34 @@ export function clearDraft(
   flushBucketNow(bucket);
 }
 
-/** Purge all cached drafts for a workspace on sign-out or session expiry. */
+/** Purge the workspace's drafts on explicit sign-out. */
 export function clearWorkspaceDrafts(origin: string | null | undefined): void {
   const bucket = draftWorkspaceBucket(origin);
+  for (const makeFile of [
+    draftFileForBucket,
+    stagedDraftFileForBucket,
+    previousDraftFileForBucket,
+    legacyDraftFileForBucket,
+  ]) {
+    try {
+      const file = makeFile(bucket);
+      if (file.exists) file.delete();
+    } catch {
+      // Best-effort removal of files belonging to this session.
+    }
+  }
+  try {
+    for (const file of Paths.document.list()) {
+      if (
+        file instanceof ExpoFile &&
+        file.name.startsWith(`loop-drafts-${bucket}.unreadable-`)
+      ) {
+        file.delete();
+      }
+    }
+  } catch {
+    // Draft cleanup can proceed even when an archived copy is inaccessible.
+  }
   bucketEpoch.set(bucket, (bucketEpoch.get(bucket) ?? 0) + 1);
   pendingOpsByBucket.delete(bucket);
   const timer = flushTimers.get(bucket);
@@ -278,10 +496,4 @@ export function clearWorkspaceDrafts(origin: string | null | undefined): void {
   }
   memoryBuckets.set(bucket, createEmptyDraftMap());
   loadedBuckets.add(bucket);
-  try {
-    const file = draftFileForBucket(bucket);
-    if (file.exists) file.delete();
-  } catch {
-    // ignore
-  }
 }

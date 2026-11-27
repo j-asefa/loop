@@ -149,7 +149,7 @@ export function saveNotificationPrefs(
   prefsMemory.set(bucket, next);
   try {
     const file = prefsFileForBucket(bucket);
-    file.write(serializeNotificationPrefs(next));
+    file.writeSync(serializeNotificationPrefs(next));
   } catch {
     // Best-effort local preference persistence.
   }
@@ -165,7 +165,7 @@ export function clearWorkspaceNotificationPrefs(
     const file = prefsFileForBucket(bucket);
     if (file.exists) file.delete();
   } catch {
-    // ignore
+    // Best-effort cleanup for this session.
   }
 }
 

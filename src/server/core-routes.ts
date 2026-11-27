@@ -727,6 +727,11 @@ routes.on(workspaceApi.resultUpdate, (req, res) => {
     });
   res.json({ ok: true });
 });
+function sealedSteeringReply(owner: string, messageId: string) {
+  const sealed = resultsQueries.canonicalByMessage(db, owner, messageId);
+  return sealed?.kind === "steering_reply" ? sealed : undefined;
+}
+
 routes.on(
   workspaceApi.conversation,
   (req, res) => {
@@ -740,6 +745,7 @@ routes.on(
       req.params.id,
       before,
       anchor,
+      req.query.view,
     );
     let resumed = false;
     if (
@@ -754,12 +760,14 @@ routes.on(
       // Only an initial open opts into the saved position. Subsequent refreshes
       // still read the latest page; explicit anchors/cursors retain precedence.
       try {
-        page = conversationMessages(
+        const candidate = conversationMessages(
           res.locals.owner,
           req.params.id,
           undefined,
           returned.position_message_id,
+          req.query.view,
         );
+        page = candidate;
         resumed = true;
       } catch (error) {
         // Saved positions can outlive deleted messages. Explicit anchors still
@@ -785,6 +793,21 @@ routes.on(
       // The run a reply would steer now; null means a reply queues.
       steerable_run_id: active?.liveInput ? active.run.id : null,
       ...page,
+      ...(req.query.view === "carousel"
+        ? {
+            messages: page.messages.map((message) => {
+              if (message.role !== "assistant") return message;
+              const sealed = sealedSteeringReply(res.locals.owner, message.id);
+              return sealed
+                ? {
+                    ...message,
+                    content: sealed.outcome.body,
+                    carousel_prompt: sealed.stimulus.text ?? undefined,
+                  }
+                : message;
+            }),
+          }
+        : {}),
       ...returned,
       resumed,
       latest_agent_message: latestAgentMessage(res.locals.owner, req.params.id),
@@ -805,17 +828,13 @@ routes.on(workspaceApi.messageDetail, (req, res) => {
   const message = ownedMessage(req.params.id, res.locals.owner);
   // A published reply is read from its sealed Result, so the opened reply
   // matches the feed preview even after the transcript message changes.
-  const sealed = resultsQueries.canonicalByMessage(
-    db,
-    res.locals.owner,
-    message.id,
-  );
   res.json(
-    messageResponse(
-      sealed?.kind === "steering_reply"
-        ? { ...message, content: sealed.outcome.body }
-        : message,
-    ),
+    messageResponse({
+      ...message,
+      content:
+        sealedSteeringReply(res.locals.owner, message.id)?.outcome.body ??
+        message.content,
+    }),
   );
 });
 routes.on(workspaceApi.messageSearch, (req, res) => {

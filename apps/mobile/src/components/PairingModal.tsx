@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -44,7 +44,7 @@ export function PairingModal({
   canClose: boolean;
   initialUrl?: string;
   onClose: () => void;
-  onPaired: (session: PairedSession) => void;
+  onPaired: (session: PairedSession) => Promise<void>;
 }) {
   const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
@@ -53,49 +53,89 @@ export function PairingModal({
   const [tokenText, setTokenText] = useState("");
   const [verifiedOrigin, setVerifiedOrigin] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [redeeming, setRedeeming] = useState(false);
+  const pendingAttempt = useRef<AbortController | null>(null);
+  const redeemingRef = useRef(false);
+  const closedRef = useRef(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
     if (initialUrl) setUrlText(initialUrl);
   }, [initialUrl]);
 
+  useEffect(() => {
+    closedRef.current = false;
+    return () => {
+      closedRef.current = true;
+      pendingAttempt.current?.abort();
+    };
+  }, []);
+
   async function connectWithUrl(rawUrl: string, rawToken = tokenText) {
-    if (busy) return;
+    if (closedRef.current || pendingAttempt.current) return;
+    const attempt = new AbortController();
+    pendingAttempt.current = attempt;
+    const { signal } = attempt;
+    let timedOut = false;
+    const deadline = setTimeout(() => {
+      timedOut = true;
+      attempt.abort();
+    }, 20_000);
+    const lockRedemption = () => {
+      redeemingRef.current = true;
+      setRedeeming(true);
+    };
+    const commit = async (session: PairedSession) => {
+      if (signal.aborted || closedRef.current) return;
+      clearTimeout(deadline);
+      lockRedemption();
+      await onPaired(session);
+      haptics.success();
+    };
     setBusy(true);
     setError("");
     try {
       const { origin, pairing } = tryParsePairingLink(rawUrl);
       if (pairing) {
-        const session = await pairWithCompanion(rawUrl);
-        haptics.success();
-        onPaired(session);
+        lockRedemption();
+        await commit(await pairWithCompanion(rawUrl, signal));
         return;
       }
 
       if (rawToken.trim()) {
-        const session = await pairWithOriginAndToken(origin, rawToken);
-        haptics.success();
-        onPaired(session);
+        lockRedemption();
+        await commit(await pairWithOriginAndToken(origin, rawToken, signal));
         return;
       }
 
       // Bare workspace URL: check reachability and any existing cookie session
-      const probe = await probeWorkspaceUrl(rawUrl);
+      const probe = await probeWorkspaceUrl(rawUrl, signal);
+      if (signal.aborted) return;
       if (probe.session) {
-        haptics.success();
-        onPaired(probe.session);
+        await commit(probe.session);
         return;
       }
       setVerifiedOrigin(probe.origin);
       haptics.light();
     } catch (err) {
+      if (closedRef.current || (signal.aborted && !timedOut)) return;
       haptics.warning();
       setError(
-        err instanceof Error ? err.message : "Could not connect to workspace.",
+        timedOut
+          ? "The connection timed out. Check the workspace URL before using a new pairing link."
+          : err instanceof Error
+            ? err.message
+            : "Could not connect to workspace.",
       );
       if (mode === "qr") setMode("url");
     } finally {
-      setBusy(false);
+      clearTimeout(deadline);
+      pendingAttempt.current = null;
+      redeemingRef.current = false;
+      if (!closedRef.current) {
+        setRedeeming(false);
+        setBusy(false);
+      }
     }
   }
 
@@ -117,6 +157,7 @@ export function PairingModal({
   async function pasteFromClipboard() {
     haptics.light();
     const clip = (await Clipboard.getStringAsync()).trim();
+    if (closedRef.current) return;
     if (!clip) {
       setError("Clipboard is empty. Run `loop pair` on your machine first.");
       return;
@@ -176,7 +217,12 @@ export function PairingModal({
               </View>
               {canClose && (
                 <Pressable
+                  accessibilityLabel="Close pairing"
+                  disabled={redeeming}
                   onPress={() => {
+                    if (redeemingRef.current) return;
+                    closedRef.current = true;
+                    pendingAttempt.current?.abort();
                     haptics.light();
                     onClose();
                   }}

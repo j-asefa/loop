@@ -1,3 +1,13 @@
+import type { AgentModelSelection } from "./models";
+
+export type PendingAgentCreate = AgentModelSelection & {
+  idempotencyKey: string;
+  name: string;
+  text: string;
+  folderId: string | null;
+  attachmentIds: string[];
+};
+
 export type PendingScheduleDraft = {
   key: string;
   sendAt: number;
@@ -18,8 +28,12 @@ export type PendingShareDraft = {
 export type DraftPendingMeta = {
   key?: string;
   queue?: boolean;
+  replyToMessageId?: string;
+  replyAttachmentIds?: string[];
+  replyAttemptId?: string;
   schedule?: PendingScheduleDraft;
   share?: PendingShareDraft;
+  agentCreate?: PendingAgentCreate;
 };
 
 export type DraftEntry = {
@@ -29,11 +43,61 @@ export type DraftEntry = {
   pendingKey?: string;
   /** Original queue delivery flag paired with `pendingKey` so retries never mutate semantics. */
   pendingQueue?: boolean;
+  pendingReplyToMessageId?: string;
+  pendingReplyAttachmentIds?: string[];
+  pendingReplyAttemptId?: string;
   /** Durable schedule identity + payload metadata persisted before dispatch / across uncertain timeouts. */
   pendingSchedule?: PendingScheduleDraft;
   /** Durable share identity + routing/upload metadata persisted before dispatch / across uncertain timeouts. */
   pendingShare?: PendingShareDraft;
+  pendingAgentCreate?: PendingAgentCreate;
 };
+
+function readPendingAgentCreate(raw: unknown): PendingAgentCreate | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const item = raw as Record<string, unknown>;
+  const {
+    idempotencyKey,
+    name,
+    connectionId,
+    model,
+    effort,
+    text,
+    folderId,
+    attachmentIds,
+  } = item;
+  if (
+    typeof idempotencyKey !== "string" ||
+    idempotencyKey.length < 8 ||
+    typeof name !== "string" ||
+    !name ||
+    typeof connectionId !== "string" ||
+    !connectionId ||
+    typeof model !== "string" ||
+    !model ||
+    (effort !== null && typeof effort !== "string") ||
+    typeof text !== "string" ||
+    !text.trim() ||
+    text.length > MAX_DRAFT_CHARS ||
+    (folderId !== null && typeof folderId !== "string") ||
+    !Array.isArray(attachmentIds) ||
+    attachmentIds.length > 8 ||
+    !attachmentIds.every(
+      (id): id is string => typeof id === "string" && id.length > 0,
+    )
+  )
+    return undefined;
+  return {
+    idempotencyKey,
+    name,
+    connectionId,
+    model,
+    effort,
+    text,
+    folderId,
+    attachmentIds,
+  };
+}
 
 function sanitizePendingShare(raw: unknown): PendingShareDraft | undefined {
   if (!raw || typeof raw !== "object") return undefined;
@@ -115,6 +179,14 @@ function sanitizePendingSchedule(
   };
 }
 
+function readReplyAttachmentIds(raw: unknown): string[] | undefined {
+  return Array.isArray(raw)
+    ? raw
+        .filter((id): id is string => typeof id === "string" && id.length > 0)
+        .slice(0, 8)
+    : undefined;
+}
+
 export type DraftMap = Record<string, DraftEntry>;
 
 export const MAX_DRAFT_CHARS = 32_000;
@@ -123,9 +195,9 @@ export const DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const SCHEDULE_GRACE_MS = 24 * 60 * 60 * 1000;
 
 function isDraftEntryExpired(entry: DraftEntry, now: number): boolean {
-  // Never silently expire an unresolved uncertain share send; it stays until
-  // explicitly resolved or purged on sign-out/401.
-  if (entry.pendingShare) return false;
+  // Keep pending creation and share sends available until resolved after reconnecting.
+  if (entry.pendingKey || entry.pendingShare || entry.pendingAgentCreate)
+    return false;
   if (entry.pendingSchedule) {
     const scheduleExpiry = Math.max(
       entry.updatedAt + DRAFT_TTL_MS,
@@ -194,6 +266,10 @@ export function pruneDraftStore(input: DraftMap, now = Date.now()): DraftMap {
     }
     const pendingSchedule = sanitizePendingSchedule(entry.pendingSchedule);
     const pendingShare = sanitizePendingShare(entry.pendingShare);
+    const pendingAgentCreate = readPendingAgentCreate(entry.pendingAgentCreate);
+    const replyAttachmentIds = readReplyAttachmentIds(
+      entry.pendingReplyAttachmentIds,
+    );
     const normalized: DraftEntry = {
       text:
         entry.text.length > MAX_DRAFT_CHARS
@@ -206,8 +282,20 @@ export function pruneDraftStore(input: DraftMap, now = Date.now()): DraftMap {
       ...(typeof entry.pendingQueue === "boolean"
         ? { pendingQueue: entry.pendingQueue }
         : {}),
+      ...(typeof entry.pendingReplyToMessageId === "string" &&
+      entry.pendingReplyToMessageId
+        ? { pendingReplyToMessageId: entry.pendingReplyToMessageId }
+        : {}),
+      ...(replyAttachmentIds?.length
+        ? { pendingReplyAttachmentIds: replyAttachmentIds }
+        : {}),
+      ...(typeof entry.pendingReplyAttemptId === "string" &&
+      entry.pendingReplyAttemptId
+        ? { pendingReplyAttemptId: entry.pendingReplyAttemptId }
+        : {}),
       ...(pendingSchedule ? { pendingSchedule } : {}),
       ...(pendingShare ? { pendingShare } : {}),
+      ...(pendingAgentCreate ? { pendingAgentCreate } : {}),
     };
     if (isDraftEntryExpired(normalized, now)) {
       continue;
@@ -215,14 +303,16 @@ export function pruneDraftStore(input: DraftMap, now = Date.now()): DraftMap {
     valid.push([key, normalized]);
   }
   valid.sort((a, b) => b[1].updatedAt - a[1].updatedAt);
-  // Retain durable pendingSchedule and pendingShare locks ahead of the 80-draft cap
-  // so uncertain sends cannot be evicted by ordinary draft typing.
-  const locked = valid.filter(([, entry]) =>
-    Boolean(entry.pendingSchedule || entry.pendingShare),
-  );
-  const unlocked = valid.filter(
-    ([, entry]) => !entry.pendingSchedule && !entry.pendingShare,
-  );
+  // Pending sends take priority so ordinary drafts cannot evict their request details.
+  const hasPendingSend = ([, entry]: [string, DraftEntry]) =>
+    Boolean(
+      entry.pendingKey ||
+      entry.pendingSchedule ||
+      entry.pendingShare ||
+      entry.pendingAgentCreate,
+    );
+  const locked = valid.filter(hasPendingSend);
+  const unlocked = valid.filter((entry) => !hasPendingSend(entry));
   const remainingSlots = Math.max(0, MAX_DRAFTS_PER_WORKSPACE - locked.length);
   const out = createEmptyDraftMap();
   for (const [key, entry] of [
@@ -234,18 +324,25 @@ export function pruneDraftStore(input: DraftMap, now = Date.now()): DraftMap {
   return out;
 }
 
+export class UnreadableDraftStore extends Error {
+  constructor() {
+    super("Could not read the existing local drafts.");
+  }
+}
+
 export function parseDraftStore(raw: string, now = Date.now()): DraftMap {
-  if (!raw) return createEmptyDraftMap();
   try {
     const parsed = JSON.parse(raw) as {
       v?: unknown;
       drafts?: Record<string, unknown>;
     };
     if (!parsed || typeof parsed !== "object" || parsed.v !== 1) {
-      return createEmptyDraftMap();
+      throw new Error("Unexpected draft format.");
     }
     const source = parsed.drafts;
-    if (!source || typeof source !== "object") return createEmptyDraftMap();
+    if (!source || typeof source !== "object" || Array.isArray(source)) {
+      throw new Error("Missing draft entries.");
+    }
     const loaded = createEmptyDraftMap();
     for (const key of Object.keys(source)) {
       if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
@@ -254,8 +351,12 @@ export function parseDraftStore(raw: string, now = Date.now()): DraftMap {
         updatedAt?: unknown;
         pendingKey?: unknown;
         pendingQueue?: unknown;
+        pendingReplyToMessageId?: unknown;
+        pendingReplyAttachmentIds?: unknown;
+        pendingReplyAttemptId?: unknown;
         pendingSchedule?: unknown;
         pendingShare?: unknown;
+        pendingAgentCreate?: unknown;
       };
       if (
         item &&
@@ -265,6 +366,12 @@ export function parseDraftStore(raw: string, now = Date.now()): DraftMap {
       ) {
         const pendingSchedule = sanitizePendingSchedule(item.pendingSchedule);
         const pendingShare = sanitizePendingShare(item.pendingShare);
+        const pendingAgentCreate = readPendingAgentCreate(
+          item.pendingAgentCreate,
+        );
+        const replyAttachmentIds = readReplyAttachmentIds(
+          item.pendingReplyAttachmentIds,
+        );
         loaded[key] = {
           text: item.text,
           updatedAt: item.updatedAt,
@@ -274,14 +381,24 @@ export function parseDraftStore(raw: string, now = Date.now()): DraftMap {
           ...(typeof item.pendingQueue === "boolean"
             ? { pendingQueue: item.pendingQueue }
             : {}),
+          ...(typeof item.pendingReplyToMessageId === "string"
+            ? { pendingReplyToMessageId: item.pendingReplyToMessageId }
+            : {}),
+          ...(replyAttachmentIds?.length
+            ? { pendingReplyAttachmentIds: replyAttachmentIds }
+            : {}),
+          ...(typeof item.pendingReplyAttemptId === "string"
+            ? { pendingReplyAttemptId: item.pendingReplyAttemptId }
+            : {}),
           ...(pendingSchedule ? { pendingSchedule } : {}),
           ...(pendingShare ? { pendingShare } : {}),
+          ...(pendingAgentCreate ? { pendingAgentCreate } : {}),
         };
       }
     }
     return pruneDraftStore(loaded, now);
   } catch {
-    return createEmptyDraftMap();
+    throw new UnreadableDraftStore();
   }
 }
 
@@ -304,13 +421,24 @@ export function setDraftInStore(
   }
   const pendingSchedule = sanitizePendingSchedule(pending?.schedule);
   const pendingShare = sanitizePendingShare(pending?.share);
+  const pendingAgentCreate = readPendingAgentCreate(pending?.agentCreate);
   next[scope] = {
     text: text.length > MAX_DRAFT_CHARS ? text.slice(0, MAX_DRAFT_CHARS) : text,
     updatedAt: now,
     ...(pending?.key ? { pendingKey: pending.key } : {}),
     ...(pending?.queue !== undefined ? { pendingQueue: pending.queue } : {}),
+    ...(pending?.replyToMessageId
+      ? { pendingReplyToMessageId: pending.replyToMessageId }
+      : {}),
+    ...(pending?.replyAttachmentIds?.length
+      ? { pendingReplyAttachmentIds: pending.replyAttachmentIds }
+      : {}),
+    ...(pending?.replyAttemptId
+      ? { pendingReplyAttemptId: pending.replyAttemptId }
+      : {}),
     ...(pendingSchedule ? { pendingSchedule } : {}),
     ...(pendingShare ? { pendingShare } : {}),
+    ...(pendingAgentCreate ? { pendingAgentCreate } : {}),
   };
   return pruneDraftStore(next, now);
 }
@@ -320,6 +448,45 @@ export function deleteDraftFromStore(map: DraftMap, scope: string): DraftMap {
   const next = Object.assign(createEmptyDraftMap(), map);
   delete next[scope];
   return next;
+}
+
+// A late completion can only settle the creation whose key it dispatched.
+export function settlePendingAgentCreateInStore(
+  map: DraftMap,
+  scope: string,
+  idempotencyKey: string,
+  text?: string,
+  now = Date.now(),
+): DraftMap {
+  if (map[scope]?.pendingAgentCreate?.idempotencyKey !== idempotencyKey)
+    return map;
+  return text === undefined
+    ? deleteDraftFromStore(map, scope)
+    : setDraftInStore(map, scope, text, now);
+}
+
+export type PendingReplySettlement = {
+  text?: string;
+  attemptId?: string | null;
+};
+
+export function settlePendingReplyInStore(
+  map: DraftMap,
+  scope: string,
+  key: string,
+  { text, attemptId }: PendingReplySettlement = {},
+  now = Date.now(),
+): DraftMap {
+  const entry = map[scope];
+  if (
+    entry?.pendingKey !== key ||
+    (attemptId !== undefined &&
+      (entry.pendingReplyAttemptId ?? null) !== attemptId)
+  )
+    return map;
+  return text === undefined
+    ? deleteDraftFromStore(map, scope)
+    : setDraftInStore(map, scope, text, now);
 }
 
 export function readDraftEntryFromStore(

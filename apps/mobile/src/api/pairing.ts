@@ -3,8 +3,12 @@ import { Platform } from "react-native";
 import {
   assertSameOriginResponse,
   extractSessionCookie,
+  localDataScope,
   normalizeWorkspaceUrl,
   parsePairingLink,
+  preserveProbedCredentials,
+  validatedWorkspaceIdentity,
+  workspaceRecoveryKey,
   tryParsePairingLink,
   type ParsedPairingLink,
 } from "./pairing-url";
@@ -25,7 +29,10 @@ const SESSION_KEY = "loop.paired.session.v1";
  * Checks whether a bare workspace URL is a reachable Loop server and whether
  * this device already holds an active session cookie for it.
  */
-export async function probeWorkspaceUrl(rawUrl: string): Promise<{
+export async function probeWorkspaceUrl(
+  rawUrl: string,
+  signal?: AbortSignal,
+): Promise<{
   origin: string;
   session: PairedSession | null;
 }> {
@@ -34,6 +41,7 @@ export async function probeWorkspaceUrl(rawUrl: string): Promise<{
     method: "GET",
     headers: { Accept: "application/json", Origin: origin },
     redirect: "error",
+    signal,
   });
   assertSameOriginResponse(capRes, origin);
   if (!capRes.ok) {
@@ -47,25 +55,27 @@ export async function probeWorkspaceUrl(rawUrl: string): Promise<{
     headers: { Accept: "application/json", Origin: origin },
     credentials: "include",
     redirect: "error",
+    signal,
   });
   assertSameOriginResponse(sessionRes, origin);
   if (sessionRes.ok) {
     const data = (await sessionRes.json().catch(() => ({}))) as {
       csrf?: string;
+      workspaceIdentity?: string;
       device?: { id?: string; name?: string };
     };
     if (data.csrf) {
       const cookie =
         extractSessionCookie(sessionRes.headers.get("set-cookie")) ?? "";
-      const session: PairedSession = {
+      const session = preserveProbedCredentials(await loadPairedSession(), {
         origin,
         cookie,
         csrf: data.csrf,
+        workspaceIdentity: validatedWorkspaceIdentity(data.workspaceIdentity),
         deviceId: data.device?.id,
         deviceName: data.device?.name || "Loop iPhone",
         pairedAt: Date.now(),
-      };
-      await savePairedSession(session);
+      });
       return { origin, session };
     }
   }
@@ -75,6 +85,7 @@ export async function probeWorkspaceUrl(rawUrl: string): Promise<{
 async function redeemPairing(
   parsed: ParsedPairingLink,
   deviceName = Platform.OS === "ios" ? "Loop iPhone" : "Loop Mobile",
+  signal?: AbortSignal,
 ): Promise<PairedSession> {
   const pairRes = await fetch(`${parsed.origin}/pair`, {
     method: "POST",
@@ -83,6 +94,7 @@ async function redeemPairing(
       Origin: parsed.origin,
     },
     redirect: "error",
+    signal,
     body: JSON.stringify({
       secret: parsed.secret,
       name: deviceName,
@@ -116,10 +128,12 @@ async function redeemPairing(
     headers: sessionHeaders,
     credentials: "include",
     redirect: "error",
+    signal,
   });
   assertSameOriginResponse(sessionRes, parsed.origin);
   const sessionJson = (await sessionRes.json().catch(() => ({}))) as {
     csrf?: string;
+    workspaceIdentity?: string;
     device?: { id?: string; name?: string };
     error?: string;
   };
@@ -134,25 +148,27 @@ async function redeemPairing(
     origin: parsed.origin,
     cookie,
     csrf: sessionJson.csrf,
+    workspaceIdentity: validatedWorkspaceIdentity(
+      sessionJson.workspaceIdentity,
+    ),
     deviceId: sessionJson.device?.id,
     deviceName: sessionJson.device?.name || deviceName,
     pairedAt: Date.now(),
   };
-  await savePairedSession(session);
   return session;
 }
 
 export async function pairWithCompanion(
   rawLink: string,
-  deviceName?: string,
+  signal?: AbortSignal,
 ): Promise<PairedSession> {
-  return redeemPairing(parsePairingLink(rawLink), deviceName);
+  return redeemPairing(parsePairingLink(rawLink), undefined, signal);
 }
 
 export async function pairWithOriginAndToken(
   rawOrigin: string,
   rawToken: string,
-  deviceName?: string,
+  signal?: AbortSignal,
 ): Promise<PairedSession> {
   const expectedUrl = normalizeWorkspaceUrl(rawOrigin);
   const trimmedToken = rawToken.trim();
@@ -164,7 +180,7 @@ export async function pairWithOriginAndToken(
         `That pairing link is for ${parsed.origin}, not ${expectedUrl.origin}.`,
       );
     }
-    return redeemPairing(parsed, deviceName);
+    return redeemPairing(parsed, undefined, signal);
   }
   if (!/^[A-Za-z0-9_-]{32,128}$/.test(trimmedToken)) {
     throw new Error(
@@ -173,7 +189,8 @@ export async function pairWithOriginAndToken(
   }
   return redeemPairing(
     { origin: expectedUrl.origin, secret: trimmedToken },
-    deviceName,
+    undefined,
+    signal,
   );
 }
 
@@ -190,13 +207,40 @@ export async function loadPairedSession(): Promise<PairedSession | null> {
       deviceId: parsed.deviceId,
       deviceName: parsed.deviceName || "Loop iPhone",
       pairedAt: parsed.pairedAt || Date.now(),
+      workspaceIdentity: validatedWorkspaceIdentity(parsed.workspaceIdentity),
+      ...(typeof parsed.localDataScope === "string"
+        ? { localDataScope: parsed.localDataScope }
+        : {}),
     };
   } catch {
     return null;
   }
 }
 
+// Retain the local namespace without retaining expired authentication material.
+export async function loadRecoveryScope(
+  origin: string,
+  identity?: string,
+): Promise<string | undefined> {
+  const key = workspaceRecoveryKey(origin, identity);
+  return key ? ((await SecureStore.getItemAsync(key)) ?? undefined) : undefined;
+}
+
+export async function rememberRecoveryScope(
+  origin: string,
+  identity: string | undefined,
+  scope: string,
+): Promise<void> {
+  const key = workspaceRecoveryKey(origin, identity);
+  if (key) await SecureStore.setItemAsync(key, scope);
+}
+
 export async function savePairedSession(session: PairedSession): Promise<void> {
+  await rememberRecoveryScope(
+    session.origin,
+    session.workspaceIdentity,
+    localDataScope(session) ?? session.origin,
+  );
   await SecureStore.setItemAsync(SESSION_KEY, JSON.stringify(session));
 }
 

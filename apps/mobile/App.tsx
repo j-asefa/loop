@@ -27,13 +27,26 @@ import {
   SafeAreaProvider,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
-import { isUncertainOutcomeError, LoopClient } from "./src/api/client";
+import {
+  isUncertainOutcomeError,
+  LoopApiError,
+  randomUuid,
+  LoopClient,
+} from "./src/api/client";
+import type { PendingAgentCreate } from "./src/drafts-codec";
 import {
   guessMimeFromName,
   type LoopFileTarget,
   type PublishedFileItem,
 } from "./src/api/files";
-import { clearPairedSession, loadPairedSession } from "./src/api/pairing";
+import {
+  clearPairedSession,
+  loadPairedSession,
+  loadRecoveryScope,
+  rememberRecoveryScope,
+  savePairedSession,
+} from "./src/api/pairing";
+import { assignPairingStorage, localDataScope } from "./src/api/pairing-url";
 import {
   applyLiveStreamBatch,
   buildAgentQueuedRuns,
@@ -117,6 +130,11 @@ import {
 } from "./src/fixtures";
 import { haptics } from "./src/haptics";
 import { DARK_THEME, LIGHT_THEME } from "./src/theme";
+
+function clearEphemeralWorkspaceData(scope: string | undefined) {
+  clearWorkspaceCache(scope);
+  clearWorkspaceNotificationPrefs(scope);
+}
 
 type AppTab = "feed" | "projects" | "pulls" | "search" | "profile";
 
@@ -288,7 +306,7 @@ function LoopShell() {
       inspectUrl(event.url),
     );
     const unsubNotifTap = subscribeNotificationTaps((data) => {
-      const origin = activeSessionRef.current?.origin;
+      const origin = localDataScope(activeSessionRef.current);
       if (!origin) {
         // Hold cold-start notification taps until Keychain session finishes loading
         pendingNotificationTapRef.current = data;
@@ -315,19 +333,27 @@ function LoopShell() {
   }, []);
 
   const activeSessionRef = useRef<PairedSession | null>(null);
+  const pairingInProgressRef = useRef(false);
+  const rememberedRecoveryClientRef = useRef<LoopClient | null>(null);
+  const deferredUnauthorizedRef = useRef<PairedSession | null>(null);
   activeSessionRef.current = session;
 
   const handleUnauthorizedForSession = useCallback(
     (expiredSession: PairedSession) => {
       // Ignore stale 401s from a previous workspace after switching workspaces
       if (activeSessionRef.current !== expiredSession) return;
+      if (pairingInProgressRef.current) {
+        deferredUnauthorizedRef.current = expiredSession;
+        return;
+      }
+      activeSessionRef.current = null;
+      rememberedRecoveryClientRef.current = null;
       // Invalidate any in-flight workspace loads BEFORE deleting local files so a
       // sibling fetchAll cannot recreate cache or fire notifications after expiry.
       workspaceGenRef.current = loadCoordRef.current.reset();
-      clearWorkspaceDrafts(expiredSession.origin);
-      clearWorkspaceCache(expiredSession.origin);
-      clearWorkspaceNotificationPrefs(expiredSession.origin);
+      clearEphemeralWorkspaceData(localDataScope(expiredSession));
       void clearPairedSession();
+      setComposeTarget(null);
       setSession(null);
       setSocketStatus("offline");
       setPairingOpen(true);
@@ -355,13 +381,33 @@ function LoopShell() {
 
   const loadWorkspace = useCallback(
     async (options?: { silent?: boolean }) => {
-      if (!client) return;
+      if (!client || activeSessionRef.current !== session) return;
       const gen = loadCoordRef.current.currentGeneration;
       await loadCoordRef.current.run(options ?? { silent: true }, {
         setRefreshing,
-        refreshSession: () => client.refreshSession(),
+        refreshSession: async () => {
+          const refreshed = await client.refreshSession();
+          if (
+            gen === workspaceGenRef.current &&
+            refreshed.workspaceIdentity &&
+            rememberedRecoveryClientRef.current !== client
+          ) {
+            try {
+              await rememberRecoveryScope(
+                client.origin,
+                refreshed.workspaceIdentity,
+                client.localDataScope,
+              );
+              if (gen === workspaceGenRef.current)
+                rememberedRecoveryClientRef.current = client;
+            } catch {
+              // A later refresh can retry the local alias without blocking the workspace load.
+            }
+          }
+        },
         fetchAll: async () => {
           const fetchStartedAt = Date.now();
+          const savedObservedAt = performance.now();
           const [
             boot,
             feedPage,
@@ -419,7 +465,9 @@ function LoopShell() {
           } else if (!hasLoadedOlderFeedRef.current) {
             setFeedCursor(nextPageCursor);
           }
-          setLiveCards(nextTopCards);
+          setLiveCards(
+            nextTopCards.map((card) => ({ ...card, savedObservedAt })),
+          );
           if (queuedPage || workingPage) {
             setQueuedFeedItems([
               ...(queuedPage?.items ?? []),
@@ -452,7 +500,7 @@ function LoopShell() {
           setShowingCachedSnapshot(false);
           setCachedAt(null);
           // Bind cache and notifications strictly to the client that performed this fetch
-          const fetchOrigin = client.origin;
+          const fetchOrigin = client.localDataScope;
           saveWorkspaceCache(fetchOrigin, {
             environmentName: boot.environmentName || "",
             cards: nextTopCards,
@@ -486,7 +534,7 @@ function LoopShell() {
         },
       });
     },
-    [client, showToast],
+    [client, session, showToast],
   );
 
   const loadWorkspaceRef = useRef(loadWorkspace);
@@ -552,7 +600,7 @@ function LoopShell() {
     setNotificationPrefs({ ...DEFAULT_NOTIFICATION_PREFS });
     setNotificationPrefsLoaded(false);
     const gen = workspaceGenRef.current;
-    const origin = client.origin;
+    const origin = client.localDataScope;
     // Drain any cold-start notification tap AFTER resetting overlays so this
     // commit never wipes out the deep-linked thread.
     if (pendingNotificationTapRef.current) {
@@ -582,7 +630,9 @@ function LoopShell() {
       if (!snap || gen !== workspaceGenRef.current || hasLiveLoadRef.current) {
         return;
       }
-      setLiveCards(snap.cards);
+      setLiveCards(
+        snap.cards.map((card) => ({ ...card, savedObservedAt: undefined })),
+      );
       setAgents(snap.agents);
       setFolders(snap.folders);
       setSummary(snap.summary);
@@ -631,6 +681,7 @@ function LoopShell() {
     const gen = loadCoordRef.current.currentGeneration;
     const epoch = feedPageEpochRef.current;
     const { source, before } = feedCursor;
+    const savedObservedAt = performance.now();
     setLoadingMoreFeed(true);
     try {
       const page =
@@ -643,7 +694,10 @@ function LoopShell() {
       ) {
         return;
       }
-      const mapped = mergeUnifiedFeedCards(page.items, []);
+      const mapped = mergeUnifiedFeedCards(page.items, []).map((card) => ({
+        ...card,
+        savedObservedAt,
+      }));
       hasLoadedOlderFeedRef.current = true;
       setOlderFeedCards((prev) => {
         const seenIds = new Set(prev.map((c) => c.id));
@@ -784,18 +838,28 @@ function LoopShell() {
   );
 
   const handleToggleSaved = useCallback(
-    async (card: NativeResultCard) => {
+    async (
+      card: Pick<
+        NativeResultCard,
+        "id" | "messageId" | "conversationId" | "saved"
+      >,
+    ) => {
       const nextSaved = !card.saved;
       const matchesCard = (c: NativeResultCard) =>
         c.id === card.id ||
         Boolean(card.messageId && c.messageId === card.messageId);
-      const applySaved = (saved: boolean) => (prev: NativeResultCard[]) =>
-        prev.map((c) => (matchesCard(c) ? { ...c, saved } : c));
+      const applySaved = (saved: boolean) => {
+        const savedObservedAt = performance.now();
+        return (prev: NativeResultCard[]) =>
+          prev.map((c) =>
+            matchesCard(c) ? { ...c, saved, savedObservedAt } : c,
+          );
+      };
       if (client) {
         if (!card.messageId) return;
         const msgId = card.messageId;
         const gen = workspaceGenRef.current;
-        await runSaveToggle({
+        return runSaveToggle({
           nextSaved,
           generation: gen,
           getGeneration: () => workspaceGenRef.current,
@@ -806,7 +870,7 @@ function LoopShell() {
               prev ? applySaved(saved)(prev) : prev,
             );
           },
-          commit: () => client.setSaved(msgId, nextSaved),
+          commit: () => client.setSaved(msgId, nextSaved, card.conversationId),
           onSuccess: () =>
             showToast(nextSaved ? "Saved card" : "Removed from Saved"),
           onUncertain: () => {
@@ -819,7 +883,6 @@ function LoopShell() {
             );
           },
         });
-        return;
       }
       setDemoCards(applySaved(nextSaved));
       setCarouselOverrideCards((prev) =>
@@ -927,6 +990,9 @@ function LoopShell() {
       queue?: boolean,
     ) => {
       if (client) {
+        if (activeSessionRef.current !== session) {
+          throw new Error("Workspace changed before the reply was sent.");
+        }
         const gen = workspaceGenRef.current;
         const agentId =
           card.agentId ||
@@ -944,6 +1010,7 @@ function LoopShell() {
           idempotencyKey,
           queue,
         });
+        if (gen !== workspaceGenRef.current) return;
         showToast(
           queue
             ? `Queued for @${card.agentName}`
@@ -951,22 +1018,21 @@ function LoopShell() {
               ? `Sent to @${card.agentName} with ${attachmentIds.length} ${attachmentIds.length === 1 ? "file" : "files"}`
               : `Sent to @${card.agentName}`,
         );
-        scheduleSilentRefresh(450, gen);
+        scheduleSilentRefresh(0, gen);
         return;
       }
-      setTimeout(() => {
-        const nextCard = buildSimulatedReply(
-          card.conversationId,
-          card.agentName,
-          card.projectName,
-          card.model,
-          prompt,
-        );
-        setDemoCards((prev) => [nextCard, ...prev]);
-        haptics.success();
-      }, 1100);
+      await new Promise<void>((resolve) => setTimeout(resolve, 1100));
+      const nextCard = buildSimulatedReply(
+        card.conversationId,
+        card.agentName,
+        card.projectName,
+        card.model,
+        prompt,
+      );
+      setDemoCards((prev) => [nextCard, ...prev]);
+      haptics.success();
     },
-    [client, agents, scheduleSilentRefresh, showToast],
+    [client, session, agents, scheduleSilentRefresh, showToast],
   );
 
   const handleCarouselSchedule = useCallback(
@@ -1075,25 +1141,28 @@ function LoopShell() {
   );
 
   const handleComposeCreate = useCallback(
-    async (
-      input: ComposeSubmit & {
-        name: string;
-        connectionId: string;
-        model: string;
-        folderId?: string | null;
-      },
-    ) => {
+    async (input: PendingAgentCreate) => {
       if (client) {
+        if (activeSessionRef.current !== session) {
+          throw new Error("Workspace changed before the request was sent.");
+        }
         const gen = workspaceGenRef.current;
         const created = await client.createAgent({
           name: input.name,
           connectionId: input.connectionId,
           model: input.model,
+          effort: input.effort,
           initialPrompt: input.text,
           attachmentIds: input.attachmentIds,
           folderId: input.folderId,
           idempotencyKey: input.idempotencyKey,
         });
+        if (
+          gen !== workspaceGenRef.current ||
+          activeSessionRef.current !== session
+        ) {
+          throw new LoopApiError(401, "Workspace changed.");
+        }
         showToast(`Started @${created.name}`);
         setAppTab("feed");
         scheduleSilentRefresh(400, gen);
@@ -1111,7 +1180,7 @@ function LoopShell() {
       haptics.success();
       showToast(`@${input.name} answered`);
     },
-    [client, scheduleSilentRefresh, showToast],
+    [client, session, scheduleSilentRefresh, showToast],
   );
 
   const handleDecideApproval = useCallback(
@@ -1365,22 +1434,24 @@ function LoopShell() {
   );
 
   const handleSignOut = useCallback(async () => {
-    const signingOutSession = session;
-    if (client) await client.signOut();
-    // Never wipe a newly paired workspace if the user switched while sign-out was in flight
-    if (activeSessionRef.current !== signingOutSession) return;
-    // Invalidate any in-flight workspace loads BEFORE deleting local cache files so
-    // an about-to-finish fetchAll cannot recreate the cache file right after deletion.
+    if (
+      !session ||
+      (activeSessionRef.current && activeSessionRef.current !== session)
+    )
+      return;
+    activeSessionRef.current = null;
+    rememberedRecoveryClientRef.current = null;
     workspaceGenRef.current = loadCoordRef.current.reset();
-    clearWorkspaceDrafts(signingOutSession?.origin);
-    clearWorkspaceCache(signingOutSession?.origin);
-    clearWorkspaceNotificationPrefs(signingOutSession?.origin);
-    await clearPairedSession();
-    if (activeSessionRef.current !== signingOutSession) return;
+    const scope = localDataScope(session);
+    clearWorkspaceDrafts(scope);
+    clearEphemeralWorkspaceData(scope);
+    const signOut = Promise.all([clearPairedSession(), client?.signOut()]);
+    setComposeTarget(null);
     setSession(null);
     setLiveCards([]);
     setSocketStatus("offline");
     showToast("Signed out — switched to Demo Deck");
+    await signOut;
   }, [client, session, showToast]);
 
   const openAgentByName = useCallback(
@@ -1751,7 +1822,7 @@ function LoopShell() {
           onChangeNotificationPrefs={(next) => {
             if (!notificationPrefsLoaded) return;
             setNotificationPrefs(next);
-            saveNotificationPrefs(client?.origin, next);
+            saveNotificationPrefs(client?.localDataScope, next);
           }}
         />
       )}
@@ -1844,6 +1915,7 @@ function LoopShell() {
         <SpotlightCarousel
           key={openConversationId}
           cards={openCarouselCards}
+          openingCard={carouselOverrideCards?.[0]}
           queuedRuns={openCarouselQueuedRuns}
           activeRun={openCarouselActiveRun}
           canPause={openCarouselCanPause}
@@ -1969,16 +2041,12 @@ function LoopShell() {
               : undefined
           }
           onToggleSaved={async (msgId, currentlySaved) => {
-            if (client) {
-              await client.setSaved(msgId, !currentlySaved);
-              showToast(!currentlySaved ? "Saved" : "Unsaved");
-            } else {
-              setDemoCards((prev) =>
-                prev.map((c) =>
-                  c.id === msgId ? { ...c, saved: !currentlySaved } : c,
-                ),
-              );
-            }
+            await handleToggleSaved({
+              id: msgId,
+              messageId: msgId,
+              conversationId: threadOverlay.conversationId,
+              saved: currentlySaved,
+            });
           }}
         />
       )}
@@ -1994,6 +2062,27 @@ function LoopShell() {
           allCards={activeCards}
           theme={theme}
           onClose={() => setProfileAgent(null)}
+          onUpdateModel={
+            client
+              ? async (selection) => {
+                  const gen = workspaceGenRef.current;
+                  const updated = await client.updateAgentModel(
+                    profileAgent.id,
+                    selection,
+                  );
+                  if (gen !== workspaceGenRef.current) return;
+                  setAgents((prev) =>
+                    prev.map((agent) =>
+                      agent.id === updated.id ? updated : agent,
+                    ),
+                  );
+                  setProfileAgent((prev) =>
+                    prev?.id === updated.id ? updated : prev,
+                  );
+                  void loadWorkspaceRef.current({ silent: true });
+                }
+              : undefined
+          }
           onMessageAgent={(agent) => {
             setProfileAgent(null);
             setComposeTarget({ kind: "agent", agent });
@@ -2013,6 +2102,11 @@ function LoopShell() {
       {/* New Task / Compose Sheet */}
       {composeTarget && (
         <ComposeSheet
+          key={JSON.stringify([
+            session?.origin,
+            session?.deviceId,
+            session?.pairedAt,
+          ])}
           theme={theme}
           client={client}
           connections={connections}
@@ -2088,17 +2182,41 @@ function LoopShell() {
             setPairingOpen(false);
             setPairingInitialUrl("");
           }}
-          onPaired={(nextSession) => {
-            const prevOrigin = activeSessionRef.current?.origin;
-            if (prevOrigin && prevOrigin !== nextSession.origin) {
-              clearWorkspaceCache(prevOrigin);
+          onPaired={async (nextSession) => {
+            pairingInProgressRef.current = true;
+            try {
+              const previous = activeSessionRef.current;
+              const paired = assignPairingStorage(
+                previous,
+                nextSession,
+                randomUuid(),
+                await loadRecoveryScope(
+                  nextSession.origin,
+                  nextSession.workspaceIdentity,
+                ),
+              );
+              // A failed SecureStore write leaves the existing session and all
+              // of its recovery data untouched.
+              await savePairedSession(paired);
+              workspaceGenRef.current = loadCoordRef.current.reset();
+              const previousScope = localDataScope(previous);
+              if (previousScope && previousScope !== localDataScope(paired)) {
+                clearEphemeralWorkspaceData(previousScope);
+              }
+              activeSessionRef.current = paired;
+              setComposeTarget(null);
+              setSession(paired);
+              setPairingOpen(false);
+              setPairingInitialUrl("");
+              showToast(
+                `Paired with ${paired.origin.replace(/^https?:\/\//, "")}`,
+              );
+            } finally {
+              pairingInProgressRef.current = false;
+              const expired = deferredUnauthorizedRef.current;
+              deferredUnauthorizedRef.current = null;
+              if (expired) handleUnauthorizedForSession(expired);
             }
-            setSession(nextSession);
-            setPairingOpen(false);
-            setPairingInitialUrl("");
-            showToast(
-              `Paired with ${nextSession.origin.replace(/^https?:\/\//, "")}`,
-            );
           }}
         />
       )}

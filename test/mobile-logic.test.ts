@@ -64,8 +64,13 @@ import {
   type LiveStreamOverlay,
 } from "../apps/mobile/src/api/socket.js";
 import {
+  assignPairingStorage,
   assertSameOriginResponse,
   extractSessionCookie,
+  isSamePairedDevice,
+  localDataScope,
+  preserveProbedCredentials,
+  workspaceRecoveryKey,
   normalizeWorkspaceUrl,
   tryParsePairingLink,
 } from "../apps/mobile/src/api/pairing-url.js";
@@ -74,6 +79,12 @@ import {
   feedPreviewText,
   getCardDismissTargets,
   mergeCarouselCards,
+  keepsCarouselReplyTarget,
+  mergeCarouselHistoryPage,
+  openingCarouselCardIds,
+  reconcileCarouselSaves,
+  resolveCarouselSaved,
+  resolveCarouselSelection,
   mergeUnifiedFeedCards,
   type NativeResultCard,
 } from "../apps/mobile/src/fixtures.js";
@@ -99,6 +110,7 @@ import {
   readDraftFromStore,
   serializeDraftStore,
   setDraftInStore,
+  settlePendingReplyInStore,
 } from "../apps/mobile/src/drafts-codec.js";
 import {
   buildSchedulePresets,
@@ -3917,4 +3929,442 @@ describe("mobile snippet usage sorting and quick-reply keyboard layout", () => {
       openLayout.maxScrollHeight,
     );
   });
+});
+
+it("reuses a carousel snapshot within one paired client and coalesces its refresh", async () => {
+  const session = {
+    origin: "https://loop.example.com",
+    cookie: "__Host-loop=fixture",
+    csrf: "fixture",
+    deviceName: "Fixture",
+    pairedAt: 1,
+  };
+  const client = new LoopClient(session);
+  const page: import("../apps/mobile/src/api/types.js").ApiConversationPage = {
+    working: false,
+    conversation: {
+      id: "thread",
+      title: "Result",
+      agent_id: null,
+      project_id: null,
+    },
+    messages: [],
+    saved: [],
+    next: null,
+    steerable_run_id: null,
+  };
+  const fetchPage = vi.spyOn(client, "carouselPage").mockResolvedValue(page);
+  const request = client.refreshCarouselPage("thread");
+  expect(client.refreshCarouselPage("thread")).toBe(request);
+  expect((await request).page).toBe(page);
+  expect(client.cachedCarouselPage("thread")?.page).toBe(page);
+  expect(new LoopClient(session).cachedCarouselPage("thread")).toBeUndefined();
+  expect(fetchPage).toHaveBeenCalledTimes(1);
+  fetchPage.mockRejectedValueOnce(new Error("offline"));
+  await expect(client.refreshCarouselPage("thread")).rejects.toThrow("offline");
+  expect(client.cachedCarouselPage("thread")?.page).toBe(page);
+  expect((await client.refreshCarouselPage("thread")).page).toBe(page);
+  expect(fetchPage).toHaveBeenCalledTimes(3);
+
+  let completeOlder!: (value: typeof page) => void;
+  fetchPage.mockReturnValueOnce(
+    new Promise((resolve) => {
+      completeOlder = resolve;
+    }),
+  );
+  const olderRequest = client.refreshCarouselPage("thread", "running");
+  const newPage = {
+    ...page,
+    conversation: { ...page.conversation, title: "Finished" },
+  };
+  fetchPage.mockResolvedValueOnce(newPage);
+  expect((await client.refreshCarouselPage("thread", "completed")).page).toBe(
+    newPage,
+  );
+  completeOlder(page);
+  await olderRequest;
+  expect(client.cachedCarouselPage("thread")?.page).toBe(newPage);
+  let completePreSave!: (value: typeof page) => void;
+  fetchPage.mockReturnValueOnce(
+    new Promise((resolve) => {
+      completePreSave = resolve;
+    }),
+  );
+  const preSave = client.refreshCarouselPage("thread");
+  const transport = vi
+    .spyOn(globalThis, "fetch")
+    .mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, saved: true }), { status: 200 }),
+    );
+  try {
+    await client.setSaved("bookmark", true, "thread");
+    completePreSave(newPage);
+    await preSave;
+    const patched = client.cachedCarouselPage("thread");
+    expect(patched?.page.saved).toEqual(["bookmark"]);
+    expect(patched?.messageObservedAt?.get("bookmark")).toEqual(
+      expect.any(Number),
+    );
+
+    let finishUnsave!: (response: Response) => void;
+    transport.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finishUnsave = resolve;
+      }),
+    );
+    fetchPage.mockResolvedValueOnce(newPage);
+    const unsave = client.setSaved("bookmark", false, "thread");
+    const readsBefore = fetchPage.mock.calls.length;
+    const reopened = client.refreshCarouselPage("thread");
+    expect(fetchPage).toHaveBeenCalledTimes(readsBefore);
+    finishUnsave(new Response(JSON.stringify({ ok: true, saved: false })));
+    await unsave;
+    expect((await reopened).page.saved).toEqual([]);
+    expect(fetchPage).toHaveBeenCalledTimes(readsBefore + 1);
+
+    let finishSave!: (response: Response) => void;
+    transport.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finishSave = resolve;
+      }),
+    );
+    transport.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true, saved: false })),
+    );
+    const requestsBefore = transport.mock.calls.length;
+    const first = client.setSaved("bookmark", true, "thread");
+    const second = client.setSaved("bookmark", false, "thread");
+    expect(transport).toHaveBeenCalledTimes(requestsBefore + 1);
+    finishSave(new Response(JSON.stringify({ ok: true, saved: true })));
+    await first;
+    await second;
+    expect(transport).toHaveBeenCalledTimes(requestsBefore + 2);
+    expect(client.cachedCarouselPage("thread")?.page.saved).toEqual([]);
+  } finally {
+    transport.mockRestore();
+  }
+});
+
+it("keeps the tapped older profile card in the first three carousel positions", () => {
+  const cards = ["D", "C", "B", "A"].map(
+    (id) => ({ id, messageId: id }) as NativeResultCard,
+  );
+  const recent = cards.slice(0, 3);
+  expect(openingCarouselCardIds(cards, recent)).toEqual(["D", "C", "B"]);
+  expect(
+    openingCarouselCardIds(cards, recent, { ...cards[3], id: "profile-card" }),
+  ).toEqual(["A", "D", "C"]);
+  const newest = { id: "E", messageId: "E" } as NativeResultCard;
+  const afterArrival = [newest, ...cards];
+  expect(
+    openingCarouselCardIds(
+      afterArrival,
+      afterArrival.slice(0, 3),
+      cards[3],
+      false,
+    ),
+  ).toEqual(["E", "D", "A"]);
+});
+
+it("preserves the older cursor boundary when refreshing during an older-page request", () => {
+  const card = (id: string) => ({ id, messageId: id }) as NativeResultCard;
+  const initial = { cards: ["C", "B", "A"].map(card), next: "before-A" };
+  const latest = { cards: ["D", "C", "B"].map(card), next: "before-B" };
+  const older = { cards: ["Z", "Y", "X"].map(card), next: "before-X" };
+  const refreshed = mergeCarouselHistoryPage(initial, latest, "refresh");
+  expect(refreshed.next).toBe("before-A");
+  const paged = mergeCarouselHistoryPage(refreshed, older, {
+    before: "before-A",
+  });
+  expect(paged.cards.map((item) => item.id)).toEqual([
+    "D",
+    "C",
+    "B",
+    "A",
+    "Z",
+    "Y",
+    "X",
+  ]);
+  expect(paged.next).toBe("before-X");
+  expect(
+    mergeCarouselHistoryPage(
+      mergeCarouselHistoryPage(initial, older, { before: "before-A" }),
+      latest,
+      "refresh",
+    ),
+  ).toEqual(paged);
+});
+
+it("uses the new cursor if the refreshed cards no longer overlap and ignores a late page", () => {
+  const card = (id: string) => ({ id, messageId: id }) as NativeResultCard;
+  const initial = { cards: ["C", "B", "A"].map(card), next: "before-A" };
+  const latest = { cards: ["G", "F", "E"].map(card), next: "before-E" };
+  const obsolete = { cards: ["Z"].map(card), next: null };
+  const bridgingPage = { cards: ["D", "C", "B"].map(card), next: "before-B" };
+  const refreshed = mergeCarouselHistoryPage(initial, latest, "refresh");
+  expect(refreshed).toBe(latest);
+  expect(
+    mergeCarouselHistoryPage(refreshed, obsolete, { before: "before-A" }),
+  ).toBe(latest);
+  expect(
+    mergeCarouselHistoryPage(refreshed, bridgingPage, {
+      before: "before-E",
+    }).cards.map(({ id }) => id),
+  ).toEqual(["G", "F", "E", "D", "C", "B"]);
+});
+
+it("keeps the selected message when refreshed cards are inserted before it", () => {
+  const cards = ["D", "C", "B", "A"].map(
+    (messageId) => ({ id: "feed:" + messageId, messageId }) as NativeResultCard,
+  );
+  expect(resolveCarouselSelection(cards, { index: 1, key: "B" })).toBe(2);
+  expect(resolveCarouselSelection(cards, { index: 1, key: "deleted" })).toBe(1);
+});
+
+it("uses the most recently started bookmark read and preserves a newer local change", () => {
+  const card = { messageId: "reply", saved: false } as NativeResultCard;
+  const history = { ids: new Set(["reply"]), startedAt: 20 };
+  expect(
+    resolveCarouselSaved(
+      card,
+      { ...card, savedObservedAt: 10 },
+      history,
+      undefined,
+    ),
+  ).toBe(true);
+  const newerFeed = { ...card, savedObservedAt: 30 };
+  expect(resolveCarouselSaved(card, newerFeed, history, undefined)).toBe(false);
+  expect(
+    resolveCarouselSaved(
+      card,
+      newerFeed,
+      {
+        ...history,
+        messageObservedAt: new Map([["reply", 32]]),
+      },
+      undefined,
+    ),
+  ).toBe(true);
+  const edit = { saved: true, revision: 2, settledAt: 35 };
+  expect(resolveCarouselSaved(card, newerFeed, history, edit)).toBe(true);
+  expect(
+    resolveCarouselSaved(card, { ...card, savedObservedAt: 40 }, history, edit),
+  ).toBe(false);
+});
+
+it("keeps the reply's selected history card through a non-overlapping refresh", () => {
+  const card = (messageId: string) =>
+    ({ id: messageId, messageId }) as NativeResultCard;
+  const prior = { cards: ["C", "B", "A"].map(card), next: "older" };
+  const newer = { cards: ["F", "E", "D"].map(card), next: "gap" };
+  expect(mergeCarouselHistoryPage(prior, newer, "refresh", "B")).toBe(prior);
+  expect(mergeCarouselHistoryPage(prior, newer, "replace", "B")).toBe(prior);
+  expect(mergeCarouselHistoryPage(prior, newer, "refresh")).toBe(newer);
+});
+
+it("keeps a selected fallback feed card while history retries", () => {
+  const fallback = { id: "older", messageId: "older" } as NativeResultCard;
+  const pinned = { id: "latest", messageId: "latest" } as NativeResultCard;
+  const page = { cards: [pinned], next: "older-cursor" };
+  expect(keepsCarouselReplyTarget(page, [pinned], fallback, true)).toBe(false);
+  expect(keepsCarouselReplyTarget(page, [pinned], fallback, false)).toBe(true);
+  expect(
+    keepsCarouselReplyTarget(
+      { ...page, cards: [pinned, fallback] },
+      [pinned],
+      fallback,
+      true,
+    ),
+  ).toBe(true);
+  expect(
+    keepsCarouselReplyTarget({ ...page, next: null }, [pinned], fallback, true),
+  ).toBe(true);
+});
+
+it("rejects unreadable draft stores without treating them as empty", () => {
+  expect(() => parseDraftStore('{"v":1,"drafts":')).toThrow("Could not read");
+  expect(() => parseDraftStore('{"v":2,"drafts":{}}')).toThrow(
+    "Could not read",
+  );
+  expect(Object.keys(parseDraftStore('{"v":1,"drafts":{}}'))).toEqual([]);
+});
+
+it("keeps an older pending carousel reply through draft age and capacity limits", () => {
+  const now = Date.now();
+  const scope = "carousel:pending";
+  let stored = setDraftInStore(createEmptyDraftMap(), scope, "Reply", now, {
+    key: "retry-key-123",
+  });
+  const afterTtl = now + DRAFT_TTL_MS + 1;
+  for (let index = 0; index < MAX_DRAFTS_PER_WORKSPACE + 1; index += 1) {
+    stored = setDraftInStore(
+      stored,
+      "carousel:" + index,
+      "New draft",
+      afterTtl,
+    );
+  }
+  expect(Object.keys(stored)).toHaveLength(MAX_DRAFTS_PER_WORKSPACE);
+  expect(readDraftEntryFromStore(stored, scope, afterTtl)?.pendingKey).toBe(
+    "retry-key-123",
+  );
+});
+
+it("round-trips the original target and attachments for a pending carousel reply", () => {
+  const scope = "carousel:thread";
+  const now = Date.now();
+  const stored = setDraftInStore(createEmptyDraftMap(), scope, "Reply", now, {
+    key: "retry-key-123",
+    queue: true,
+    replyToMessageId: "answer-a",
+    replyAttachmentIds: ["upload-1"],
+    replyAttemptId: "attempt-a",
+  });
+  expect(
+    readDraftEntryFromStore(
+      parseDraftStore(serializeDraftStore(stored), now),
+      scope,
+      now,
+    ),
+  ).toMatchObject({
+    pendingKey: "retry-key-123",
+    pendingQueue: true,
+    pendingReplyToMessageId: "answer-a",
+    pendingReplyAttachmentIds: ["upload-1"],
+    pendingReplyAttemptId: "attempt-a",
+  });
+  const retry = setDraftInStore(stored, scope, "Reply", now + 1, {
+    key: "retry-key-123",
+    replyAttemptId: "attempt-b",
+  });
+  expect(
+    settlePendingReplyInStore(retry, scope, "retry-key-123", {
+      text: "Reply",
+      attemptId: "attempt-a",
+    }),
+  ).toBe(retry);
+  expect(
+    settlePendingReplyInStore(retry, scope, "retry-key-123", {
+      attemptId: "attempt-b",
+    })[scope],
+  ).toBeUndefined();
+  const newer = setDraftInStore(stored, scope, "New draft", now + 1, {
+    key: "retry-key-456",
+  });
+  expect(settlePendingReplyInStore(newer, scope, "retry-key-123")).toBe(newer);
+  expect(
+    settlePendingReplyInStore(stored, scope, "retry-key-123")[scope],
+  ).toBeUndefined();
+});
+
+it("reconciles an uncertain carousel save only with a read started afterward", () => {
+  const edits = new Map([
+    ["reply", { saved: true, revision: 4, uncertain: true }],
+  ]);
+  expect(reconcileCarouselSaves(edits, [], 3)).toBe(edits);
+  expect(reconcileCarouselSaves(edits, [], 4)).toBe(edits);
+  expect(reconcileCarouselSaves(edits, ["reply"], 4).get("reply")).toEqual({
+    saved: true,
+    revision: 4,
+  });
+});
+
+it("allows a fresh carousel read to update a settled save while preserving an in-flight edit", () => {
+  const edits = new Map([
+    ["settled", { saved: true, revision: 4 }],
+    ["pending", { saved: true, revision: 2, pending: true }],
+  ]);
+  expect(reconcileCarouselSaves(edits, [], 3)).toBe(edits);
+  const refreshed = reconcileCarouselSaves(edits, [], 4);
+  expect(refreshed.get("settled")).toEqual({ saved: false, revision: 4 });
+  expect(refreshed.get("pending")).toBe(edits.get("pending"));
+});
+
+it("preserves a re-probed paired device and treats a different device on the same URL as a new pairing", () => {
+  const current = {
+    origin: "https://loop.example.com",
+    cookie: "loop=token",
+    csrf: "old",
+    deviceId: "device-a",
+    pairedAt: 1,
+    deviceName: "iPhone",
+  };
+  const probe = { ...current, cookie: "", csrf: "new", pairedAt: 2 };
+  expect(isSamePairedDevice(current, probe)).toBe(true);
+  expect(preserveProbedCredentials(current, probe)).toEqual({
+    ...current,
+    csrf: "new",
+  });
+  const replacement = { ...probe, deviceId: "device-b" };
+  expect(isSamePairedDevice(current, replacement)).toBe(false);
+  expect(preserveProbedCredentials(current, replacement)).toBe(replacement);
+  expect(
+    isSamePairedDevice(current, {
+      ...current,
+      origin: "https://other.example.com",
+    }),
+  ).toBe(false);
+  const existingScope = assignPairingStorage(null, current, "nonce");
+  const replacementScope = assignPairingStorage(
+    existingScope,
+    replacement,
+    "new",
+  );
+  expect(localDataScope(current)).toBe(current.origin);
+  expect(
+    localDataScope(assignPairingStorage(existingScope, probe, "ignored")),
+  ).toBe(localDataScope(existingScope));
+  expect(localDataScope(replacementScope)).not.toBe(
+    localDataScope(existingScope),
+  );
+  expect(localDataScope(replacementScope)).not.toBe(current.origin);
+});
+
+it("recovers an expired pairing's scope only with the authenticated workspace identity", () => {
+  const base = {
+    origin: "https://loop.example.com",
+    cookie: "session-a",
+    csrf: "csrf",
+    deviceId: "device-a",
+    pairedAt: 1,
+    deviceName: "iPhone",
+  };
+  const workspaceIdentity = "a".repeat(64);
+  const renewed = {
+    ...base,
+    workspaceIdentity,
+    cookie: "session-b",
+    deviceId: "device-b",
+    pairedAt: 2,
+  };
+  expect(
+    localDataScope(assignPairingStorage(null, renewed, "nonce", base.origin)),
+  ).toBe(base.origin);
+  const fresh = assignPairingStorage(null, renewed, "nonce");
+  expect(localDataScope(fresh)).toContain(workspaceIdentity);
+  expect(
+    localDataScope(
+      assignPairingStorage(null, { ...renewed, deviceId: "device-c" }, "nonce"),
+    ),
+  ).toBe(localDataScope(fresh));
+  const alteredOrigin = "https://other.example.com";
+  expect(workspaceRecoveryKey(base.origin, workspaceIdentity)).not.toBe(
+    workspaceRecoveryKey(alteredOrigin, workspaceIdentity),
+  );
+  expect(workspaceRecoveryKey(base.origin, "malformed")).toBeUndefined();
+  expect(
+    localDataScope(
+      assignPairingStorage(
+        null,
+        { ...renewed, origin: alteredOrigin },
+        "nonce",
+      ),
+    ),
+  ).not.toBe(localDataScope(fresh));
+  const other = assignPairingStorage(
+    null,
+    { ...renewed, workspaceIdentity: "b".repeat(64) },
+    "nonce",
+  );
+  expect(localDataScope(other)).not.toBe(localDataScope(fresh));
 });

@@ -128,6 +128,22 @@ export function ThreadSheet({
     Map<string, PublishedFileItem[]>
   >(() => new Map());
   const [savedIds, setSavedIds] = useState<Set<string>>(() => new Set());
+  const bookmarkRevision = useRef(0);
+  const pendingBookmarks = useRef(new Set<string>());
+  const lastSavedRead = useRef(-Infinity);
+  const applyBookmarks = useCallback(
+    (saved: string[], revision: number, startedAt: number) => {
+      if (
+        bookmarkRevision.current !== revision ||
+        pendingBookmarks.current.size ||
+        startedAt < lastSavedRead.current
+      )
+        return;
+      lastSavedRead.current = startedAt;
+      setSavedIds(new Set(saved));
+    },
+    [],
+  );
   const [working, setWorking] = useState(false);
   const [steerableRunId, setSteerableRunId] = useState<string | null>(null);
   const [deliveryMode, setDeliveryMode] = useState<"steer" | "queue">("steer");
@@ -170,7 +186,7 @@ export function ThreadSheet({
     copyTrackerRef.current.invalidate();
     setCopiedMsgId(null);
     closeSelectModal();
-  }, [conversationId, client?.origin, closeSelectModal]);
+  }, [conversationId, client?.localDataScope, closeSelectModal]);
 
   useEffect(() => {
     const copyTracker = copyTrackerRef.current;
@@ -185,6 +201,8 @@ export function ThreadSheet({
   const suppressAutoScrollUntilRef = useRef(0);
   const hasLoadedHistoryRef = useRef(false);
   const [draft, setDraft] = useState("");
+  const [draftLoaded, setDraftLoaded] = useState(false);
+  const [draftLoadError, setDraftLoadError] = useState(false);
   const draftScope = draftScopeForThread(conversationId);
   const draftTouchedRef = useRef(false);
   const restoredPendingRef = useRef<{
@@ -223,39 +241,47 @@ export function ThreadSheet({
   useEffect(() => {
     let cancelled = false;
     draftTouchedRef.current = false;
-    void loadDraftEntry(client?.origin, draftScope).then((entry) => {
-      if (cancelled || !entry?.text) return;
-      if (entry.pendingSchedule) {
-        const restored = {
-          idempotencyKey: entry.pendingSchedule.key,
-          sendAt: entry.pendingSchedule.sendAt,
-          input: entry.pendingSchedule.input ?? entry.text,
-          agentId: entry.pendingSchedule.agentId,
-          attachmentIds: entry.pendingSchedule.attachmentIds ?? [],
-          locked: true,
-        };
-        restoredPendingScheduleRef.current = restored;
-        setPendingSchedule(restored);
-        setDraft(entry.text);
-        return;
-      }
-      if (!draftTouchedRef.current) {
-        if (entry.pendingKey) {
-          restoredPendingRef.current = {
-            idempotencyKey: entry.pendingKey,
-            queue: entry.pendingQueue,
+    setDraftLoaded(false);
+    setDraftLoadError(false);
+    void loadDraftEntry(client?.localDataScope, draftScope)
+      .then((entry) => {
+        if (cancelled) return;
+        setDraftLoaded(true);
+        if (!entry?.text) return;
+        if (entry.pendingSchedule) {
+          const restored = {
+            idempotencyKey: entry.pendingSchedule.key,
+            sendAt: entry.pendingSchedule.sendAt,
+            input: entry.pendingSchedule.input ?? entry.text,
+            agentId: entry.pendingSchedule.agentId,
+            attachmentIds: entry.pendingSchedule.attachmentIds ?? [],
+            locked: true,
           };
-          if (entry.pendingQueue !== undefined) {
-            setDeliveryMode(entry.pendingQueue ? "queue" : "steer");
-          }
+          restoredPendingScheduleRef.current = restored;
+          setPendingSchedule(restored);
+          setDraft(entry.text);
+          return;
         }
-        setDraft(entry.text);
-      }
-    });
+        if (!draftTouchedRef.current) {
+          if (entry.pendingKey) {
+            restoredPendingRef.current = {
+              idempotencyKey: entry.pendingKey,
+              queue: entry.pendingQueue,
+            };
+            if (entry.pendingQueue !== undefined) {
+              setDeliveryMode(entry.pendingQueue ? "queue" : "steer");
+            }
+          }
+          setDraft(entry.text);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setDraftLoadError(true);
+      });
     return () => {
       cancelled = true;
     };
-  }, [client?.origin, draftScope]);
+  }, [client?.localDataScope, draftScope]);
 
   // The parent rebuilds this array on every render. Read it through a ref so a
   // parent re-render does not reload the thread.
@@ -330,6 +356,8 @@ export function ThreadSheet({
       setLoading(true);
       setError("");
     }
+    const bookmarkRead = bookmarkRevision.current;
+    const startedAt = performance.now();
     try {
       const page = await client.conversation(conversationId);
       if (!gate.accept(token, conversationId)) return;
@@ -351,18 +379,7 @@ export function ThreadSheet({
       if (!hasLoadedHistoryRef.current) {
         setNextCursor(page.next ?? null);
       }
-      setSavedIds((prev) => {
-        if (!hasLoadedHistoryRef.current) return new Set(page.saved);
-        // Replace bookmark state authoritatively for refreshed page messages while keeping
-        // bookmarks for earlier paginated messages not included in this page.
-        const pageMsgIds = new Set(page.messages.map((m) => m.id));
-        const merged = new Set<string>();
-        for (const id of prev) {
-          if (!pageMsgIds.has(id)) merged.add(id);
-        }
-        for (const id of page.saved) merged.add(id);
-        return merged;
-      });
+      applyBookmarks(page.saved, bookmarkRead, startedAt);
       setWorking(page.working);
       setSteerableRunId(page.steerable_run_id ?? null);
       if (page.conversation.title) setResolvedTitle(page.conversation.title);
@@ -377,12 +394,14 @@ export function ThreadSheet({
     } finally {
       if (gate.isLatest(token)) setLoading(false);
     }
-  }, [client, conversationId]);
+  }, [client, conversationId, applyBookmarks]);
 
   const loadEarlier = useCallback(async () => {
     if (!client || !nextCursor || loadingMore || loading) return;
     const targetConv = conversationId;
     const cursor = nextCursor;
+    const bookmarkRead = bookmarkRevision.current;
+    const startedAt = performance.now();
     setLoadingMore(true);
     try {
       const page = await client.conversation(targetConv, cursor);
@@ -397,18 +416,21 @@ export function ThreadSheet({
         }
         return prev;
       });
-      setSavedIds((prev) => {
-        const merged = new Set(prev);
-        for (const id of page.saved) merged.add(id);
-        return merged;
-      });
+      applyBookmarks(page.saved, bookmarkRead, startedAt);
       setNextCursor(page.next ?? null);
     } catch {
       // keep existing messages
     } finally {
       setLoadingMore(false);
     }
-  }, [client, conversationId, loading, loadingMore, nextCursor]);
+  }, [
+    client,
+    conversationId,
+    loading,
+    loadingMore,
+    nextCursor,
+    applyBookmarks,
+  ]);
 
   useEffect(() => {
     void load();
@@ -455,6 +477,7 @@ export function ThreadSheet({
     const { readyIds, readyNames, uploading, hasErrors, clearAttachments } =
       replyAttachments;
     if (
+      !draftLoaded ||
       (!trimmed && readyIds.length === 0) ||
       uploading ||
       hasErrors ||
@@ -491,7 +514,7 @@ export function ThreadSheet({
       });
       pendingSendRef.current = null;
       setRetryModeLocked(false);
-      clearDraft(client?.origin, draftScope);
+      clearDraft(client?.localDataScope, draftScope);
       setDraft("");
       clearAttachments();
       if (client) {
@@ -503,7 +526,7 @@ export function ThreadSheet({
         setRetryModeLocked(false);
       } else {
         setRetryModeLocked(true);
-        saveDraft(client?.origin, draftScope, draft, {
+        saveDraft(client?.localDataScope, draftScope, draft, {
           key: idempotencyKey,
           queue,
         });
@@ -543,7 +566,7 @@ export function ThreadSheet({
     setScheduleError("");
     try {
       await saveDraftAndFlush(
-        client?.origin,
+        client?.localDataScope,
         draftScope,
         trimmed || finalText,
         {
@@ -581,7 +604,7 @@ export function ThreadSheet({
       setScheduleOpen(false);
       pendingSendRef.current = null;
       setRetryModeLocked(false);
-      clearDraft(client?.origin, draftScope);
+      clearDraft(client?.localDataScope, draftScope);
       setDraft("");
       clearAttachments();
     } catch (err) {
@@ -605,8 +628,8 @@ export function ThreadSheet({
         return;
       } else {
         setPendingSchedule(null);
-        if (draft.trim()) saveDraft(client?.origin, draftScope, draft);
-        else clearDraft(client?.origin, draftScope);
+        if (draft.trim()) saveDraft(client?.localDataScope, draftScope, draft);
+        else clearDraft(client?.localDataScope, draftScope);
       }
       haptics.warning();
       setScheduleError(
@@ -632,7 +655,10 @@ export function ThreadSheet({
   }
 
   async function handleToggleSave(msgId: string) {
+    if (pendingBookmarks.current.has(msgId)) return;
     const isSaved = savedIds.has(msgId);
+    pendingBookmarks.current.add(msgId);
+    bookmarkRevision.current++;
     haptics.medium();
     setSavedIds((prev) => {
       const next = new Set(prev);
@@ -650,6 +676,9 @@ export function ThreadSheet({
         else next.delete(msgId);
         return next;
       });
+    } finally {
+      pendingBookmarks.current.delete(msgId);
+      bookmarkRevision.current++;
     }
   }
 
@@ -1012,7 +1041,11 @@ export function ThreadSheet({
                             draftTouchedRef.current = true;
                             pendingSendRef.current = null;
                             setDraft(prompt);
-                            saveDraft(client?.origin, draftScope, prompt);
+                            saveDraft(
+                              client?.localDataScope,
+                              draftScope,
+                              prompt,
+                            );
                           }}
                         />
                         {msg.run_id &&
@@ -1196,6 +1229,11 @@ export function ThreadSheet({
               </Pressable>
             </View>
           )}
+          {draftLoadError && (
+            <Text style={{ color: theme.orange }}>
+              Could not load the saved draft. Close and reopen to retry.
+            </Text>
+          )}
           <AttachmentChipStrip
             attachments={replyAttachments.attachments}
             theme={theme}
@@ -1258,12 +1296,14 @@ export function ThreadSheet({
             />
             <TextInput
               value={draft}
-              editable={!sending && !scheduleBusy && !scheduleLocked}
+              editable={
+                draftLoaded && !sending && !scheduleBusy && !scheduleLocked
+              }
               onChangeText={(next) => {
                 draftTouchedRef.current = true;
                 pendingSendRef.current = null;
                 setDraft(next);
-                saveDraft(client?.origin, draftScope, next);
+                saveDraft(client?.localDataScope, draftScope, next);
               }}
               placeholder={`Reply to @${agentName}…`}
               placeholderTextColor={theme.muted}
@@ -1311,6 +1351,7 @@ export function ThreadSheet({
             )}
             <Pressable
               disabled={
+                !draftLoaded ||
                 (!draft.trim() && replyAttachments.readyIds.length === 0) ||
                 replyAttachments.uploading ||
                 replyAttachments.hasErrors ||
@@ -1325,6 +1366,7 @@ export function ThreadSheet({
                 {
                   backgroundColor: theme.brass,
                   opacity:
+                    !draftLoaded ||
                     (!draft.trim() && replyAttachments.readyIds.length === 0) ||
                     replyAttachments.uploading ||
                     replyAttachments.hasErrors ||
@@ -1371,8 +1413,9 @@ export function ThreadSheet({
           setPendingSchedule(null);
           setScheduleError("");
           setScheduleOpen(false);
-          if (draft.trim()) saveDraft(client?.origin, draftScope, draft);
-          else clearDraft(client?.origin, draftScope);
+          if (draft.trim())
+            saveDraft(client?.localDataScope, draftScope, draft);
+          else clearDraft(client?.localDataScope, draftScope);
         }}
       />
 

@@ -1,6 +1,18 @@
 import type { ApiAgent, ApiConnection } from "./api/types";
 
-type CatalogModel = { id: string; name: string; resolvedModel?: string };
+export type AgentModelSelection = {
+  connectionId: string;
+  model: string;
+  effort: string | null;
+};
+
+type CatalogModel = {
+  id: string;
+  name: string;
+  resolvedModel?: string;
+  effortLevels?: string[];
+  defaultEffort?: string;
+};
 
 const HARNESS_LABELS: Record<string, string> = {
   codex: "Codex",
@@ -22,22 +34,36 @@ function parseJson(text: string | null | undefined): unknown {
   }
 }
 
-function catalog(connection?: ApiConnection): CatalogModel[] {
+export function modelCatalog(connection?: ApiConnection): CatalogModel[] {
   const parsed = parseJson(connection?.models);
   if (!Array.isArray(parsed)) return [];
-  return parsed.flatMap((m) =>
-    m && typeof m.id === "string" && m.id
-      ? [
-          {
-            id: m.id,
-            name: typeof m.name === "string" && m.name ? m.name : m.id,
-            ...(typeof m.resolvedModel === "string" && m.resolvedModel
-              ? { resolvedModel: m.resolvedModel }
-              : {}),
-          },
-        ]
-      : [],
-  );
+  return parsed.flatMap((item) => {
+    if (!item || typeof item.id !== "string" || !item.id) return [];
+    const model: CatalogModel = {
+      id: item.id,
+      name: typeof item.name === "string" && item.name ? item.name : item.id,
+    };
+    if (typeof item.resolvedModel === "string" && item.resolvedModel) {
+      model.resolvedModel = item.resolvedModel;
+    }
+    if (Array.isArray(item.effortLevels)) {
+      const levels: ({ value?: unknown } | null)[] = item.effortLevels;
+      model.effortLevels = [
+        ...new Set(
+          levels.flatMap((level) =>
+            typeof level?.value === "string" &&
+            /^[a-z][a-z0-9_-]{0,31}$/.test(level.value)
+              ? [level.value]
+              : [],
+          ),
+        ),
+      ];
+    }
+    if (typeof item.defaultEffort === "string" && item.defaultEffort) {
+      model.defaultEffort = item.defaultEffort;
+    }
+    return [model];
+  });
 }
 
 /** The harness a connection runs, as the web app names it. */
@@ -83,7 +109,7 @@ export function agentModelLabel(
   connections: ApiConnection[],
 ): string {
   const connection = connections.find((c) => c.id === agent.connection_id);
-  const models = catalog(connection);
+  const models = modelCatalog(connection);
   const option = models.find((m) => m.id === agent.model);
   const resolved =
     option?.resolvedModel || (isDefaultId(agent.model) ? "" : agent.model);
@@ -116,7 +142,7 @@ export function connectedHarnesses(
 /** The model a new agent uses on a connection: its harness default first, as
  * the web create form chooses. */
 export function defaultModelFor(connection: ApiConnection): string {
-  const models = catalog(connection);
+  const models = modelCatalog(connection);
   return models.find((m) => isDefaultId(m.id))?.id || models[0]?.id || "";
 }
 
@@ -125,4 +151,10 @@ export function defaultModelFor(connection: ApiConnection): string {
 export function runModelLabel(id: string | null | undefined): string {
   if (!id || isDefaultId(id)) return "";
   return modelIdLabel(id);
+}
+
+export function effortLabel(value?: string | null): string {
+  if (!value) return "Runtime default";
+  if (value === "xhigh") return "Extra high";
+  return value[0].toUpperCase() + value.slice(1);
 }

@@ -227,7 +227,10 @@ export const ConversationPage = z.object({
   conversation: PublicConversation,
   working: z.boolean(),
   messages: z.array(
-    PublicMessage.extend({ cursor: ProjectedMessage.shape.cursor }),
+    PublicMessage.extend({
+      cursor: ProjectedMessage.shape.cursor,
+      carousel_prompt: Text.optional(),
+    }),
   ),
   next: MaybeText,
   range: z.object({

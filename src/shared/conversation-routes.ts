@@ -38,6 +38,7 @@ export const conversationRoutes = {
       before: Text.max(512).optional(),
       message: requestId(MessageId).max(150).optional(),
       resume: z.enum(["0", "1"]).optional(),
+      view: z.literal("carousel").optional(),
     }),
     response: ConversationPage,
   }),
