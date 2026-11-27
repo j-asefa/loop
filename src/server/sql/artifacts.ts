@@ -280,7 +280,7 @@ const snippetsStatement = statement(
    )
    SELECT s.id, s.title, s.content, s.created_at,
      COALESCE(u.use_count, 0) AS use_count,
-     COALESCE(u.last_used_at, 0) AS last_used_at
+     CAST(COALESCE(u.last_used_at, 0) AS INTEGER) AS last_used_at
    FROM unique_snippets s
    LEFT JOIN usage u ON u.norm_content = s.norm_content
    ORDER BY s.created_at DESC, s.row DESC`,

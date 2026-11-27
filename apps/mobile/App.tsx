@@ -951,14 +951,6 @@ function LoopShell() {
               ? `Sent to @${card.agentName} with ${attachmentIds.length} ${attachmentIds.length === 1 ? "file" : "files"}`
               : `Sent to @${card.agentName}`,
         );
-        void client
-          .snippets()
-          .then((list) => {
-            if (gen === loadCoordRef.current.currentGeneration) {
-              setSnippets(list);
-            }
-          })
-          .catch(() => {});
         scheduleSilentRefresh(450, gen);
         return;
       }
