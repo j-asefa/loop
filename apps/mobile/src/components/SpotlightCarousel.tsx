@@ -82,6 +82,7 @@ import {
   mergeCarouselHistoryPage,
   openingCarouselCardIds,
   reconcileCarouselSaves,
+  resolveCarouselSaved,
   resolveCarouselSelection,
   QUICK_REPLIES,
   type CarouselHistoryPage,
@@ -270,14 +271,17 @@ export function SpotlightCarousel({
 
   const conversationId = cards[0]?.conversationId;
   const [initialHistory] = useState(() => {
-    const page = conversationId
+    const cached = conversationId
       ? client?.cachedCarouselPage(conversationId)
       : undefined;
-    return page
+    return cached
       ? {
-          ...parseConversationPageToSlides(page, cards[0]),
-          next: page.next,
-          saved: page.saved,
+          ...parseConversationPageToSlides(cached.page, cards[0]),
+          next: cached.page.next,
+          saved: {
+            ids: new Set(cached.page.saved),
+            startedAt: cached.startedAt,
+          },
         }
       : undefined;
   });
@@ -297,9 +301,7 @@ export function SpotlightCarousel({
   const [historyUnavailable, setHistoryUnavailable] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(Boolean(initialHistory));
   const [historyRetry, setHistoryRetry] = useState<string>();
-  const [serverSavedIds, setServerSavedIds] = useState<Set<string> | undefined>(
-    () => initialHistory && new Set(initialHistory.saved),
-  );
+  const [serverSaved, setServerSaved] = useState(initialHistory?.saved);
   const [savedEdits, setSavedEdits] = useState(
     new Map<string, CarouselSaveEdit>(),
   );
@@ -336,10 +338,10 @@ export function SpotlightCarousel({
           historyRetry,
         ]),
       )
-      .then((page) => {
+      .then(({ page, startedAt }) => {
         if (cancelled) return;
         setHistoryUnavailable(false);
-        setServerSavedIds(new Set(page.saved));
+        setServerSaved({ ids: new Set(page.saved), startedAt });
         setSavedEdits((prev) =>
           reconcileCarouselSaves(prev, page.saved, requestRevision),
         );
@@ -413,14 +415,9 @@ export function SpotlightCarousel({
       const feedCard =
         (card.messageId && cardsByMessageId.get(card.messageId)) ||
         cardsById.get(card.id);
-      if (edited && (!feedCard || edited.pending || edited.uncertain))
-        return edited.saved;
-      if (feedCard) return feedCard.saved;
-      return card.messageId && serverSavedIds
-        ? serverSavedIds.has(card.messageId)
-        : card.saved;
+      return resolveCarouselSaved(card, feedCard, serverSaved, edited);
     },
-    [cardsById, cardsByMessageId, savedEdits, serverSavedIds],
+    [cardsById, cardsByMessageId, savedEdits, serverSaved],
   );
 
   const slides = useMemo(() => {
@@ -544,6 +541,7 @@ export function SpotlightCarousel({
   const draftTouchedRef = useRef(false);
   const restoredPendingReplyRef = useRef<{
     idempotencyKey: string;
+    replyToMessageId?: string;
     queue?: boolean;
   } | null>(null);
   const restoredPendingScheduleRef = useRef<{
@@ -585,6 +583,7 @@ export function SpotlightCarousel({
         if (entry.pendingKey) {
           restoredPendingReplyRef.current = {
             idempotencyKey: entry.pendingKey,
+            replyToMessageId: entry.pendingReplyToMessageId,
             queue: entry.pendingQueue,
           };
           if (entry.pendingQueue !== undefined) {
@@ -648,7 +647,13 @@ export function SpotlightCarousel({
   });
 
   const holdHistoryUpdates =
-    !draftLoaded || keyboardVisible || recordingAudio || sending;
+    !draftLoaded ||
+    keyboardVisible ||
+    recordingAudio ||
+    sending ||
+    draft.trim().length > 0 ||
+    replyAttachments.attachments.length > 0 ||
+    Boolean(replyError);
   useEffect(() => {
     const page = fetchedHistory;
     if (
@@ -707,6 +712,7 @@ export function SpotlightCarousel({
     if (restoredPendingReplyRef.current) {
       pendingReplyRef.current = {
         idempotencyKey: restoredPendingReplyRef.current.idempotencyKey,
+        replyToMessageId: restoredPendingReplyRef.current.replyToMessageId,
         queue: restoredPendingReplyRef.current.queue,
       };
       restoredPendingReplyRef.current = null;
@@ -724,6 +730,7 @@ export function SpotlightCarousel({
   useEffect(() => {
     const firstPinned = pinnedIds[0];
     if (
+      !holdHistoryUpdates &&
       safeIndex === 0 &&
       firstPinned?.startsWith("working:") &&
       !cardsById.has(firstPinned) &&
@@ -731,7 +738,7 @@ export function SpotlightCarousel({
     ) {
       setPinnedIds(recentCards.map((c) => c.id));
     }
-  }, [safeIndex, recentCards, cardsById, pinnedIds]);
+  }, [holdHistoryUpdates, safeIndex, recentCards, cardsById, pinnedIds]);
 
   const scrollRef = useRef<Animated.ScrollView>(null);
   // A table or code block being swiped holds the carousel still.
@@ -1098,6 +1105,7 @@ export function SpotlightCarousel({
         // Reads started before the mutation settled can still carry the old state.
         const settled = {
           revision: ++saveRevisionRef.current,
+          settledAt: performance.now(),
           saved,
           uncertain,
         };
@@ -1156,7 +1164,6 @@ export function SpotlightCarousel({
     sendingRef.current = true;
     haptics.medium();
     setSending(true);
-    Keyboard.dismiss();
     setReplyError("");
     try {
       await Promise.resolve(
@@ -1167,6 +1174,7 @@ export function SpotlightCarousel({
       if (draftScope) clearDraft(client?.localDataScope, draftScope);
       setDraft("");
       clearAttachments();
+      Keyboard.dismiss();
     } catch (err) {
       if (!isUncertainOutcomeError(err)) {
         pendingReplyRef.current = null;
@@ -1176,6 +1184,7 @@ export function SpotlightCarousel({
         if (draftScope) {
           saveDraft(client?.localDataScope, draftScope, draft, {
             key: idempotencyKey,
+            replyToMessageId,
             queue,
           });
         }

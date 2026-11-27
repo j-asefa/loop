@@ -24,8 +24,8 @@ export function preserveProbedCredentials(
   };
 }
 
-// Sessions saved by earlier builds keep their origin-scoped files. A new
-// device uses a separate namespace, without deleting the previous device's data.
+// Sessions saved by earlier builds keep their origin-scoped files. Newly
+// paired devices reuse a namespace only when they share a workspace identity.
 export function localDataScope(
   session: PairedSession | null | undefined,
 ): string | undefined {

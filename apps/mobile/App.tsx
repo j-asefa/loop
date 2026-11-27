@@ -334,16 +334,18 @@ function LoopShell() {
 
   const activeSessionRef = useRef<PairedSession | null>(null);
   const pairingInProgressRef = useRef(false);
+  const deferredUnauthorizedRef = useRef<PairedSession | null>(null);
   activeSessionRef.current = session;
 
   const handleUnauthorizedForSession = useCallback(
     (expiredSession: PairedSession) => {
       // Ignore stale 401s from a previous workspace after switching workspaces
-      if (
-        pairingInProgressRef.current ||
-        activeSessionRef.current !== expiredSession
-      )
+      if (activeSessionRef.current !== expiredSession) return;
+      if (pairingInProgressRef.current) {
+        deferredUnauthorizedRef.current = expiredSession;
         return;
+      }
+      activeSessionRef.current = null;
       // Invalidate any in-flight workspace loads BEFORE deleting local files so a
       // sibling fetchAll cannot recreate cache or fire notifications after expiry.
       workspaceGenRef.current = loadCoordRef.current.reset();
@@ -392,6 +394,7 @@ function LoopShell() {
         },
         fetchAll: async () => {
           const fetchStartedAt = Date.now();
+          const savedObservedAt = performance.now();
           const [
             boot,
             feedPage,
@@ -449,7 +452,9 @@ function LoopShell() {
           } else if (!hasLoadedOlderFeedRef.current) {
             setFeedCursor(nextPageCursor);
           }
-          setLiveCards(nextTopCards);
+          setLiveCards(
+            nextTopCards.map((card) => ({ ...card, savedObservedAt })),
+          );
           if (queuedPage || workingPage) {
             setQueuedFeedItems([
               ...(queuedPage?.items ?? []),
@@ -612,7 +617,9 @@ function LoopShell() {
       if (!snap || gen !== workspaceGenRef.current || hasLiveLoadRef.current) {
         return;
       }
-      setLiveCards(snap.cards);
+      setLiveCards(
+        snap.cards.map((card) => ({ ...card, savedObservedAt: undefined })),
+      );
       setAgents(snap.agents);
       setFolders(snap.folders);
       setSummary(snap.summary);
@@ -661,6 +668,7 @@ function LoopShell() {
     const gen = loadCoordRef.current.currentGeneration;
     const epoch = feedPageEpochRef.current;
     const { source, before } = feedCursor;
+    const savedObservedAt = performance.now();
     setLoadingMoreFeed(true);
     try {
       const page =
@@ -673,7 +681,10 @@ function LoopShell() {
       ) {
         return;
       }
-      const mapped = mergeUnifiedFeedCards(page.items, []);
+      const mapped = mergeUnifiedFeedCards(page.items, []).map((card) => ({
+        ...card,
+        savedObservedAt,
+      }));
       hasLoadedOlderFeedRef.current = true;
       setOlderFeedCards((prev) => {
         const seenIds = new Set(prev.map((c) => c.id));
@@ -2179,6 +2190,9 @@ function LoopShell() {
               );
             } finally {
               pairingInProgressRef.current = false;
+              const expired = deferredUnauthorizedRef.current;
+              deferredUnauthorizedRef.current = null;
+              if (expired) handleUnauthorizedForSession(expired);
             }
           }}
         />

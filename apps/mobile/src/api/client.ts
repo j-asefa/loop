@@ -107,9 +107,14 @@ async function fetchWithTimeout(
   }
 }
 
+type CarouselPageSnapshot = {
+  page: ApiConversationPage;
+  startedAt: number;
+};
+
 /**
  * Typed HTTP client talking directly to a paired Loop companion server over
- * Loop's native cookie + Origin + X-Loop-CSRF protocol (zero server changes).
+ * Loop's native cookie + Origin + X-Loop-CSRF protocol.
  */
 export class LoopClient {
   private session: PairedSession;
@@ -117,13 +122,13 @@ export class LoopClient {
   private readonly carouselPages = new Map<
     string,
     {
-      page: ApiConversationPage;
+      snapshot: CarouselPageSnapshot;
       fetchedAt: number;
     }
   >();
   private readonly carouselRequests = new Map<
     string,
-    { version: string; request: Promise<ApiConversationPage> }
+    { version: string; request: Promise<CarouselPageSnapshot> }
   >();
 
   private readonly carouselSaveRequests = new Map<
@@ -398,14 +403,14 @@ export class LoopClient {
 
   // A short-lived snapshot for instant reopen. Only this paired client can
   // see it, and the carousel revalidates it on every open.
-  cachedCarouselPage(id: string): ApiConversationPage | undefined {
+  cachedCarouselPage(id: string): CarouselPageSnapshot | undefined {
     const cached = this.carouselPages.get(id);
     if (!cached) return;
     if (Date.now() - cached.fetchedAt > 60_000) return;
-    return cached.page;
+    return cached.snapshot;
   }
 
-  refreshCarouselPage(id: string, version = ""): Promise<ApiConversationPage> {
+  refreshCarouselPage(id: string, version = ""): Promise<CarouselPageSnapshot> {
     const saves = this.carouselSaveRequests.get(id);
     if (saves?.size) {
       return Promise.allSettled(saves).then(() =>
@@ -414,9 +419,11 @@ export class LoopClient {
     }
     const pending = this.carouselRequests.get(id);
     if (pending?.version === version) return pending.request;
+    const startedAt = performance.now();
     const request = this.carouselPage(id)
       .then((page) => {
-        if (this.carouselRequests.get(id)?.request !== request) return page;
+        const snapshot = { page, startedAt };
+        if (this.carouselRequests.get(id)?.request !== request) return snapshot;
         this.carouselPages.delete(id);
         // Bound retained transcript size as well as the number of cached pages.
         if (
@@ -425,13 +432,13 @@ export class LoopClient {
             0,
           ) <= 300_000
         ) {
-          this.carouselPages.set(id, { page, fetchedAt: Date.now() });
+          this.carouselPages.set(id, { snapshot, fetchedAt: Date.now() });
           if (this.carouselPages.size > 12) {
             const oldest = this.carouselPages.keys().next().value;
             if (oldest !== undefined) this.carouselPages.delete(oldest);
           }
         }
-        return page;
+        return snapshot;
       })
       .finally(() => {
         if (this.carouselRequests.get(id)?.request === request) {
@@ -697,12 +704,15 @@ export class LoopClient {
       if (conversationId) {
         const cached = this.carouselPages.get(conversationId);
         if (cached) {
-          const ids = new Set(cached.page.saved);
+          const ids = new Set(cached.snapshot.page.saved);
           if (result.saved) ids.add(messageId);
           else ids.delete(messageId);
           this.carouselPages.set(conversationId, {
             ...cached,
-            page: { ...cached.page, saved: [...ids] },
+            snapshot: {
+              ...cached.snapshot,
+              page: { ...cached.snapshot.page, saved: [...ids] },
+            },
           });
         }
         // A GET already in flight may still contain the pre-save state.

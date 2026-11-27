@@ -80,6 +80,7 @@ import {
   mergeCarouselHistoryPage,
   openingCarouselCardIds,
   reconcileCarouselSaves,
+  resolveCarouselSaved,
   resolveCarouselSelection,
   mergeUnifiedFeedCards,
   type NativeResultCard,
@@ -3921,14 +3922,14 @@ it("reuses a carousel snapshot within one paired client and coalesces its refres
   const fetchPage = vi.spyOn(client, "carouselPage").mockResolvedValue(page);
   const request = client.refreshCarouselPage("thread");
   expect(client.refreshCarouselPage("thread")).toBe(request);
-  expect(await request).toBe(page);
-  expect(client.cachedCarouselPage("thread")).toBe(page);
+  expect((await request).page).toBe(page);
+  expect(client.cachedCarouselPage("thread")?.page).toBe(page);
   expect(new LoopClient(session).cachedCarouselPage("thread")).toBeUndefined();
   expect(fetchPage).toHaveBeenCalledTimes(1);
   fetchPage.mockRejectedValueOnce(new Error("offline"));
   await expect(client.refreshCarouselPage("thread")).rejects.toThrow("offline");
-  expect(client.cachedCarouselPage("thread")).toBe(page);
-  await expect(client.refreshCarouselPage("thread")).resolves.toBe(page);
+  expect(client.cachedCarouselPage("thread")?.page).toBe(page);
+  expect((await client.refreshCarouselPage("thread")).page).toBe(page);
   expect(fetchPage).toHaveBeenCalledTimes(3);
 
   let completeOlder!: (value: typeof page) => void;
@@ -3943,12 +3944,12 @@ it("reuses a carousel snapshot within one paired client and coalesces its refres
     conversation: { ...page.conversation, title: "Finished" },
   };
   fetchPage.mockResolvedValueOnce(newPage);
-  await expect(client.refreshCarouselPage("thread", "completed")).resolves.toBe(
+  expect((await client.refreshCarouselPage("thread", "completed")).page).toBe(
     newPage,
   );
   completeOlder(page);
   await olderRequest;
-  expect(client.cachedCarouselPage("thread")).toBe(newPage);
+  expect(client.cachedCarouselPage("thread")?.page).toBe(newPage);
   let completePreSave!: (value: typeof page) => void;
   fetchPage.mockReturnValueOnce(
     new Promise((resolve) => {
@@ -3965,7 +3966,9 @@ it("reuses a carousel snapshot within one paired client and coalesces its refres
     await client.setSaved("bookmark", true, "thread");
     completePreSave(newPage);
     await preSave;
-    expect(client.cachedCarouselPage("thread")?.saved).toEqual(["bookmark"]);
+    expect(client.cachedCarouselPage("thread")?.page.saved).toEqual([
+      "bookmark",
+    ]);
 
     let finishUnsave!: (response: Response) => void;
     transport.mockReturnValueOnce(
@@ -3980,7 +3983,7 @@ it("reuses a carousel snapshot within one paired client and coalesces its refres
     expect(fetchPage).toHaveBeenCalledTimes(readsBefore);
     finishUnsave(new Response(JSON.stringify({ ok: true, saved: false })));
     await unsave;
-    expect((await reopened).saved).toEqual([]);
+    expect((await reopened).page.saved).toEqual([]);
     expect(fetchPage).toHaveBeenCalledTimes(readsBefore + 1);
   } finally {
     transport.mockRestore();
@@ -4061,6 +4064,47 @@ it("keeps the selected message when refreshed cards are inserted before it", () 
   );
   expect(resolveCarouselSelection(cards, { index: 1, key: "B" })).toBe(2);
   expect(resolveCarouselSelection(cards, { index: 1, key: "deleted" })).toBe(1);
+});
+
+it("uses the most recently started bookmark read and preserves a newer local change", () => {
+  const card = { messageId: "reply", saved: false } as NativeResultCard;
+  const history = { ids: new Set(["reply"]), startedAt: 20 };
+  expect(
+    resolveCarouselSaved(
+      card,
+      { ...card, savedObservedAt: 10 },
+      history,
+      undefined,
+    ),
+  ).toBe(true);
+  const newerFeed = { ...card, savedObservedAt: 30 };
+  expect(resolveCarouselSaved(card, newerFeed, history, undefined)).toBe(false);
+  const edit = { saved: true, revision: 2, settledAt: 35 };
+  expect(resolveCarouselSaved(card, newerFeed, history, edit)).toBe(true);
+  expect(
+    resolveCarouselSaved(card, { ...card, savedObservedAt: 40 }, history, edit),
+  ).toBe(false);
+});
+
+it("round-trips the original target for a pending carousel reply", () => {
+  const scope = "carousel:thread";
+  const now = Date.now();
+  const stored = setDraftInStore(createEmptyDraftMap(), scope, "Reply", now, {
+    key: "retry-key-123",
+    queue: true,
+    replyToMessageId: "answer-a",
+  });
+  expect(
+    readDraftEntryFromStore(
+      parseDraftStore(serializeDraftStore(stored), now),
+      scope,
+      now,
+    ),
+  ).toMatchObject({
+    pendingKey: "retry-key-123",
+    pendingQueue: true,
+    pendingReplyToMessageId: "answer-a",
+  });
 });
 
 it("reconciles an uncertain carousel save only with a read started afterward", () => {

@@ -16,6 +16,7 @@ export type NativeResultCard = {
   bodyTruncated?: boolean;
   createdAt: number;
   saved: boolean;
+  savedObservedAt?: number;
   unread: boolean;
   doneUnread?: boolean;
   replyUnread?: boolean;
@@ -228,6 +229,7 @@ export function resolveCarouselSelection(
 export type CarouselSaveEdit = {
   saved: boolean;
   revision: number;
+  settledAt?: number;
   pending?: boolean;
   uncertain?: boolean;
 };
@@ -244,9 +246,33 @@ export function reconcileCarouselSaves(
     const serverSaved = saved.has(key);
     if (!edit.uncertain && edit.saved === serverSaved) continue;
     if (next === edits) next = new Map(edits);
-    next.set(key, { revision: edit.revision, saved: serverSaved });
+    next.set(key, { ...edit, saved: serverSaved, uncertain: undefined });
   }
   return next;
+}
+
+export function resolveCarouselSaved(
+  card: NativeResultCard,
+  feedCard: NativeResultCard | undefined,
+  history: { ids: Set<string>; startedAt: number } | undefined,
+  edit: CarouselSaveEdit | undefined,
+): boolean {
+  const feedObservedAt = feedCard?.savedObservedAt ?? -Infinity;
+  const historyObservedAt =
+    card.messageId && history ? history.startedAt : -Infinity;
+  if (
+    edit &&
+    (edit.pending ||
+      edit.uncertain ||
+      (edit.settledAt ?? Infinity) >=
+        Math.max(feedObservedAt, historyObservedAt))
+  ) {
+    return edit.saved;
+  }
+  if (history && card.messageId && historyObservedAt >= feedObservedAt) {
+    return history.ids.has(card.messageId);
+  }
+  return feedCard?.saved ?? card.saved;
 }
 
 export function openingCarouselCardIds(

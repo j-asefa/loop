@@ -28,6 +28,7 @@ export type PendingShareDraft = {
 export type DraftPendingMeta = {
   key?: string;
   queue?: boolean;
+  replyToMessageId?: string;
   schedule?: PendingScheduleDraft;
   share?: PendingShareDraft;
   agentCreate?: PendingAgentCreate;
@@ -40,6 +41,7 @@ export type DraftEntry = {
   pendingKey?: string;
   /** Original queue delivery flag paired with `pendingKey` so retries never mutate semantics. */
   pendingQueue?: boolean;
+  pendingReplyToMessageId?: string;
   /** Durable schedule identity + payload metadata persisted before dispatch / across uncertain timeouts. */
   pendingSchedule?: PendingScheduleDraft;
   /** Durable share identity + routing/upload metadata persisted before dispatch / across uncertain timeouts. */
@@ -181,7 +183,7 @@ export const DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const SCHEDULE_GRACE_MS = 24 * 60 * 60 * 1000;
 
 function isDraftEntryExpired(entry: DraftEntry, now: number): boolean {
-  // Keep pending creation and share sends until resolved or purged on sign-out.
+  // Keep pending creation and share sends available until resolved after reconnecting.
   if (entry.pendingShare || entry.pendingAgentCreate) return false;
   if (entry.pendingSchedule) {
     const scheduleExpiry = Math.max(
@@ -264,6 +266,10 @@ export function pruneDraftStore(input: DraftMap, now = Date.now()): DraftMap {
       ...(typeof entry.pendingQueue === "boolean"
         ? { pendingQueue: entry.pendingQueue }
         : {}),
+      ...(typeof entry.pendingReplyToMessageId === "string" &&
+      entry.pendingReplyToMessageId
+        ? { pendingReplyToMessageId: entry.pendingReplyToMessageId }
+        : {}),
       ...(pendingSchedule ? { pendingSchedule } : {}),
       ...(pendingShare ? { pendingShare } : {}),
       ...(pendingAgentCreate ? { pendingAgentCreate } : {}),
@@ -312,6 +318,7 @@ export function parseDraftStore(raw: string, now = Date.now()): DraftMap {
         updatedAt?: unknown;
         pendingKey?: unknown;
         pendingQueue?: unknown;
+        pendingReplyToMessageId?: unknown;
         pendingSchedule?: unknown;
         pendingShare?: unknown;
         pendingAgentCreate?: unknown;
@@ -335,6 +342,9 @@ export function parseDraftStore(raw: string, now = Date.now()): DraftMap {
             : {}),
           ...(typeof item.pendingQueue === "boolean"
             ? { pendingQueue: item.pendingQueue }
+            : {}),
+          ...(typeof item.pendingReplyToMessageId === "string"
+            ? { pendingReplyToMessageId: item.pendingReplyToMessageId }
             : {}),
           ...(pendingSchedule ? { pendingSchedule } : {}),
           ...(pendingShare ? { pendingShare } : {}),
@@ -373,6 +383,9 @@ export function setDraftInStore(
     updatedAt: now,
     ...(pending?.key ? { pendingKey: pending.key } : {}),
     ...(pending?.queue !== undefined ? { pendingQueue: pending.queue } : {}),
+    ...(pending?.replyToMessageId
+      ? { pendingReplyToMessageId: pending.replyToMessageId }
+      : {}),
     ...(pendingSchedule ? { pendingSchedule } : {}),
     ...(pendingShare ? { pendingShare } : {}),
     ...(pendingAgentCreate ? { pendingAgentCreate } : {}),
