@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Linking,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -34,6 +35,10 @@ import {
   parseLatexDisplayRows,
 } from "../latex-math";
 import type { LoopTheme } from "../theme";
+import {
+  hasInteractiveInlineLink,
+  resolveInlineTextSelectable,
+} from "../text-selection";
 import { MermaidDiagram } from "./MermaidDiagram";
 import { usePagerLockProps } from "../pager-lock";
 
@@ -537,13 +542,17 @@ function renderInlineTokens(
               {
                 backgroundColor: theme.attention,
                 color: theme.brassText,
-                textDecorationLine: "underline",
+                textDecorationLine: opts?.onOpenFile ? "underline" : "none",
               },
             ]}
-            onPress={() => {
-              haptics.light();
-              opts?.onOpenFile?.(loopFile, tok.label);
-            }}
+            onPress={
+              opts?.onOpenFile
+                ? () => {
+                    haptics.light();
+                    opts.onOpenFile?.(loopFile, tok.label);
+                  }
+                : undefined
+            }
           >
             {` 📎 ${tok.label} `}
           </Text>
@@ -604,9 +613,24 @@ export function InlineFormattedText({
   selectable?: boolean;
 }) {
   const tokens = useMemo(() => tokenizeInline(text), [text]);
+  const effectiveSelectable = useMemo(
+    () =>
+      resolveInlineTextSelectable({
+        selectable,
+        platformOs: Platform.OS,
+        hasInteractiveLinks: selectable
+          ? hasInteractiveInlineLink(
+              tokens,
+              workspaceOrigin,
+              Boolean(onOpenFile),
+            )
+          : false,
+      }),
+    [selectable, tokens, workspaceOrigin, onOpenFile],
+  );
   return (
     <Text
-      selectable={selectable}
+      selectable={effectiveSelectable}
       style={[{ color: theme.text }, baseStyle]}
       numberOfLines={numberOfLines}
       onTextLayout={onTextLayout}

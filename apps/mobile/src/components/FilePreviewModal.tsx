@@ -3,10 +3,12 @@ import {
   ActivityIndicator,
   Image,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import {
@@ -27,6 +29,7 @@ import {
   Paperclip,
   RefreshCw,
   Share2,
+  TextSelect,
   X,
 } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -43,6 +46,7 @@ import {
   type PublishedFileItem,
 } from "../api/files";
 import { haptics } from "../haptics";
+import { shouldShowPreviewSelectToggle } from "../text-selection";
 import type { LoopTheme } from "../theme";
 import { RichContent } from "./RichContent";
 
@@ -239,6 +243,7 @@ export function FilePreviewModal({
   const [canQuickLook, setCanQuickLook] = useState(false);
   const [textContent, setTextContent] = useState<string | null>(null);
   const [textTruncated, setTextTruncated] = useState(false);
+  const [selectTextMode, setSelectTextMode] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -254,6 +259,7 @@ export function FilePreviewModal({
     setCanQuickLook(false);
     setTextContent(null);
     setTextTruncated(false);
+    setSelectTextMode(false);
 
     void (async () => {
       try {
@@ -462,6 +468,39 @@ export function FilePreviewModal({
                 .join(" · ")}
             </Text>
           </View>
+          {shouldShowPreviewSelectToggle({
+            hasTextContent: textContent !== null,
+            isMarkdown,
+            platformOs: Platform.OS,
+          }) ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={
+                selectTextMode ? "Show formatted preview" : "Select text"
+              }
+              onPress={() => {
+                haptics.light();
+                setSelectTextMode((v) => !v);
+              }}
+              style={[
+                styles.closeBtn,
+                {
+                  backgroundColor: selectTextMode
+                    ? theme.attention
+                    : theme.soft,
+                  borderColor: selectTextMode
+                    ? theme.attentionLine
+                    : theme.line,
+                },
+              ]}
+            >
+              {selectTextMode ? (
+                <Eye size={17} color={theme.brassText} />
+              ) : (
+                <TextSelect size={17} color={theme.text} />
+              )}
+            </Pressable>
+          ) : null}
           <Pressable
             accessibilityLabel="Close file preview"
             onPress={() => {
@@ -529,27 +568,80 @@ export function FilePreviewModal({
               />
             </ScrollView>
           ) : textContent !== null ? (
-            <ScrollView
-              style={styles.flex}
-              contentContainerStyle={styles.textScroll}
-            >
-              {isMarkdown ? (
-                <RichContent content={textContent} theme={theme} selectable />
+            selectTextMode ? (
+              Platform.OS === "ios" ? (
+                <View style={styles.flex}>
+                  <TextInput
+                    value={textContent}
+                    editable={false}
+                    multiline
+                    scrollEnabled
+                    textAlignVertical="top"
+                    style={[
+                      isMarkdown ? styles.selectInput : styles.monoSelectInput,
+                      { color: theme.text },
+                    ]}
+                  />
+                  {textTruncated ? (
+                    <Text
+                      style={[
+                        styles.truncatedNote,
+                        styles.truncatedNotePadded,
+                        { color: theme.muted },
+                      ]}
+                    >
+                      Preview shortened to 100 KB. Use Save or share to open the
+                      full file.
+                    </Text>
+                  ) : null}
+                </View>
               ) : (
-                <Text
-                  selectable
-                  style={[styles.monoPreview, { color: theme.text }]}
+                <ScrollView
+                  style={styles.flex}
+                  contentContainerStyle={styles.textScroll}
                 >
-                  {textContent}
-                </Text>
-              )}
-              {textTruncated ? (
-                <Text style={[styles.truncatedNote, { color: theme.muted }]}>
-                  Preview shortened to 100 KB. Use Save or share to open the
-                  full file.
-                </Text>
-              ) : null}
-            </ScrollView>
+                  <Text
+                    selectable
+                    style={[
+                      isMarkdown ? styles.selectPlainText : styles.monoPreview,
+                      { color: theme.text },
+                    ]}
+                  >
+                    {textContent}
+                  </Text>
+                  {textTruncated ? (
+                    <Text
+                      style={[styles.truncatedNote, { color: theme.muted }]}
+                    >
+                      Preview shortened to 100 KB. Use Save or share to open the
+                      full file.
+                    </Text>
+                  ) : null}
+                </ScrollView>
+              )
+            ) : (
+              <ScrollView
+                style={styles.flex}
+                contentContainerStyle={styles.textScroll}
+              >
+                {isMarkdown ? (
+                  <RichContent content={textContent} theme={theme} selectable />
+                ) : (
+                  <Text
+                    selectable
+                    style={[styles.monoPreview, { color: theme.text }]}
+                  >
+                    {textContent}
+                  </Text>
+                )}
+                {textTruncated ? (
+                  <Text style={[styles.truncatedNote, { color: theme.muted }]}>
+                    Preview shortened to 100 KB. Use Save or share to open the
+                    full file.
+                  </Text>
+                ) : null}
+              </ScrollView>
+            )
           ) : (
             <View style={styles.centered}>
               <View
@@ -809,10 +901,34 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 20,
   },
+  selectInput: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  monoSelectInput: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontFamily: "Courier",
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  selectPlainText: {
+    fontSize: 15,
+    lineHeight: 22,
+  },
   truncatedNote: {
     marginTop: 16,
     fontSize: 12,
     fontStyle: "italic",
+  },
+  truncatedNotePadded: {
+    marginTop: 0,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
   },
   placeholderIcon: {
     width: 84,
