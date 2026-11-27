@@ -12,10 +12,11 @@ import {
   View,
 } from "react-native";
 import { BlurView } from "expo-blur";
-import { ArrowUp, Paperclip, X } from "lucide-react-native";
+import { ArrowUp, Clock, Paperclip, X } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   isUncertainOutcomeError,
+  LoopApiError,
   randomUuid,
   type LoopClient,
 } from "../api/client";
@@ -25,6 +26,7 @@ import {
   draftScopeForCompose,
   loadDraftEntry,
   saveDraft,
+  saveDraftAndFlush,
 } from "../drafts";
 import { haptics } from "../haptics";
 import {
@@ -39,6 +41,8 @@ import {
   AttachmentSourceSheet,
   useAttachments,
 } from "./AttachmentTray";
+import { ScheduleSendSheet } from "./ScheduleSendSheet";
+import { VoiceRecorderButton } from "./VoiceRecorder";
 
 /** Where a compose sheet sends: a message to one agent (opened from that
  * agent's profile) or the first task of a new agent (opened from the feed or
@@ -60,6 +64,7 @@ export function ComposeSheet({
   target,
   onClose,
   onMessage,
+  onSchedule,
   onCreate,
 }: {
   theme: LoopTheme;
@@ -68,6 +73,10 @@ export function ComposeSheet({
   target: ComposeTarget;
   onClose: () => void;
   onMessage: (agent: ApiAgent, input: ComposeSubmit) => Promise<void>;
+  onSchedule?: (
+    agent: ApiAgent,
+    input: ComposeSubmit & { sendAt: number; folderId?: string | null },
+  ) => Promise<void>;
   onCreate: (
     input: ComposeSubmit & {
       name: string;
@@ -97,18 +106,58 @@ export function ComposeSheet({
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleBusy, setScheduleBusy] = useState(false);
+  const [scheduleError, setScheduleError] = useState("");
+  const [recordingAudio, setRecordingAudio] = useState(false);
+  const [hasPendingSend, setHasPendingSend] = useState(false);
+  const [pendingSchedule, setPendingSchedule] = useState<{
+    idempotencyKey: string;
+    sendAt: number;
+    input: string;
+    folderId: string | null;
+    attachmentIds: string[];
+    locked: boolean;
+  } | null>(null);
   const draftScope = useMemo(
     () => draftScopeForCompose(agent?.id, folderId),
     [agent?.id, folderId],
   );
   const draftTouchedRef = useRef(false);
   const restoredPendingKeyRef = useRef<string | null>(null);
+  const restoredPendingScheduleRef = useRef<{
+    idempotencyKey: string;
+    sendAt: number;
+    input: string;
+    folderId: string | null;
+    attachmentIds: string[];
+    locked: boolean;
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     draftTouchedRef.current = false;
     void loadDraftEntry(client?.origin, draftScope).then((entry) => {
-      if (!cancelled && !draftTouchedRef.current && entry?.text) {
+      if (cancelled || !entry?.text) return;
+      if (entry.pendingSchedule) {
+        // Always restore a locked schedule even if the user started typing before disk load finished.
+        const restored = {
+          idempotencyKey: entry.pendingSchedule.key,
+          sendAt: entry.pendingSchedule.sendAt,
+          input: entry.pendingSchedule.input ?? entry.text,
+          folderId:
+            entry.pendingSchedule.folderId !== undefined
+              ? entry.pendingSchedule.folderId
+              : (agent?.folder_id ?? null),
+          attachmentIds: entry.pendingSchedule.attachmentIds ?? [],
+          locked: true,
+        };
+        restoredPendingScheduleRef.current = restored;
+        setPendingSchedule(restored);
+        setText(entry.text);
+        return;
+      }
+      if (!draftTouchedRef.current) {
         restoredPendingKeyRef.current = entry.pendingKey ?? null;
         setText(entry.text);
       }
@@ -116,7 +165,7 @@ export function ComposeSheet({
     return () => {
       cancelled = true;
     };
-  }, [client?.origin, draftScope]);
+  }, [agent?.folder_id, client?.origin, draftScope]);
 
   useEffect(() => {
     if (agent || !client) return;
@@ -142,14 +191,31 @@ export function ComposeSheet({
 
   const attSig = composeAttachments.readyIds.join(",");
   useEffect(() => {
+    setScheduleError("");
+    if (restoredPendingScheduleRef.current) {
+      setPendingSchedule(restoredPendingScheduleRef.current);
+      restoredPendingScheduleRef.current = null;
+    } else {
+      setPendingSchedule((prev) => (prev?.locked ? prev : null));
+    }
     if (restoredPendingKeyRef.current) {
       sendKeyRef.current = restoredPendingKeyRef.current;
       restoredPendingKeyRef.current = null;
+      setHasPendingSend(true);
       return;
     }
     sendKeyRef.current = null;
-  }, [text, connection?.id, attSig]);
+    setHasPendingSend(false);
+  }, [text, attSig]);
 
+  // Only new-agent creation depends on connection?.id; existing-agent schedules must not reset on connection list refreshes.
+  useEffect(() => {
+    if (agent) return;
+    sendKeyRef.current = null;
+    setHasPendingSend(false);
+  }, [agent, connection?.id]);
+
+  const scheduleLocked = Boolean(pendingSchedule?.locked);
   const ready = agent
     ? true
     : client
@@ -158,8 +224,130 @@ export function ComposeSheet({
   const cannotSend =
     (!text.trim() && composeAttachments.readyIds.length === 0) ||
     composeAttachments.uploading ||
+    composeAttachments.hasErrors ||
+    recordingAudio ||
     !ready ||
-    busy;
+    busy ||
+    scheduleBusy ||
+    Boolean(pendingSchedule);
+  const canSchedule = Boolean(
+    agent &&
+    client &&
+    onSchedule &&
+    (Boolean(text.trim()) ||
+      composeAttachments.readyIds.length > 0 ||
+      Boolean(pendingSchedule)) &&
+    !composeAttachments.uploading &&
+    (!composeAttachments.hasErrors || Boolean(pendingSchedule)) &&
+    !recordingAudio &&
+    ready &&
+    !busy &&
+    !scheduleBusy &&
+    !hasPendingSend,
+  );
+
+  async function handleSchedule(sendAt: number) {
+    if (!agent || !onSchedule || scheduleBusy || busy) return;
+    const trimmed = text.trim();
+    const { readyIds, readyNames, uploading, hasErrors, clearAttachments } =
+      composeAttachments;
+    if (
+      !pendingSchedule &&
+      ((!trimmed && readyIds.length === 0) || uploading || hasErrors)
+    )
+      return;
+    const finalText =
+      pendingSchedule?.input ??
+      (trimmed ||
+        (readyNames.length === 1
+          ? `Attached ${readyNames[0]}`
+          : `Attached ${readyNames.length} files`));
+    const nextPending = pendingSchedule ?? {
+      idempotencyKey: randomUuid(),
+      sendAt,
+      input: finalText,
+      folderId: agent.folder_id ?? null,
+      attachmentIds: readyIds,
+      locked: false,
+    };
+    setScheduleBusy(true);
+    setScheduleError("");
+    // Persist and flush durable schedule identity + payload before dispatch;
+    // refuse to dispatch if local persistence fails.
+    try {
+      await saveDraftAndFlush(
+        client?.origin,
+        draftScope,
+        trimmed || finalText,
+        {
+          schedule: {
+            key: nextPending.idempotencyKey,
+            sendAt: nextPending.sendAt,
+            input: nextPending.input,
+            agentId: agent.id,
+            folderId: nextPending.folderId,
+            attachmentIds: nextPending.attachmentIds,
+          },
+        },
+      );
+    } catch (persistErr) {
+      haptics.warning();
+      setScheduleError(
+        persistErr instanceof Error
+          ? persistErr.message
+          : "Could not save schedule recovery state locally.",
+      );
+      setScheduleBusy(false);
+      return;
+    }
+    setPendingSchedule(nextPending);
+    try {
+      await onSchedule(agent, {
+        text: nextPending.input,
+        folderId: nextPending.folderId,
+        attachmentIds: nextPending.attachmentIds,
+        idempotencyKey: nextPending.idempotencyKey,
+        sendAt: nextPending.sendAt,
+      });
+      setPendingSchedule(null);
+      setScheduleOpen(false);
+      sendKeyRef.current = null;
+      setHasPendingSend(false);
+      clearDraft(client?.origin, draftScope);
+      clearAttachments();
+      onClose();
+    } catch (err) {
+      if (err instanceof LoopApiError && err.status === 401) {
+        setPendingSchedule(null);
+        setScheduleBusy(false);
+        return;
+      }
+      if (isUncertainOutcomeError(err)) {
+        setPendingSchedule({ ...nextPending, locked: true });
+      } else if (
+        err instanceof LoopApiError &&
+        err.status === 409 &&
+        nextPending.locked
+      ) {
+        setPendingSchedule({ ...nextPending, locked: true });
+        haptics.warning();
+        setScheduleError(
+          "This scheduled message may already exist — check Profile → Scheduled before unlocking.",
+        );
+        return;
+      } else {
+        setPendingSchedule(null);
+        if (text.trim()) saveDraft(client?.origin, draftScope, text);
+        else clearDraft(client?.origin, draftScope);
+      }
+      haptics.warning();
+      setScheduleError(
+        err instanceof Error ? err.message : "Could not schedule message.",
+      );
+    } finally {
+      setScheduleBusy(false);
+    }
+  }
 
   async function handleSend() {
     const trimmed = text.trim();
@@ -196,9 +384,11 @@ export function ComposeSheet({
       onClose();
     } catch (err) {
       if (isUncertainOutcomeError(err)) {
+        setHasPendingSend(true);
         saveDraft(client?.origin, draftScope, text, { key: idempotencyKey });
       } else {
         sendKeyRef.current = null;
+        setHasPendingSend(false);
       }
       haptics.warning();
       setError(
@@ -229,7 +419,7 @@ export function ComposeSheet({
       <Pressable
         style={StyleSheet.absoluteFill}
         onPress={() => {
-          if (!busy) onClose();
+          if (!busy && !scheduleBusy) onClose();
         }}
       >
         <BlurView
@@ -275,13 +465,19 @@ export function ComposeSheet({
                 ) : null}
               </View>
               <Pressable
+                disabled={busy || scheduleBusy}
                 onPress={() => {
+                  if (busy || scheduleBusy) return;
                   haptics.light();
                   onClose();
                 }}
                 style={[
                   styles.closeBtn,
-                  { backgroundColor: theme.soft, borderColor: theme.line },
+                  {
+                    backgroundColor: theme.soft,
+                    borderColor: theme.line,
+                    opacity: busy || scheduleBusy ? 0.4 : 1,
+                  },
                 ]}
               >
                 <X size={16} color={theme.text} />
@@ -334,7 +530,9 @@ export function ComposeSheet({
             <AttachmentChipStrip
               attachments={composeAttachments.attachments}
               theme={theme}
+              locked={scheduleLocked}
               onRemove={composeAttachments.removeAttachment}
+              onRetry={(id) => void composeAttachments.retryAttachment(id)}
             />
 
             {/* Prompt Input */}
@@ -346,7 +544,12 @@ export function ComposeSheet({
             >
               <Pressable
                 accessibilityLabel="Attach photo or file"
-                disabled={!composeAttachments.canAddMore}
+                disabled={
+                  !composeAttachments.canAddMore ||
+                  busy ||
+                  scheduleBusy ||
+                  scheduleLocked
+                }
                 onPress={() => {
                   haptics.light();
                   Keyboard.dismiss();
@@ -354,7 +557,12 @@ export function ComposeSheet({
                 }}
                 style={[
                   styles.attachBtn,
-                  !composeAttachments.canAddMore && { opacity: 0.4 },
+                  (!composeAttachments.canAddMore ||
+                    busy ||
+                    scheduleBusy ||
+                    scheduleLocked) && {
+                    opacity: 0.4,
+                  },
                 ]}
               >
                 <Paperclip
@@ -366,9 +574,24 @@ export function ComposeSheet({
                   }
                 />
               </Pressable>
+              <VoiceRecorderButton
+                theme={theme}
+                disabled={
+                  !composeAttachments.canAddMore ||
+                  busy ||
+                  scheduleBusy ||
+                  scheduleLocked
+                }
+                onRecordingChange={setRecordingAudio}
+                onRecorded={(file) => {
+                  setError("");
+                  void composeAttachments.addFiles([file]);
+                }}
+                onError={(msg) => setError(msg)}
+              />
               <TextInput
                 value={text}
-                editable={!busy}
+                editable={!busy && !scheduleBusy && !scheduleLocked}
                 onChangeText={(next) => {
                   draftTouchedRef.current = true;
                   sendKeyRef.current = null;
@@ -383,6 +606,24 @@ export function ComposeSheet({
                 multiline
                 autoFocus
               />
+              {agent && client && onSchedule && (
+                <Pressable
+                  accessibilityLabel="Schedule message"
+                  disabled={!canSchedule}
+                  onPress={() => {
+                    haptics.light();
+                    Keyboard.dismiss();
+                    setScheduleError("");
+                    setScheduleOpen(true);
+                  }}
+                  style={[styles.attachBtn, !canSchedule && { opacity: 0.35 }]}
+                >
+                  <Clock
+                    size={17}
+                    color={pendingSchedule ? theme.brassText : theme.muted}
+                  />
+                </Pressable>
+              )}
               <Pressable
                 accessibilityLabel={agent ? "Send" : "Start agent"}
                 disabled={cannotSend}
@@ -420,6 +661,32 @@ export function ComposeSheet({
         onTakePhoto={() => void composeAttachments.takePhoto()}
         onPickFile={() => void composeAttachments.pickDocument()}
       />
+
+      {agent && (
+        <ScheduleSendSheet
+          visible={scheduleOpen}
+          theme={theme}
+          agentName={agent.name}
+          previewText={text}
+          attachmentCount={
+            pendingSchedule
+              ? pendingSchedule.attachmentIds.length
+              : composeAttachments.readyIds.length
+          }
+          busy={scheduleBusy}
+          error={scheduleError}
+          lockedSendAt={pendingSchedule?.locked ? pendingSchedule.sendAt : null}
+          onClose={() => setScheduleOpen(false)}
+          onConfirm={(sendAt) => void handleSchedule(sendAt)}
+          onDiscardPending={() => {
+            setPendingSchedule(null);
+            setScheduleError("");
+            setScheduleOpen(false);
+            if (text.trim()) saveDraft(client?.origin, draftScope, text);
+            else clearDraft(client?.origin, draftScope);
+          }}
+        />
+      )}
     </View>
   );
 }

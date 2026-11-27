@@ -81,6 +81,7 @@ import { SearchScreen } from "./src/components/SearchScreen";
 import { SpotlightCarousel } from "./src/components/SpotlightCarousel";
 import { ThreadSheet } from "./src/components/ThreadSheet";
 import { clearWorkspaceDrafts } from "./src/drafts";
+import { formatScheduledTime } from "./src/schedule-utils";
 import {
   buildSimulatedReply,
   createInitialCards,
@@ -817,6 +818,76 @@ function LoopShell() {
       }, 1100);
     },
     [client, agents, scheduleSilentRefresh, showToast],
+  );
+
+  const handleCarouselSchedule = useCallback(
+    async (
+      card: NativeResultCard,
+      prompt: string,
+      attachmentIds: string[],
+      idempotencyKey: string,
+      sendAt: number,
+    ) => {
+      if (!client) {
+        throw new Error("Pair with a Loop workspace to schedule messages.");
+      }
+      const gen = workspaceGenRef.current;
+      const agentId =
+        card.agentId ||
+        agents.find((a) => a.name === card.agentName)?.id ||
+        agents[0]?.id;
+      if (!agentId) {
+        throw new Error("No agent available to receive this scheduled reply.");
+      }
+      await client.createScheduledSend({
+        agentId,
+        conversationId: card.conversationId,
+        replyToMessageId: card.messageId,
+        input: prompt,
+        attachmentIds,
+        idempotencyKey,
+        sendAt,
+      });
+      if (gen === workspaceGenRef.current) {
+        haptics.success();
+        showToast(
+          `Scheduled for @${card.agentName} · ${formatScheduledTime(sendAt)}`,
+        );
+        scheduleSilentRefresh(400, gen);
+      }
+    },
+    [agents, client, scheduleSilentRefresh, showToast],
+  );
+
+  const handleComposeSchedule = useCallback(
+    async (
+      agent: ApiAgent,
+      input: ComposeSubmit & { sendAt: number; folderId?: string | null },
+    ) => {
+      if (!client) {
+        throw new Error("Pair with a Loop workspace to schedule messages.");
+      }
+      const gen = workspaceGenRef.current;
+      await client.createScheduledSend({
+        agentId: agent.id,
+        folderId:
+          input.folderId !== undefined
+            ? input.folderId
+            : (agent.folder_id ?? null),
+        input: input.text,
+        attachmentIds: input.attachmentIds ?? [],
+        idempotencyKey: input.idempotencyKey,
+        sendAt: input.sendAt,
+      });
+      if (gen === workspaceGenRef.current) {
+        haptics.success();
+        showToast(
+          `Scheduled for @${agent.name} · ${formatScheduledTime(input.sendAt)}`,
+        );
+        scheduleSilentRefresh(400, gen);
+      }
+    },
+    [client, scheduleSilentRefresh, showToast],
   );
 
   const handleComposeMessage = useCallback(
@@ -1647,6 +1718,7 @@ function LoopShell() {
           onDismissCard={handleDismissCard}
           onNotify={showToast}
           onSendReply={handleCarouselReply}
+          onScheduleReply={handleCarouselSchedule}
         />
       )}
 
@@ -1705,6 +1777,34 @@ function LoopShell() {
               haptics.success();
             }
           }}
+          onScheduleReply={
+            client
+              ? async (input) => {
+                  const gen = workspaceGenRef.current;
+                  const agentId =
+                    input.agentId ||
+                    agents.find((a) => a.name === input.agentName)?.id ||
+                    agents[0]?.id;
+                  if (!agentId)
+                    throw new Error("No agent found for this thread");
+                  await client.createScheduledSend({
+                    agentId,
+                    conversationId: input.conversationId,
+                    input: input.text,
+                    attachmentIds: input.attachmentIds ?? [],
+                    idempotencyKey: input.idempotencyKey,
+                    sendAt: input.sendAt,
+                  });
+                  if (gen === workspaceGenRef.current) {
+                    haptics.success();
+                    showToast(
+                      `Scheduled for @${input.agentName} · ${formatScheduledTime(input.sendAt)}`,
+                    );
+                    scheduleSilentRefresh(400, gen);
+                  }
+                }
+              : undefined
+          }
           onToggleSaved={async (msgId, currentlySaved) => {
             if (client) {
               await client.setSaved(msgId, !currentlySaved);
@@ -1756,6 +1856,7 @@ function LoopShell() {
           target={composeTarget}
           onClose={() => setComposeTarget(null)}
           onMessage={handleComposeMessage}
+          onSchedule={handleComposeSchedule}
           onCreate={handleComposeCreate}
         />
       )}

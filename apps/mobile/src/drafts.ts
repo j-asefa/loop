@@ -9,6 +9,7 @@ import {
   setDraftInStore,
   type DraftEntry,
   type DraftMap,
+  type DraftPendingMeta,
 } from "./drafts-codec";
 
 export {
@@ -16,13 +17,15 @@ export {
   draftScopeForCompose,
   draftScopeForThread,
   type DraftEntry,
+  type DraftPendingMeta,
+  type PendingScheduleDraft,
 } from "./drafts-codec";
 
 const WRITE_DEBOUNCE_MS = 350;
 
 type PendingSaveOp = {
   text: string;
-  pending?: { key?: string; queue?: boolean };
+  pending?: DraftPendingMeta;
 };
 
 type PendingOps = {
@@ -50,6 +53,15 @@ function getOrCreatePendingOps(bucket: string): PendingOps {
   return ops;
 }
 
+function writeBucketFile(bucket: string, map: DraftMap): void {
+  const file = draftFileForBucket(bucket);
+  if (Object.keys(map).length === 0) {
+    if (file.exists) file.delete();
+    return;
+  }
+  file.write(serializeDraftStore(map));
+}
+
 function flushBucketNow(bucket: string): void {
   const timer = flushTimers.get(bucket);
   if (timer) {
@@ -59,14 +71,9 @@ function flushBucketNow(bucket: string): void {
   if (!loadedBuckets.has(bucket)) return;
   try {
     const map = memoryBuckets.get(bucket) ?? createEmptyDraftMap();
-    const file = draftFileForBucket(bucket);
-    if (Object.keys(map).length === 0) {
-      if (file.exists) file.delete();
-      return;
-    }
-    file.write(serializeDraftStore(map));
+    writeBucketFile(bucket, map);
   } catch {
-    // Cache persistence is best-effort; never disrupt typing or sending.
+    // Best-effort flush for ordinary draft typing.
   }
 }
 
@@ -112,10 +119,14 @@ async function ensureBucketLoaded(bucket: string): Promise<DraftMap> {
     let dirty = false;
     if (ops) {
       for (const scope of ops.deletes) {
+        if (merged[scope]?.pendingSchedule) continue;
         merged = deleteDraftFromStore(merged, scope);
         dirty = true;
       }
       for (const [scope, op] of ops.saves) {
+        // Never allow an ordinary typing save queued during initial disk load
+        // to overwrite a persisted pendingSchedule lock on disk.
+        if (merged[scope]?.pendingSchedule && !op.pending?.schedule) continue;
         merged = setDraftInStore(
           merged,
           scope,
@@ -162,7 +173,7 @@ export function saveDraft(
   origin: string | null | undefined,
   scope: string,
   text: string,
-  pending?: { key?: string; queue?: boolean },
+  pending?: DraftPendingMeta,
 ): void {
   const bucket = draftWorkspaceBucket(origin);
   if (!loadedBuckets.has(bucket)) {
@@ -180,11 +191,46 @@ export function saveDraft(
   const current = memoryBuckets.get(bucket) ?? createEmptyDraftMap();
   const next = setDraftInStore(current, scope, text, Date.now(), pending);
   memoryBuckets.set(bucket, next);
-  if (pending?.key) {
+  if (pending?.key || pending?.schedule) {
     flushBucketNow(bucket);
   } else {
     scheduleBucketFlush(bucket);
   }
+}
+
+export async function saveDraftAndFlush(
+  origin: string | null | undefined,
+  scope: string,
+  text: string,
+  pending?: DraftPendingMeta,
+): Promise<void> {
+  const bucket = draftWorkspaceBucket(origin);
+  await ensureBucketLoaded(bucket);
+  const current = memoryBuckets.get(bucket) ?? createEmptyDraftMap();
+  const existingSchedule = current[scope]?.pendingSchedule;
+  if (
+    existingSchedule &&
+    pending?.schedule &&
+    existingSchedule.key !== pending.schedule.key
+  ) {
+    throw new Error(
+      "A pending scheduled send already exists for this draft — check Profile → Scheduled before scheduling again.",
+    );
+  }
+  const next = setDraftInStore(current, scope, text, Date.now(), pending);
+  const timer = flushTimers.get(bucket);
+  if (timer) {
+    clearTimeout(timer);
+    flushTimers.delete(bucket);
+  }
+  try {
+    writeBucketFile(bucket, next);
+  } catch {
+    throw new Error(
+      "Could not persist schedule recovery state locally. Please try again.",
+    );
+  }
+  memoryBuckets.set(bucket, next);
 }
 
 export function clearDraft(
