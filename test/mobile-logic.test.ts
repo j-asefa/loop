@@ -2556,7 +2556,23 @@ describe("mobile native Mermaid diagram parser and layout", () => {
       expect(quoted.edges).toHaveLength(1);
     }
 
-    // Sequence diagrams with alt/else branching fall back to source instead of flattening branches
+    // Semicolon-separated statements on one line must not merge across statements
+    const multiStmt = parseMermaidDiagram("flowchart LR\n  A --> B; C --> D");
+    expect(multiStmt?.kind).toBe("flowchart");
+    if (multiStmt?.kind === "flowchart") {
+      expect(multiStmt.nodes.map((n) => n.id).sort()).toEqual([
+        "A",
+        "B",
+        "C",
+        "D",
+      ]);
+      expect(multiStmt.edges.map((e) => `${e.from}->${e.to}`)).toEqual([
+        "A->B",
+        "C->D",
+      ]);
+    }
+
+    // Sequence diagrams with alt/else/loop branching fall back to source, while participant named Option still parses
     expect(
       parseMermaidDiagram(`
         sequenceDiagram
@@ -2568,6 +2584,26 @@ describe("mobile native Mermaid diagram parser and layout", () => {
           end
       `),
     ).toBeNull();
+    expect(
+      parseMermaidDiagram(`
+        sequenceDiagram
+          loop Every minute
+            A->>B: Ping
+          end
+      `),
+    ).toBeNull();
+    const optParticipant = parseMermaidDiagram(`
+      sequenceDiagram
+        Option->>API: Select
+    `);
+    expect(optParticipant?.kind).toBe("sequence");
+
+    // Adversarial ReDoS inputs (30k spaces / repeated unclosed %%{) must complete in linear time
+    const t0 = Date.now();
+    parseMermaidDiagram(`flowchart TD\n  A -- ${" ".repeat(30_000)} x`);
+    parseMermaidDiagram(`sequenceDiagram\n  Note over ${" ".repeat(30_000)} x`);
+    parseMermaidDiagram(`${"%%{".repeat(5_000)}flowchart TD\nA-->B`);
+    expect(Date.now() - t0).toBeLessThan(250);
 
     // Node cap bounds large graphs safely
     const hugeLines = ["graph LR"];
@@ -2591,6 +2627,9 @@ describe("mobile native LaTeX math parser and currency safety", () => {
     expect(
       findInlineMathAt("Set $NAME first, then run `X=$VALUE`", 4),
     ).toBeNull();
+    expect(findInlineMathAt("export PATH=$PATH:$HOME/bin", 12)).toBeNull();
+    expect(findInlineMathAt("See $ref/$id for details", 4)).toBeNull();
+    expect(findInlineMathAt("Path ${A}/${B}", 5)).toBeNull();
 
     expect(findInlineMathAt("Given $x^2 + y^2 = r^2$, we have", 6)).toEqual({
       raw: "x^2 + y^2 = r^2",
@@ -2609,6 +2648,7 @@ describe("mobile native LaTeX math parser and currency safety", () => {
     );
     expect(formatLatexInline("\\sqrt[3]{x + 1}")).toBe("³√(x + 1)");
     expect(formatLatexInline("\\frac{a + b}{c}")).toBe("(a + b)/c");
+    expect(formatLatexInline("\\frac{a}{\\frac{b}{c}}")).toBe("a/(b/c)");
 
     // Prototype keys as environment names must never crash
     expect(formatLatexInline("\\begin{constructor}x\\end{constructor}")).toBe(

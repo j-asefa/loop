@@ -163,7 +163,27 @@ function stripLineComment(rawLine: string): string {
   return rawLine.trim();
 }
 
-function splitTopLevelAmpersands(segment: string): string[] {
+function stripInitDirectives(source: string): string {
+  let out = "";
+  let i = 0;
+  while (i < source.length) {
+    const start = source.indexOf("%%{", i);
+    if (start === -1) {
+      out += source.slice(i);
+      break;
+    }
+    const end = source.indexOf("}%%", start + 3);
+    if (end === -1) {
+      out += source.slice(i);
+      break;
+    }
+    out += source.slice(i, start);
+    i = end + 3;
+  }
+  return out;
+}
+
+function splitTopLevelDelimiter(segment: string, delim: string): string[] {
   const parts: string[] = [];
   let bracketDepth = 0;
   let parenDepth = 0;
@@ -192,7 +212,7 @@ function splitTopLevelAmpersands(segment: string): string[] {
     else if (ch === "{") braceDepth += 1;
     else if (ch === "}") braceDepth = Math.max(0, braceDepth - 1);
     else if (
-      ch === "&" &&
+      ch === delim &&
       bracketDepth === 0 &&
       parenDepth === 0 &&
       braceDepth === 0
@@ -210,8 +230,7 @@ function preprocessLines(source: string): string[] {
     source.length > MAX_MERMAID_SOURCE_CHARS
       ? source.slice(0, MAX_MERMAID_SOURCE_CHARS)
       : source;
-  // Strip %%{...}%% init directives
-  const withoutDirectives = capped.replace(/%%\{[\s\S]*?\}%%/g, "");
+  const withoutDirectives = stripInitDirectives(capped);
   const out: string[] = [];
   for (const rawLine of withoutDirectives.replace(/\r\n/g, "\n").split("\n")) {
     const stripped = stripLineComment(rawLine);
@@ -274,9 +293,83 @@ type ParsedConnector = {
   label?: string;
 };
 
-/**
- * Finds the first Mermaid edge connector outside quoted strings / brackets.
- */
+function matchInlineLabeledConnector(
+  line: string,
+  index: number,
+): ParsedConnector | null {
+  const specs: Array<{
+    open: string;
+    style: "solid" | "dashed" | "thick";
+    forbidChar: string;
+    closers: Array<{ token: string; arrowEnd: boolean }>;
+  }> = [
+    {
+      open: "--",
+      style: "solid",
+      forbidChar: "-",
+      closers: [
+        { token: "-->", arrowEnd: true },
+        { token: "---", arrowEnd: false },
+      ],
+    },
+    {
+      open: "-.",
+      style: "dashed",
+      forbidChar: ".",
+      closers: [
+        { token: ".->", arrowEnd: true },
+        { token: ".-", arrowEnd: false },
+      ],
+    },
+    {
+      open: "==",
+      style: "thick",
+      forbidChar: "=",
+      closers: [
+        { token: "==>", arrowEnd: true },
+        { token: "===", arrowEnd: false },
+      ],
+    },
+  ];
+
+  for (const spec of specs) {
+    if (!line.startsWith(spec.open, index)) continue;
+    const afterOpen = index + spec.open.length;
+    if (line[afterOpen] !== " " && line[afterOpen] !== "\t") continue;
+    let labelStart = afterOpen;
+    while (
+      labelStart < line.length &&
+      (line[labelStart] === " " || line[labelStart] === "\t")
+    ) {
+      labelStart += 1;
+    }
+    if (labelStart >= line.length) continue;
+
+    // Linear scan for the nearest closing connector token
+    let bestIdx = -1;
+    let bestCloser: { token: string; arrowEnd: boolean } | null = null;
+    for (const closer of spec.closers) {
+      const idx = line.indexOf(closer.token, labelStart);
+      if (idx !== -1 && (bestIdx === -1 || idx < bestIdx)) {
+        bestIdx = idx;
+        bestCloser = closer;
+      }
+    }
+    if (bestIdx === -1 || !bestCloser) continue;
+    if (line[bestIdx - 1] !== " " && line[bestIdx - 1] !== "\t") continue;
+    const rawLabel = line.slice(labelStart, bestIdx).trim();
+    if (!rawLabel || rawLabel.includes(spec.forbidChar)) continue;
+    return {
+      index,
+      length: bestIdx + bestCloser.token.length - index,
+      style: spec.style,
+      arrowStart: false,
+      arrowEnd: bestCloser.arrowEnd,
+      label: cleanLabel(rawLabel),
+    };
+  }
+  return null;
+}
 function findNextConnector(
   line: string,
   startFrom = 0,
@@ -326,43 +419,11 @@ function findNextConnector(
     }
     if (bracketDepth > 0 || parenDepth > 0 || braceDepth > 0) continue;
 
-    const slice = line.slice(i);
-    // Inline labeled connectors: -- text -->, -. text .->, == text ==>
-    const inlineLabelMatch =
-      /^(?:(--)\s+([^-\n]+?)\s+(-->|---)|(-\.)\s+([^.\n]+?)\s+(\.->|\.-)|(==)\s+([^=\n]+?)\s+(==>|===))/.exec(
-        slice,
-      );
-    if (inlineLabelMatch) {
-      if (inlineLabelMatch[1]) {
-        return {
-          index: i,
-          length: inlineLabelMatch[0].length,
-          style: "solid",
-          arrowStart: false,
-          arrowEnd: inlineLabelMatch[3].endsWith(">"),
-          label: cleanLabel(inlineLabelMatch[2]),
-        };
-      }
-      if (inlineLabelMatch[4]) {
-        return {
-          index: i,
-          length: inlineLabelMatch[0].length,
-          style: "dashed",
-          arrowStart: false,
-          arrowEnd: inlineLabelMatch[6].endsWith(">"),
-          label: cleanLabel(inlineLabelMatch[5]),
-        };
-      }
-      return {
-        index: i,
-        length: inlineLabelMatch[0].length,
-        style: "thick",
-        arrowStart: false,
-        arrowEnd: inlineLabelMatch[9].endsWith(">"),
-        label: cleanLabel(inlineLabelMatch[8]),
-      };
-    }
+    // Linear O(N) scan for inline labeled connectors (-- text -->, -. text .->, == text ==>)
+    const inlineConn = matchInlineLabeledConnector(line, i);
+    if (inlineConn) return inlineConn;
 
+    const slice = line.slice(i);
     // Standard connectors with optional |label|
     const arrowMatch =
       /^(<-->|<-\.->|<==>|-\.+->|-\.+-|==+>|===+|--+>|---+)(\s*\|([^|\n]+)\|)?/.exec(
@@ -654,79 +715,82 @@ function parseFlowchart(lines: string[]): MermaidFlowLayout | null {
   };
 
   for (let i = 1; i < lines.length; i += 1) {
-    const line = lines[i];
-    if (/^(?:classDef|class|style|linkStyle|click|direction)\b/i.test(line)) {
-      continue;
-    }
-    const sgMatch = /^subgraph\s+(.+)$/i.exec(line);
-    if (sgMatch) {
-      const rest = sgMatch[1].trim();
-      const bracketLabel = /^([A-Za-z0-9_.-]+)\s*\[(.+)\]$/.exec(rest);
-      const sg = {
-        id: bracketLabel ? bracketLabel[1] : `sg-${subgraphs.length + 1}`,
-        label: cleanLabel(bracketLabel ? bracketLabel[2] : rest),
-        nodeIds: [] as string[],
-      };
-      subgraphs.push(sg);
-      subgraphStack.push(sg);
-      continue;
-    }
-    if (/^end$/i.test(line)) {
-      subgraphStack.pop();
-      continue;
-    }
-
-    // Split statement on connectors (supporting chains like A --> B --> C and & fan-out)
-    let cursor = 0;
-    let prevGroup: string[] = [];
-    let pendingConn: ParsedConnector | null = null;
-    let foundConnector = false;
-
-    while (cursor < line.length) {
-      const conn = findNextConnector(line, cursor);
-      const segment = (
-        conn ? line.slice(cursor, conn.index) : line.slice(cursor)
-      ).trim();
-
-      const groupIds: string[] = [];
-      for (const part of splitTopLevelAmpersands(segment)) {
-        const parsed = parseNodeSpec(part);
-        if (parsed) {
-          const id = ensureNode(parsed);
-          if (id) groupIds.push(id);
-        }
+    for (const rawStmt of splitTopLevelDelimiter(lines[i], ";")) {
+      const line = rawStmt.trim();
+      if (!line) continue;
+      if (/^(?:classDef|class|style|linkStyle|click|direction)\b/i.test(line)) {
+        continue;
+      }
+      const sgMatch = /^subgraph\s+(.+)$/i.exec(line);
+      if (sgMatch) {
+        const rest = sgMatch[1].trim();
+        const bracketLabel = /^([A-Za-z0-9_.-]+)\s*\[(.+)\]$/.exec(rest);
+        const sg = {
+          id: bracketLabel ? bracketLabel[1] : `sg-${subgraphs.length + 1}`,
+          label: cleanLabel(bracketLabel ? bracketLabel[2] : rest),
+          nodeIds: [] as string[],
+        };
+        subgraphs.push(sg);
+        subgraphStack.push(sg);
+        continue;
+      }
+      if (/^end$/i.test(line)) {
+        subgraphStack.pop();
+        continue;
       }
 
-      if (pendingConn && prevGroup.length > 0 && groupIds.length > 0) {
-        for (const from of prevGroup) {
-          for (const to of groupIds) {
-            if (edges.length < MAX_MERMAID_EDGES) {
-              edges.push({
-                from,
-                to,
-                ...(pendingConn.label ? { label: pendingConn.label } : {}),
-                style: pendingConn.style,
-                arrowStart: pendingConn.arrowStart,
-                arrowEnd: pendingConn.arrowEnd,
-              });
+      // Split statement on connectors (supporting chains like A --> B --> C and & fan-out)
+      let cursor = 0;
+      let prevGroup: string[] = [];
+      let pendingConn: ParsedConnector | null = null;
+      let foundConnector = false;
+
+      while (cursor < line.length) {
+        const conn = findNextConnector(line, cursor);
+        const segment = (
+          conn ? line.slice(cursor, conn.index) : line.slice(cursor)
+        ).trim();
+
+        const groupIds: string[] = [];
+        for (const part of splitTopLevelDelimiter(segment, "&")) {
+          const parsed = parseNodeSpec(part);
+          if (parsed) {
+            const id = ensureNode(parsed);
+            if (id) groupIds.push(id);
+          }
+        }
+
+        if (pendingConn && prevGroup.length > 0 && groupIds.length > 0) {
+          for (const from of prevGroup) {
+            for (const to of groupIds) {
+              if (edges.length < MAX_MERMAID_EDGES) {
+                edges.push({
+                  from,
+                  to,
+                  ...(pendingConn.label ? { label: pendingConn.label } : {}),
+                  style: pendingConn.style,
+                  arrowStart: pendingConn.arrowStart,
+                  arrowEnd: pendingConn.arrowEnd,
+                });
+              }
             }
           }
         }
+
+        if (groupIds.length > 0) {
+          prevGroup = groupIds;
+        }
+
+        if (!conn) break;
+        foundConnector = true;
+        pendingConn = conn;
+        cursor = conn.index + conn.length;
       }
 
-      if (groupIds.length > 0) {
-        prevGroup = groupIds;
+      if (!foundConnector && prevGroup.length === 0) {
+        const standalone = parseNodeSpec(line);
+        if (standalone) ensureNode(standalone);
       }
-
-      if (!conn) break;
-      foundConnector = true;
-      pendingConn = conn;
-      cursor = conn.index + conn.length;
-    }
-
-    if (!foundConnector && prevGroup.length === 0) {
-      const standalone = parseNodeSpec(line);
-      if (standalone) ensureNode(standalone);
     }
   }
 
@@ -773,12 +837,15 @@ function parseSequence(lines: string[]): MermaidSequenceLayout | null {
 
   for (let i = 1; i < lines.length; i += 1) {
     const line = lines[i];
-    // Fall back to Mermaid source when branching blocks appear so mutually
-    // exclusive replies are never flattened into misleading sequential arrows.
-    if (/^(?:alt|else|opt|par|and|critical|option|break)\b/i.test(line)) {
+    // Fall back to Mermaid source when branching/loop control blocks appear so
+    // conditional or repeated messages are never flattened into linear arrows.
+    // Require whitespace or EOL after keyword so participant names like Option->>API still parse.
+    if (
+      /^(?:alt|else|opt|par|and|critical|option|break|loop)(?:\s|$)/i.test(line)
+    ) {
       return null;
     }
-    if (/^(?:autonumber|loop|rect|end|activate|deactivate)\b/i.test(line)) {
+    if (/^(?:autonumber|rect|end|activate|deactivate)(?:\s|$)/i.test(line)) {
       continue;
     }
     const decl = /^(participant|actor)\s+([^\s:]+)(?:\s+as\s+(.+))?$/i.exec(
@@ -793,26 +860,31 @@ function parseSequence(lines: string[]): MermaidSequenceLayout | null {
       continue;
     }
 
-    const noteMatch =
-      /^Note\s+(?:right of|left of|over)\s+([^:]+?)\s*:\s*(.+)$/i.exec(line);
-    if (noteMatch && rawSteps.length < MAX_MERMAID_SEQUENCE_STEPS) {
-      const targets = noteMatch[1]
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean);
-      const from = targets[0];
-      const to = targets[targets.length - 1] || from;
-      if (from) {
-        ensureParticipant(from);
-        if (to !== from) ensureParticipant(to);
-        rawSteps.push({
-          kind: "note",
-          from,
-          to,
-          text: cleanLabel(noteMatch[2]),
-        });
+    // Linear parse for `Note right of|left of|over Target[,Target2] : text` (no overlapping quantifiers)
+    const notePrefix = /^Note\s+(?:right of|left of|over)\s+/i.exec(line);
+    if (notePrefix && rawSteps.length < MAX_MERMAID_SEQUENCE_STEPS) {
+      const colonIdx = line.indexOf(":", notePrefix[0].length);
+      if (colonIdx !== -1) {
+        const targetSpec = line.slice(notePrefix[0].length, colonIdx).trim();
+        const noteText = line.slice(colonIdx + 1).trim();
+        const targets = targetSpec
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean);
+        const from = targets[0];
+        const to = targets[targets.length - 1] || from;
+        if (from && noteText) {
+          ensureParticipant(from);
+          if (to !== from) ensureParticipant(to);
+          rawSteps.push({
+            kind: "note",
+            from,
+            to,
+            text: cleanLabel(noteText),
+          });
+        }
+        continue;
       }
-      continue;
     }
 
     const msgMatch =
@@ -1036,8 +1108,9 @@ function parseClassDiagram(lines: string[]): MermaidFlowLayout | null {
           to: right.id,
           ...(relMatch[4] ? { label: cleanLabel(relMatch[4]) } : {}),
           style: op.includes("..") ? "dashed" : "solid",
-          arrowStart: op.startsWith("<") || op.startsWith("*"),
-          arrowEnd: op.endsWith(">") || op.endsWith("*"),
+          arrowStart:
+            op.startsWith("<") || op.startsWith("*") || op.startsWith("o"),
+          arrowEnd: op.endsWith(">") || op.endsWith("*") || op.endsWith("o"),
         });
       }
       continue;

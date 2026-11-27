@@ -481,8 +481,8 @@ export function formatLatexInline(rawExpr: string, depth = 0): string {
         i = den.next;
         const nStr = formatLatexInline(num.content, depth + 1).trim();
         const dStr = formatLatexInline(den.content, depth + 1).trim();
-        const wrapN = /[\s+\-]/.test(nStr) ? `(${nStr})` : nStr;
-        const wrapD = /[\s+\-]/.test(dStr) ? `(${dStr})` : dStr;
+        const wrapN = /[\s+\-/]/.test(nStr) ? `(${nStr})` : nStr;
+        const wrapD = /[\s+\-/]/.test(dStr) ? `(${dStr})` : dStr;
         out += `${wrapN}/${wrapD}`;
         continue;
       }
@@ -737,7 +737,7 @@ export function findInlineMathAt(
     return null;
   }
 
-  // $ ... $ form (must not be $$ or preceded by \ or followed by whitespace)
+  // $ ... $ form (must not be $$, preceded by \ or identifier char, or followed by whitespace)
   if (text[start] !== "$") return null;
   if (
     text[start + 1] === "$" ||
@@ -746,7 +746,12 @@ export function findInlineMathAt(
   ) {
     return null;
   }
-  if (start > 0 && text[start - 1] === "\\") return null;
+  if (
+    start > 0 &&
+    (text[start - 1] === "\\" || /[A-Za-z0-9_]/.test(text[start - 1]))
+  ) {
+    return null;
+  }
 
   let i = start + 1;
   while (i < limit) {
@@ -758,14 +763,15 @@ export function findInlineMathAt(
     }
     if (ch === "$") {
       // Closing $ must not be preceded by whitespace, must not be $$, and must
-      // not be immediately followed by a digit (blocks "$5 and $10" currency prose).
+      // not be immediately followed by an identifier/digit/template brace
+      // (blocks "$5 and $10", "$PATH:$HOME", "$ref/$id", "${A}/${B}").
       const prev = text[i - 1];
       const next = text[i + 1];
       if (
         !prev ||
         /\s/.test(prev) ||
         next === "$" ||
-        (next !== undefined && next >= "0" && next <= "9")
+        (next !== undefined && /[A-Za-z0-9_{]/.test(next))
       ) {
         return null;
       }

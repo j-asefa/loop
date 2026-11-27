@@ -738,7 +738,11 @@ function parseMarkdownBlocks(content: string): ContentBlock[] {
       continue;
     }
     const singleBracketMath = /^\\\[(.+)\\\]$/.exec(trimmed);
-    if (singleBracketMath && singleBracketMath[1].trim()) {
+    if (
+      singleBracketMath &&
+      singleBracketMath[1].trim() &&
+      !singleBracketMath[1].includes("\\]")
+    ) {
       flushParagraph();
       blocks.push({ kind: "math", expr: singleBracketMath[1].trim() });
       i += 1;
@@ -748,6 +752,8 @@ function parseMarkdownBlocks(content: string): ContentBlock[] {
       const closeDelim = trimmed === "$$" ? "$$" : "\\]";
       let closeIdx = -1;
       for (let j = i + 1; j < lines.length; j += 1) {
+        // Stop lookahead at a code fence so an unmatched $$ never swallows a code block.
+        if (isFenceStart(lines[j])) break;
         if (lines[j].trim() === closeDelim) {
           closeIdx = j;
           break;
