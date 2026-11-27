@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Keyboard,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -26,6 +27,8 @@ import {
   RotateCcw,
   Sparkles,
   Square,
+  TextSelect,
+  X,
 } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -136,7 +139,28 @@ export function ThreadSheet({
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
+  const [selectingMessage, setSelectingMessage] = useState<{
+    author: string;
+    content: string;
+  } | null>(null);
+  const [selectModalCopied, setSelectModalCopied] = useState(false);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const selectCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    setSelectingMessage(null);
+    setSelectModalCopied(false);
+    if (selectCopyTimerRef.current) {
+      clearTimeout(selectCopyTimerRef.current);
+      selectCopyTimerRef.current = null;
+    }
+  }, [conversationId, client]);
+
+  useEffect(() => {
+    return () => {
+      if (selectCopyTimerRef.current) clearTimeout(selectCopyTimerRef.current);
+    };
+  }, []);
   // Suppress auto-scroll-to-bottom briefly after prepending earlier history so multi-pass
   // rich-content layout does not jump the reader back to the bottom.
   const suppressAutoScrollUntilRef = useRef(0);
@@ -829,6 +853,7 @@ export function ThreadSheet({
           ref={scrollRef}
           style={styles.flex}
           contentContainerStyle={styles.messagesContent}
+          keyboardShouldPersistTaps="handled"
           onContentSizeChange={() => {
             if (Date.now() < suppressAutoScrollUntilRef.current) {
               return;
@@ -905,6 +930,22 @@ export function ThreadSheet({
                       </Text>
                       <View style={styles.msgHeadActions}>
                         <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel="Select text"
+                          onPress={() => {
+                            haptics.light();
+                            Keyboard.dismiss();
+                            setSelectModalCopied(false);
+                            setSelectingMessage({
+                              author: isUser ? "You" : `@${agentName}`,
+                              content: msg.content,
+                            });
+                          }}
+                          hitSlop={8}
+                        >
+                          <TextSelect size={14} color={theme.muted} />
+                        </Pressable>
+                        <Pressable
                           accessibilityLabel={
                             isCopied ? "Message copied" : "Copy message"
                           }
@@ -938,7 +979,10 @@ export function ThreadSheet({
                       </View>
                     </View>
                     {isUser ? (
-                      <Text style={[styles.userText, { color: theme.text }]}>
+                      <Text
+                        selectable
+                        style={[styles.userText, { color: theme.text }]}
+                      >
                         {msg.content}
                       </Text>
                     ) : (
@@ -946,6 +990,7 @@ export function ThreadSheet({
                         <RichContent
                           content={msg.content}
                           theme={theme}
+                          selectable
                           workspaceOrigin={client?.origin}
                           onOpenFile={onOpenFileTarget}
                           onReplyButton={(prompt) => {
@@ -1027,6 +1072,7 @@ export function ThreadSheet({
                       <RichContent
                         content={liveStream.text}
                         theme={theme}
+                        selectable
                         workspaceOrigin={client?.origin}
                         onOpenFile={onOpenFileTarget}
                       />
@@ -1297,6 +1343,149 @@ export function ThreadSheet({
           else clearDraft(client?.origin, draftScope);
         }}
       />
+
+      <Modal
+        visible={Boolean(selectingMessage)}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => {
+          if (selectCopyTimerRef.current) {
+            clearTimeout(selectCopyTimerRef.current);
+            selectCopyTimerRef.current = null;
+          }
+          setSelectModalCopied(false);
+          setSelectingMessage(null);
+        }}
+      >
+        <View
+          style={[
+            styles.selectModalRoot,
+            {
+              backgroundColor: theme.bg,
+              paddingTop:
+                Platform.OS === "ios" ? 0 : Math.max(insets.top + 8, 16),
+              paddingBottom: Math.max(insets.bottom, 12),
+            },
+          ]}
+        >
+          <View
+            style={[
+              styles.selectModalHeader,
+              {
+                backgroundColor: theme.surface,
+                borderBottomColor: theme.line,
+              },
+            ]}
+          >
+            <View style={styles.selectModalTitleWrap}>
+              <Text style={[styles.selectModalTitle, { color: theme.text }]}>
+                Select text
+              </Text>
+              {selectingMessage ? (
+                <Text
+                  style={[styles.selectModalSub, { color: theme.muted }]}
+                  numberOfLines={1}
+                >
+                  {selectingMessage.author} · drag handles to select any portion
+                </Text>
+              ) : null}
+            </View>
+            <View style={styles.selectModalActions}>
+              {selectingMessage ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    selectModalCopied ? "Copied all text" : "Copy all text"
+                  }
+                  onPress={() => {
+                    haptics.success();
+                    void Clipboard.setStringAsync(selectingMessage.content)
+                      .then(() => {
+                        setSelectModalCopied(true);
+                        if (selectCopyTimerRef.current) {
+                          clearTimeout(selectCopyTimerRef.current);
+                        }
+                        selectCopyTimerRef.current = setTimeout(() => {
+                          selectCopyTimerRef.current = null;
+                          setSelectModalCopied(false);
+                        }, 1600);
+                      })
+                      .catch(() => {});
+                  }}
+                  style={[
+                    styles.selectModalBtn,
+                    {
+                      backgroundColor: theme.raised,
+                      borderColor: theme.line,
+                    },
+                  ]}
+                >
+                  {selectModalCopied ? (
+                    <Check size={14} color={theme.brassText} />
+                  ) : (
+                    <Copy size={14} color={theme.muted} />
+                  )}
+                  <Text
+                    style={[
+                      styles.selectModalBtnText,
+                      {
+                        color: selectModalCopied ? theme.brassText : theme.text,
+                      },
+                    ]}
+                  >
+                    {selectModalCopied ? "Copied" : "Copy all"}
+                  </Text>
+                </Pressable>
+              ) : null}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close text selection"
+                onPress={() => {
+                  if (selectCopyTimerRef.current) {
+                    clearTimeout(selectCopyTimerRef.current);
+                    selectCopyTimerRef.current = null;
+                  }
+                  setSelectModalCopied(false);
+                  setSelectingMessage(null);
+                }}
+                style={[
+                  styles.selectModalCloseBtn,
+                  {
+                    backgroundColor: theme.raised,
+                    borderColor: theme.line,
+                  },
+                ]}
+              >
+                <X size={16} color={theme.text} />
+              </Pressable>
+            </View>
+          </View>
+          {selectingMessage ? (
+            Platform.OS === "ios" ? (
+              <TextInput
+                value={selectingMessage.content}
+                editable={false}
+                multiline
+                scrollEnabled
+                textAlignVertical="top"
+                style={[styles.selectModalInput, { color: theme.text }]}
+              />
+            ) : (
+              <ScrollView
+                style={styles.flex}
+                contentContainerStyle={styles.selectModalScroll}
+              >
+                <Text
+                  selectable
+                  style={[styles.selectModalText, { color: theme.text }]}
+                >
+                  {selectingMessage.content}
+                </Text>
+              </ScrollView>
+            )
+          ) : null}
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1479,5 +1668,69 @@ const styles = StyleSheet.create({
     borderRadius: 17,
     alignItems: "center",
     justifyContent: "center",
+  },
+  selectModalRoot: {
+    flex: 1,
+  },
+  selectModalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  selectModalTitleWrap: {
+    flex: 1,
+    gap: 2,
+  },
+  selectModalTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  selectModalSub: {
+    fontSize: 12,
+  },
+  selectModalActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  selectModalBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  selectModalBtnText: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  selectModalCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  selectModalInput: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 15.5,
+    lineHeight: 23,
+  },
+  selectModalScroll: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  selectModalText: {
+    fontSize: 15.5,
+    lineHeight: 23,
   },
 });

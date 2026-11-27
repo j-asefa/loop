@@ -715,9 +715,11 @@ function SequenceSvg({
 export function MermaidDiagram({
   code,
   theme,
+  selectable = false,
 }: {
   code: string;
   theme: LoopTheme;
+  selectable?: boolean;
 }) {
   const layout = useMemo(() => parseMermaidDiagram(code), [code]);
   const [showSource, setShowSource] = useState(false);
@@ -827,7 +829,12 @@ export function MermaidDiagram({
         </ScrollView>
       ) : (
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          <Text style={[styles.sourceText, { color: theme.text }]}>{code}</Text>
+          <Text
+            selectable={selectable}
+            style={[styles.sourceText, { color: theme.text }]}
+          >
+            {code}
+          </Text>
         </ScrollView>
       )}
     </View>

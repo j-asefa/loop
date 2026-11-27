@@ -534,7 +534,7 @@ export function FilePreviewModal({
               contentContainerStyle={styles.textScroll}
             >
               {isMarkdown ? (
-                <RichContent content={textContent} theme={theme} />
+                <RichContent content={textContent} theme={theme} selectable />
               ) : (
                 <Text
                   selectable
