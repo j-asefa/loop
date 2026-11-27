@@ -20,7 +20,11 @@ import {
 } from "react-native";
 import { BlurView } from "expo-blur";
 import * as Clipboard from "expo-clipboard";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import {
+  Gesture,
+  GestureDetector,
+  useNativeGesture,
+} from "react-native-gesture-handler";
 import Animated, {
   Extrapolation,
   interpolate,
@@ -95,7 +99,7 @@ import {
   useAttachments,
 } from "./AttachmentTray";
 import { AgentAvatar, InlineFormattedText, RichContent } from "./RichContent";
-import { PagerLock } from "../pager-lock";
+import { PagerGesture } from "../pager-gesture";
 import { ScheduleSendSheet } from "./ScheduleSendSheet";
 import { VoiceRecorderButton } from "./VoiceRecorder";
 import {
@@ -604,8 +608,9 @@ export function SpotlightCarousel({
   }, [activeIndex, cards, cardsById, pinnedIds]);
 
   const scrollRef = useRef<Animated.ScrollView>(null);
-  // A table or code block being swiped holds the carousel still.
-  const [pagerLocked, setPagerLocked] = useState(false);
+  // Tables and code blocks inside cards block this gesture while their own
+  // sideways pan is active (see pager-gesture.tsx).
+  const pagerGesture = useNativeGesture({});
   const replyInputRef = useRef<React.ComponentRef<typeof TextInput>>(null);
   const searchInputRef = useRef<React.ComponentRef<typeof TextInput>>(null);
   const markedReadRef = useRef(new Set<string>());
@@ -1682,79 +1687,80 @@ export function SpotlightCarousel({
             style={[styles.trackWrap, searchOpen && { opacity: 0.25 }]}
             pointerEvents={searchOpen ? "none" : "auto"}
           >
-            <PagerLock.Provider value={setPagerLocked}>
-              <Animated.ScrollView
-                ref={scrollRef}
-                horizontal
-                scrollEnabled={!pagerLocked}
-                // With the reply keyboard up, the default ("never") makes this
-                // carousel claim every touch to dismiss the keyboard, so the
-                // card underneath cannot scroll. Let the card take the touch.
-                keyboardShouldPersistTaps="handled"
-                showsHorizontalScrollIndicator={false}
-                decelerationRate="fast"
-                snapToInterval={snapInterval}
-                snapToAlignment="start"
-                disableIntervalMomentum
-                scrollEventThrottle={16}
-                onScroll={scrollHandler}
-                contentContainerStyle={{
-                  paddingHorizontal: sidePadding,
-                  gap: CARD_GAP,
-                }}
-              >
-                {slides.map((slide, index) => {
-                  // Window rendering: only mount rich card trees for the active card
-                  // and its immediate left/right peeking neighbors (at most 3 cards).
-                  if (Math.abs(index - safeIndex) > 1) {
+            <PagerGesture.Provider value={pagerGesture}>
+              <GestureDetector gesture={pagerGesture}>
+                <Animated.ScrollView
+                  ref={scrollRef}
+                  horizontal
+                  // With the reply keyboard up, the default ("never") makes this
+                  // carousel claim every touch to dismiss the keyboard, so the
+                  // card underneath cannot scroll. Let the card take the touch.
+                  keyboardShouldPersistTaps="handled"
+                  showsHorizontalScrollIndicator={false}
+                  decelerationRate="fast"
+                  snapToInterval={snapInterval}
+                  snapToAlignment="start"
+                  disableIntervalMomentum
+                  scrollEventThrottle={16}
+                  onScroll={scrollHandler}
+                  contentContainerStyle={{
+                    paddingHorizontal: sidePadding,
+                    gap: CARD_GAP,
+                  }}
+                >
+                  {slides.map((slide, index) => {
+                    // Window rendering: only mount rich card trees for the active card
+                    // and its immediate left/right peeking neighbors (at most 3 cards).
+                    if (Math.abs(index - safeIndex) > 1) {
+                      return (
+                        <View
+                          key={slide.id}
+                          style={[
+                            styles.floatCard,
+                            {
+                              width: cardWidth,
+                              backgroundColor: theme.surface,
+                              borderColor: theme.line,
+                              opacity: 0.62,
+                            },
+                          ]}
+                        />
+                      );
+                    }
+                    const header = headers[index];
+                    const isMatch =
+                      Boolean(
+                        (searchOpen ? searchQuery : committedQuery).trim(),
+                      ) && activeHits.some((h) => h.index === index);
+                    const slideFiles =
+                      (slide.runId && runFilesByRunId.get(slide.runId)) ||
+                      EMPTY_PUBLISHED_FILES;
                     return (
-                      <View
+                      <FloatingCarouselCard
                         key={slide.id}
-                        style={[
-                          styles.floatCard,
-                          {
-                            width: cardWidth,
-                            backgroundColor: theme.surface,
-                            borderColor: theme.line,
-                            opacity: 0.62,
-                          },
-                        ]}
+                        slide={slide}
+                        header={header}
+                        files={slideFiles}
+                        client={client}
+                        index={index}
+                        isActive={index === safeIndex}
+                        isMatch={isMatch}
+                        cardWidth={cardWidth}
+                        snapInterval={snapInterval}
+                        scrollX={scrollX}
+                        theme={theme}
+                        onSelectNeighbor={handleSelectNeighbor}
+                        onPullToSearch={handlePullToSearch}
+                        onLongPress={handleLongPressCard}
+                        onReplyButton={prefillReply}
+                        onOpenFile={onOpenFile}
+                        onOpenFileTarget={onOpenFileTarget}
                       />
                     );
-                  }
-                  const header = headers[index];
-                  const isMatch =
-                    Boolean(
-                      (searchOpen ? searchQuery : committedQuery).trim(),
-                    ) && activeHits.some((h) => h.index === index);
-                  const slideFiles =
-                    (slide.runId && runFilesByRunId.get(slide.runId)) ||
-                    EMPTY_PUBLISHED_FILES;
-                  return (
-                    <FloatingCarouselCard
-                      key={slide.id}
-                      slide={slide}
-                      header={header}
-                      files={slideFiles}
-                      client={client}
-                      index={index}
-                      isActive={index === safeIndex}
-                      isMatch={isMatch}
-                      cardWidth={cardWidth}
-                      snapInterval={snapInterval}
-                      scrollX={scrollX}
-                      theme={theme}
-                      onSelectNeighbor={handleSelectNeighbor}
-                      onPullToSearch={handlePullToSearch}
-                      onLongPress={handleLongPressCard}
-                      onReplyButton={prefillReply}
-                      onOpenFile={onOpenFile}
-                      onOpenFileTarget={onOpenFileTarget}
-                    />
-                  );
-                })}
-              </Animated.ScrollView>
-            </PagerLock.Provider>
+                  })}
+                </Animated.ScrollView>
+              </GestureDetector>
+            </PagerGesture.Provider>
           </View>
 
           {/* Mode-A Live Search Hit Dropdown floating above dimmed card deck */}

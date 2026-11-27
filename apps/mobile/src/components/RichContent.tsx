@@ -40,7 +40,7 @@ import {
   resolveInlineTextSelectable,
 } from "../text-selection";
 import { MermaidDiagram } from "./MermaidDiagram";
-import { usePagerLockProps } from "../pager-lock";
+import { SidewaysScroll } from "../pager-gesture";
 
 export function AgentAvatar({
   name,
@@ -1148,15 +1148,9 @@ function NativeTable({
       }),
     [columns, rows],
   );
-  const pagerLock = usePagerLockProps();
 
   return (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      style={[styles.tableScroll, { borderColor: theme.line }]}
-      {...pagerLock}
-    >
+    <SidewaysScroll style={[styles.tableScroll, { borderColor: theme.line }]}>
       <View>
         <View
           style={[
@@ -1222,7 +1216,7 @@ function NativeTable({
           </View>
         ))}
       </View>
-    </ScrollView>
+    </SidewaysScroll>
   );
 }
 
@@ -1893,7 +1887,6 @@ function CodeBlock({
   selectable?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
-  const pagerLock = usePagerLockProps();
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -1958,18 +1951,14 @@ function CodeBlock({
           </Text>
         </Pressable>
       </View>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        {...pagerLock}
-      >
+      <SidewaysScroll>
         <Text
           selectable={selectable}
           style={[styles.codeText, { color: theme.text }]}
         >
           {code}
         </Text>
-      </ScrollView>
+      </SidewaysScroll>
     </View>
   );
 }
