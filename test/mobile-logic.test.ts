@@ -2995,6 +2995,31 @@ describe("mobile native notification diffing, preferences, and workspace isolati
       DEFAULT_NOTIFICATION_PREFS,
     );
     expect(recovered.events).toEqual([]);
+
+    // Partial first load (approvals/decisions/replies failed on initial load) must
+    // establish silent baselines when those categories later recover, without spamming.
+    const partialFirst = detectNotificationEvents(
+      null,
+      {
+        approvals: null,
+        decisions: null,
+        cards: [baseCard],
+        repliesLoaded: false,
+      },
+      DEFAULT_NOTIFICATION_PREFS,
+    );
+    expect(partialFirst.events).toEqual([]);
+    const recoveredAfterPartialFirst = detectNotificationEvents(
+      partialFirst.nextSnapshot,
+      {
+        approvals: nextState.approvals,
+        decisions: nextState.decisions,
+        cards: [baseCard, nextState.cards[2]],
+        repliesLoaded: true,
+      },
+      DEFAULT_NOTIFICATION_PREFS,
+    );
+    expect(recoveredAfterPartialFirst.events).toEqual([]);
   });
 
   it("round-trips notification prefs safely and isolates notification tap targets by workspace bucket", () => {
@@ -3186,9 +3211,13 @@ describe("mobile incoming share normalization and server contract compatibility"
         now + 1000 + i,
       );
     }
-    const restored = parseDraftStore(serializeDraftStore(draftMap, now), now);
+    const restored = parseDraftStore(
+      serializeDraftStore(draftMap, now + DRAFT_TTL_MS * 3),
+      now + DRAFT_TTL_MS * 3,
+    );
     expect(
-      readDraftEntryFromStore(restored, shareScope, now)?.pendingShare,
+      readDraftEntryFromStore(restored, shareScope, now + DRAFT_TTL_MS * 3)
+        ?.pendingShare,
     ).toEqual({
       key: "share-retry-key-123456",
       agentId: "agent-1",

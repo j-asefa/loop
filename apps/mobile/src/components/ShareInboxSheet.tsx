@@ -89,7 +89,6 @@ export function useIncomingShareIntake(): {
   const pollGenRef = useRef(0);
 
   const poll = useCallback(async () => {
-    const gen = ++pollGenRef.current;
     const raw = readNativeSharedPayloads();
     if (raw.length === 0) {
       activeKeyRef.current = "";
@@ -98,8 +97,11 @@ export function useIncomingShareIntake(): {
     const rawKey = raw
       .map((r) => `${r.shareType}|${r.mimeType ?? ""}|${r.value}`)
       .join("::");
+    // Check identical payload BEFORE bumping pollGenRef so a duplicate foreground
+    // AppState event does not cancel an in-flight binary file resolution.
     if (rawKey === activeKeyRef.current) return;
     activeKeyRef.current = rawKey;
+    const gen = ++pollGenRef.current;
 
     let effective: RawIncomingSharePayload[] = raw;
     const hasBinaryFile = raw.some(
@@ -408,8 +410,10 @@ export function ShareInboxSheet({
       }
       const runResult = await activeClient.shareSend(payload);
 
-      if (!mountedRef.current || clientRef.current !== activeClient) return;
+      // Always clear persisted pendingShare on confirmed success even if the sheet
+      // unmounted or switched workspaces mid-flight, so re-sharing later never stalls.
       clearDraft(activeClient.origin, shareScope);
+      if (!mountedRef.current || clientRef.current !== activeClient) return;
       lockedPendingShareRef.current = null;
       setUncertainRetryLocked(false);
       haptics.success();
@@ -417,22 +421,25 @@ export function ShareInboxSheet({
         routedAgent?.name ?? leadingHandle ?? agent?.name ?? "agent";
       onSent(`Sent to @${targetName}`, runResult.conversation_id, targetName);
     } catch (err) {
-      if (!mountedRef.current || clientRef.current !== activeClient) return;
-      if (
-        isUncertainOutcomeError(err) ||
-        (err instanceof LoopApiError && err.status === 409)
-      ) {
+      const isIdempotencyConflict =
+        err instanceof LoopApiError &&
+        err.status === 409 &&
+        /request key|idempotency/i.test(err.message);
+      if (isUncertainOutcomeError(err) || isIdempotencyConflict) {
+        if (!mountedRef.current || clientRef.current !== activeClient) return;
         // Preserve persisted pendingShare and NEVER rotate key on uncertain outcome
-        // or 409 idempotency conflict — avoids replaying uncertain work as a second run.
+        // or idempotency-key conflict — avoids replaying uncertain work as a second run.
         setUncertainRetryLocked(true);
         setError(
-          err instanceof LoopApiError && err.status === 409
+          isIdempotencyConflict
             ? "This request key is already recorded on the server — check your Feed before sending again."
             : "Send timed out — tap Retry safely to reuse the exact request ID, or Cancel to check your Feed.",
         );
       } else {
-        // Definite rejection (400/404/etc.): clear persisted lock and rotate key for a revised send
+        // Definite rejection (400/404, retired/unconnected agent 409, etc.):
+        // clear persisted lock even if unmounted, and rotate key for a revised send.
         clearDraft(activeClient.origin, shareScope);
+        if (!mountedRef.current || clientRef.current !== activeClient) return;
         lockedPendingShareRef.current = null;
         setUncertainRetryLocked(false);
         idempotencyKeyRef.current = randomUuid();
@@ -458,7 +465,14 @@ export function ShareInboxSheet({
   ]);
 
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+    <Modal
+      visible
+      transparent
+      animationType="slide"
+      onRequestClose={() => {
+        if (!sending) onClose();
+      }}
+    >
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={styles.backdrop}
@@ -483,11 +497,16 @@ export function ShareInboxSheet({
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Dismiss shared content"
+              disabled={sending}
               onPress={onClose}
               hitSlop={10}
               style={[
                 styles.closeBtn,
-                { backgroundColor: theme.surface, borderColor: theme.line },
+                {
+                  backgroundColor: theme.surface,
+                  borderColor: theme.line,
+                  opacity: sending ? 0.45 : 1,
+                },
               ]}
             >
               <X size={16} color={theme.muted} />
@@ -768,10 +787,15 @@ export function ShareInboxSheet({
           {client ? (
             <View style={[styles.footer, { borderTopColor: theme.line }]}>
               <Pressable
+                disabled={sending}
                 onPress={onClose}
                 style={[
                   styles.cancelBtn,
-                  { backgroundColor: theme.surface, borderColor: theme.line },
+                  {
+                    backgroundColor: theme.surface,
+                    borderColor: theme.line,
+                    opacity: sending ? 0.45 : 1,
+                  },
                 ]}
               >
                 <Text style={[styles.cancelText, { color: theme.muted }]}>

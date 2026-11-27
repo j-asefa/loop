@@ -220,6 +220,8 @@ function LoopShell() {
     () => ({ ...DEFAULT_NOTIFICATION_PREFS }),
   );
   const [notificationPrefsLoaded, setNotificationPrefsLoaded] = useState(false);
+  const notificationPrefsLoadedRef = useRef(false);
+  notificationPrefsLoadedRef.current = notificationPrefsLoaded;
   const notificationPrefsRef = useRef<NotificationPrefs>(notificationPrefs);
   notificationPrefsRef.current = notificationPrefs;
   const notificationSnapshotRef = useRef<NotificationSnapshot | null>(null);
@@ -461,7 +463,7 @@ function LoopShell() {
             notificationPrefsRef.current,
           );
           notificationSnapshotRef.current = nextSnapshot;
-          if (events.length > 0) {
+          if (events.length > 0 && notificationPrefsLoadedRef.current) {
             void deliverLocalNotifications(fetchOrigin, events);
           }
         },

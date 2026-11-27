@@ -30,10 +30,11 @@ export type NotificationEvent = {
 };
 
 export type NotificationSnapshot = {
-  approvalIds: Set<string>;
-  decisionIds: Set<string>;
+  /** `null` means this category has not completed a baseline fetch yet. */
+  approvalIds: Set<string> | null;
+  decisionIds: Set<string> | null;
   doneUnreadIds: Set<string>;
-  replyUnreadIds: Set<string>;
+  replyUnreadIds: Set<string> | null;
 };
 
 export type NotificationTapTarget = {
@@ -104,21 +105,25 @@ export function buildNotificationSnapshot(
   },
   previous?: NotificationSnapshot | null,
 ): NotificationSnapshot {
-  const approvalIds =
+  const approvalIds: Set<string> | null =
     input.approvals === null
-      ? new Set(previous?.approvalIds ?? [])
+      ? previous?.approvalIds
+        ? new Set(previous.approvalIds)
+        : null
       : new Set<string>();
-  if (input.approvals !== null) {
+  if (input.approvals !== null && approvalIds) {
     for (const a of input.approvals) {
       if (a.state === "pending" && a.id) approvalIds.add(a.id);
     }
   }
 
-  const decisionIds =
+  const decisionIds: Set<string> | null =
     input.decisions === null
-      ? new Set(previous?.decisionIds ?? [])
+      ? previous?.decisionIds
+        ? new Set(previous.decisionIds)
+        : null
       : new Set<string>();
-  if (input.decisions !== null) {
+  if (input.decisions !== null && decisionIds) {
     for (const d of input.decisions) {
       if (d.state === "pending" && d.id) decisionIds.add(d.id);
     }
@@ -126,13 +131,15 @@ export function buildNotificationSnapshot(
 
   const doneUnreadIds = new Set<string>();
   const repliesLoaded = input.repliesLoaded !== false;
-  const replyUnreadIds = repliesLoaded
+  const replyUnreadIds: Set<string> | null = repliesLoaded
     ? new Set<string>()
-    : new Set(previous?.replyUnreadIds ?? []);
+    : previous?.replyUnreadIds
+      ? new Set(previous.replyUnreadIds)
+      : null;
   for (const c of input.cards) {
     const key = cardNotificationKey(c);
     if (!key) continue;
-    if (repliesLoaded && c.replyUnread) {
+    if (repliesLoaded && replyUnreadIds && c.replyUnread) {
       replyUnreadIds.add(key);
     }
     if (c.doneUnread || (c.unread && !c.replyUnread)) {
@@ -150,8 +157,9 @@ export function buildNotificationSnapshot(
  * When `previous` is `null` (cold start, cache hydration, or workspace switch),
  * no notifications are emitted so initial loads never spam the user.
  * When a sub-fetch (`approvals`, `decisions`, or `replies`) transiently fails
- * (`null` / `repliesLoaded: false`), its previous ID set is preserved so the
- * next successful refresh does not re-alert on already-seen items.
+ * (`null` / `repliesLoaded: false`), its previous ID set (or `null` if never
+ * baselined yet) is preserved so recovering later establishes a silent baseline
+ * without re-alerting on pre-existing items.
  */
 export function detectNotificationEvents(
   previous: NotificationSnapshot | null,
@@ -175,7 +183,7 @@ export function detectNotificationEvents(
   };
 
   if (prefs.needsYou) {
-    if (current.approvals !== null) {
+    if (current.approvals !== null && previous.approvalIds !== null) {
       for (const a of current.approvals) {
         if (a.state !== "pending" || !a.id || previous.approvalIds.has(a.id)) {
           continue;
@@ -197,7 +205,7 @@ export function detectNotificationEvents(
       }
     }
 
-    if (current.decisions !== null) {
+    if (current.decisions !== null && previous.decisionIds !== null) {
       for (const d of current.decisions) {
         if (d.state !== "pending" || !d.id || previous.decisionIds.has(d.id)) {
           continue;
@@ -223,7 +231,7 @@ export function detectNotificationEvents(
   }
 
   const repliesLoaded = current.repliesLoaded !== false;
-  if (prefs.replies && repliesLoaded) {
+  if (prefs.replies && repliesLoaded && previous.replyUnreadIds !== null) {
     for (const c of current.cards) {
       if (!c.replyUnread) continue;
       const key = cardNotificationKey(c);
@@ -256,6 +264,7 @@ export function detectNotificationEvents(
       if (
         prefs.replies &&
         repliesLoaded &&
+        previous.replyUnreadIds !== null &&
         c.replyUnread &&
         !previous.replyUnreadIds.has(key)
       ) {

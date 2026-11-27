@@ -123,6 +123,9 @@ export const DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const SCHEDULE_GRACE_MS = 24 * 60 * 60 * 1000;
 
 function isDraftEntryExpired(entry: DraftEntry, now: number): boolean {
+  // Never silently expire an unresolved uncertain share send; it stays until
+  // explicitly resolved or purged on sign-out/401.
+  if (entry.pendingShare) return false;
   if (entry.pendingSchedule) {
     const scheduleExpiry = Math.max(
       entry.updatedAt + DRAFT_TTL_MS,
