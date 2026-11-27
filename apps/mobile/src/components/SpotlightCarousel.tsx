@@ -96,6 +96,7 @@ import {
   loadDraftEntry,
   saveDraft,
   saveDraftAndFlush,
+  settlePendingReplyDraft,
 } from "../drafts";
 import { haptics } from "../haptics";
 import { runModelLabel } from "../models";
@@ -501,6 +502,10 @@ export function SpotlightCarousel({
   });
   const safeIndex = resolveCarouselSelection(slides, selection);
   const activeCard = slides[safeIndex];
+  const replyAttachments = useAttachments(client, {
+    agentId: activeCard?.agentId,
+  });
+  const { restoreUploadedAttachments } = replyAttachments;
 
   useEffect(() => {
     // Wait until the user moves toward the older end of the loaded cards.
@@ -586,6 +591,8 @@ export function SpotlightCarousel({
             replyToMessageId: entry.pendingReplyToMessageId,
             queue: entry.pendingQueue,
           };
+          if (entry.pendingReplyAttachmentIds)
+            restoreUploadedAttachments(entry.pendingReplyAttachmentIds);
           if (entry.pendingQueue !== undefined) {
             setDeliveryMode(entry.pendingQueue ? "queue" : "steer");
           }
@@ -596,7 +603,7 @@ export function SpotlightCarousel({
     return () => {
       cancelled = true;
     };
-  }, [client?.localDataScope, draftScope]);
+  }, [client?.localDataScope, draftScope, restoreUploadedAttachments]);
   const [replyError, setReplyError] = useState("");
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleBusy, setScheduleBusy] = useState(false);
@@ -642,15 +649,10 @@ export function SpotlightCarousel({
     replyToMessageId?: string;
     queue?: boolean;
   } | null>(null);
-  const replyAttachments = useAttachments(client, {
-    agentId: activeCard?.agentId,
-  });
-
   const holdHistoryUpdates =
-    !draftLoaded ||
-    keyboardVisible ||
-    recordingAudio ||
-    sending ||
+    !draftLoaded || keyboardVisible || recordingAudio || sending;
+  const holdSelection =
+    holdHistoryUpdates ||
     draft.trim().length > 0 ||
     replyAttachments.attachments.length > 0 ||
     Boolean(replyError);
@@ -730,7 +732,7 @@ export function SpotlightCarousel({
   useEffect(() => {
     const firstPinned = pinnedIds[0];
     if (
-      !holdHistoryUpdates &&
+      !holdSelection &&
       safeIndex === 0 &&
       firstPinned?.startsWith("working:") &&
       !cardsById.has(firstPinned) &&
@@ -738,7 +740,7 @@ export function SpotlightCarousel({
     ) {
       setPinnedIds(recentCards.map((c) => c.id));
     }
-  }, [holdHistoryUpdates, safeIndex, recentCards, cardsById, pinnedIds]);
+  }, [holdSelection, safeIndex, recentCards, cardsById, pinnedIds]);
 
   const scrollRef = useRef<Animated.ScrollView>(null);
   // A table or code block being swiped holds the carousel still.
@@ -1165,29 +1167,38 @@ export function SpotlightCarousel({
     haptics.medium();
     setSending(true);
     setReplyError("");
+    const origin = client?.localDataScope;
+    let persisted = false;
     try {
+      if (origin && draftScope) {
+        await saveDraftAndFlush(origin, draftScope, finalPrompt, {
+          key: idempotencyKey,
+          replyToMessageId,
+          replyAttachmentIds: readyIds,
+          queue,
+        });
+        persisted = true;
+      }
       await Promise.resolve(
         onSendReply(targetCard, finalPrompt, readyIds, idempotencyKey, queue),
       );
       pendingReplyRef.current = null;
       setRetryModeLocked(false);
-      if (draftScope) clearDraft(client?.localDataScope, draftScope);
+      if (origin && persisted)
+        settlePendingReplyDraft(origin, draftScope, idempotencyKey);
+      else if (!origin && draftScope) clearDraft(origin, draftScope);
       setDraft("");
       clearAttachments();
       Keyboard.dismiss();
     } catch (err) {
-      if (!isUncertainOutcomeError(err)) {
+      if (isUncertainOutcomeError(err)) {
+        setRetryModeLocked(true);
+      } else {
+        if (origin && persisted) {
+          settlePendingReplyDraft(origin, draftScope, idempotencyKey, draft);
+        }
         pendingReplyRef.current = null;
         setRetryModeLocked(false);
-      } else {
-        setRetryModeLocked(true);
-        if (draftScope) {
-          saveDraft(client?.localDataScope, draftScope, draft, {
-            key: idempotencyKey,
-            replyToMessageId,
-            queue,
-          });
-        }
       }
       haptics.warning();
       setReplyError(
@@ -1363,7 +1374,7 @@ export function SpotlightCarousel({
   // Hold repinning while the composer is active.
   useEffect(() => {
     const top = recentCards[0]?.id;
-    if (holdHistoryUpdates || !top || lastTopCardRef.current === top) return;
+    if (holdSelection || !top || lastTopCardRef.current === top) return;
     lastTopCardRef.current = top;
     if (pinnedIds.includes(top)) return;
     haptics.light();
@@ -1381,7 +1392,7 @@ export function SpotlightCarousel({
   }, [
     cards,
     cardsById,
-    holdHistoryUpdates,
+    holdSelection,
     lastCenteredIdx,
     openingCard,
     pinnedIds,

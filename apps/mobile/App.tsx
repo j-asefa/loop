@@ -967,6 +967,9 @@ function LoopShell() {
       queue?: boolean,
     ) => {
       if (client) {
+        if (activeSessionRef.current !== session) {
+          throw new Error("Workspace changed before the reply was sent.");
+        }
         const gen = workspaceGenRef.current;
         const agentId =
           card.agentId ||
@@ -1006,7 +1009,7 @@ function LoopShell() {
       setDemoCards((prev) => [nextCard, ...prev]);
       haptics.success();
     },
-    [client, agents, scheduleSilentRefresh, showToast],
+    [client, session, agents, scheduleSilentRefresh, showToast],
   );
 
   const handleCarouselSchedule = useCallback(
@@ -1407,23 +1410,24 @@ function LoopShell() {
     [handleControlRun],
   );
 
-  const handleSignOut = useCallback(async () => {
-    const signingOutSession = session;
-    if (client) await client.signOut();
-    // Never wipe a newly paired workspace if the user switched while sign-out was in flight
-    if (activeSessionRef.current !== signingOutSession) return;
-    // Invalidate any in-flight workspace loads BEFORE deleting local cache files so
-    // an about-to-finish fetchAll cannot recreate the cache file right after deletion.
+  const handleSignOut = useCallback(() => {
+    if (
+      !session ||
+      (activeSessionRef.current && activeSessionRef.current !== session)
+    )
+      return;
+    activeSessionRef.current = null;
     workspaceGenRef.current = loadCoordRef.current.reset();
-    const scope = localDataScope(signingOutSession);
+    const scope = localDataScope(session);
     clearWorkspaceDrafts(scope);
     clearEphemeralWorkspaceData(scope);
-    await clearPairedSession();
-    if (activeSessionRef.current !== signingOutSession) return;
+    void clearPairedSession();
+    setComposeTarget(null);
     setSession(null);
     setLiveCards([]);
     setSocketStatus("offline");
     showToast("Signed out — switched to Demo Deck");
+    void client?.signOut();
   }, [client, session, showToast]);
 
   const openAgentByName = useCallback(

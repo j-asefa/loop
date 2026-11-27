@@ -107,6 +107,7 @@ import {
   readDraftFromStore,
   serializeDraftStore,
   setDraftInStore,
+  settlePendingReplyInStore,
 } from "../apps/mobile/src/drafts-codec.js";
 import {
   buildSchedulePresets,
@@ -4086,13 +4087,14 @@ it("uses the most recently started bookmark read and preserves a newer local cha
   ).toBe(false);
 });
 
-it("round-trips the original target for a pending carousel reply", () => {
+it("round-trips the original target and attachments for a pending carousel reply", () => {
   const scope = "carousel:thread";
   const now = Date.now();
   const stored = setDraftInStore(createEmptyDraftMap(), scope, "Reply", now, {
     key: "retry-key-123",
     queue: true,
     replyToMessageId: "answer-a",
+    replyAttachmentIds: ["upload-1"],
   });
   expect(
     readDraftEntryFromStore(
@@ -4104,7 +4106,15 @@ it("round-trips the original target for a pending carousel reply", () => {
     pendingKey: "retry-key-123",
     pendingQueue: true,
     pendingReplyToMessageId: "answer-a",
+    pendingReplyAttachmentIds: ["upload-1"],
   });
+  const newer = setDraftInStore(stored, scope, "New draft", now + 1, {
+    key: "retry-key-456",
+  });
+  expect(settlePendingReplyInStore(newer, scope, "retry-key-123")).toBe(newer);
+  expect(
+    settlePendingReplyInStore(stored, scope, "retry-key-123")[scope],
+  ).toBeUndefined();
 });
 
 it("reconciles an uncertain carousel save only with a read started afterward", () => {

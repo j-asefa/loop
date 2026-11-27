@@ -7,6 +7,7 @@ import {
   readDraftEntryFromStore,
   serializeDraftStore,
   settlePendingAgentCreateInStore,
+  settlePendingReplyInStore,
   setDraftInStore,
   type DraftEntry,
   type DraftMap,
@@ -251,6 +252,13 @@ export async function saveDraftAndFlush(
     throw new Error("Workspace changed while saving the draft.");
   }
   const current = memoryBuckets.get(bucket) ?? createEmptyDraftMap();
+  if (
+    current[scope]?.pendingKey &&
+    pending?.key &&
+    current[scope].pendingKey !== pending.key
+  ) {
+    throw new Error("A pending reply already exists for this draft.");
+  }
   const existingAgentCreate = current[scope]?.pendingAgentCreate;
   if (
     existingAgentCreate &&
@@ -323,6 +331,21 @@ export function settlePendingAgentCreate(
   return "settled";
 }
 
+export function settlePendingReplyDraft(
+  origin: string,
+  scope: string,
+  key: string,
+  text?: string,
+): void {
+  const bucket = draftWorkspaceBucket(origin);
+  const current = memoryBuckets.get(bucket);
+  if (!current) return;
+  const next = settlePendingReplyInStore(current, scope, key, text);
+  if (next === current) return;
+  memoryBuckets.set(bucket, next);
+  flushBucketNow(bucket);
+}
+
 export function clearDraft(
   origin: string | null | undefined,
   scope: string,
@@ -341,7 +364,7 @@ export function clearDraft(
   flushBucketNow(bucket);
 }
 
-/** Purge all cached drafts for a workspace on sign-out or session expiry. */
+/** Purge the workspace's drafts on explicit sign-out. */
 export function clearWorkspaceDrafts(origin: string | null | undefined): void {
   const bucket = draftWorkspaceBucket(origin);
   for (const makeFile of [draftFileForBucket, legacyDraftFileForBucket]) {

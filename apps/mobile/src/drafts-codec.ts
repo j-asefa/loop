@@ -29,6 +29,7 @@ export type DraftPendingMeta = {
   key?: string;
   queue?: boolean;
   replyToMessageId?: string;
+  replyAttachmentIds?: string[];
   schedule?: PendingScheduleDraft;
   share?: PendingShareDraft;
   agentCreate?: PendingAgentCreate;
@@ -42,6 +43,7 @@ export type DraftEntry = {
   /** Original queue delivery flag paired with `pendingKey` so retries never mutate semantics. */
   pendingQueue?: boolean;
   pendingReplyToMessageId?: string;
+  pendingReplyAttachmentIds?: string[];
   /** Durable schedule identity + payload metadata persisted before dispatch / across uncertain timeouts. */
   pendingSchedule?: PendingScheduleDraft;
   /** Durable share identity + routing/upload metadata persisted before dispatch / across uncertain timeouts. */
@@ -175,6 +177,14 @@ function sanitizePendingSchedule(
   };
 }
 
+function readReplyAttachmentIds(raw: unknown): string[] | undefined {
+  return Array.isArray(raw)
+    ? raw
+        .filter((id): id is string => typeof id === "string" && id.length > 0)
+        .slice(0, 8)
+    : undefined;
+}
+
 export type DraftMap = Record<string, DraftEntry>;
 
 export const MAX_DRAFT_CHARS = 32_000;
@@ -254,6 +264,9 @@ export function pruneDraftStore(input: DraftMap, now = Date.now()): DraftMap {
     const pendingSchedule = sanitizePendingSchedule(entry.pendingSchedule);
     const pendingShare = sanitizePendingShare(entry.pendingShare);
     const pendingAgentCreate = readPendingAgentCreate(entry.pendingAgentCreate);
+    const replyAttachmentIds = readReplyAttachmentIds(
+      entry.pendingReplyAttachmentIds,
+    );
     const normalized: DraftEntry = {
       text:
         entry.text.length > MAX_DRAFT_CHARS
@@ -269,6 +282,9 @@ export function pruneDraftStore(input: DraftMap, now = Date.now()): DraftMap {
       ...(typeof entry.pendingReplyToMessageId === "string" &&
       entry.pendingReplyToMessageId
         ? { pendingReplyToMessageId: entry.pendingReplyToMessageId }
+        : {}),
+      ...(replyAttachmentIds?.length
+        ? { pendingReplyAttachmentIds: replyAttachmentIds }
         : {}),
       ...(pendingSchedule ? { pendingSchedule } : {}),
       ...(pendingShare ? { pendingShare } : {}),
@@ -319,6 +335,7 @@ export function parseDraftStore(raw: string, now = Date.now()): DraftMap {
         pendingKey?: unknown;
         pendingQueue?: unknown;
         pendingReplyToMessageId?: unknown;
+        pendingReplyAttachmentIds?: unknown;
         pendingSchedule?: unknown;
         pendingShare?: unknown;
         pendingAgentCreate?: unknown;
@@ -334,6 +351,9 @@ export function parseDraftStore(raw: string, now = Date.now()): DraftMap {
         const pendingAgentCreate = readPendingAgentCreate(
           item.pendingAgentCreate,
         );
+        const replyAttachmentIds = readReplyAttachmentIds(
+          item.pendingReplyAttachmentIds,
+        );
         loaded[key] = {
           text: item.text,
           updatedAt: item.updatedAt,
@@ -345,6 +365,9 @@ export function parseDraftStore(raw: string, now = Date.now()): DraftMap {
             : {}),
           ...(typeof item.pendingReplyToMessageId === "string"
             ? { pendingReplyToMessageId: item.pendingReplyToMessageId }
+            : {}),
+          ...(replyAttachmentIds?.length
+            ? { pendingReplyAttachmentIds: replyAttachmentIds }
             : {}),
           ...(pendingSchedule ? { pendingSchedule } : {}),
           ...(pendingShare ? { pendingShare } : {}),
@@ -386,6 +409,9 @@ export function setDraftInStore(
     ...(pending?.replyToMessageId
       ? { pendingReplyToMessageId: pending.replyToMessageId }
       : {}),
+    ...(pending?.replyAttachmentIds?.length
+      ? { pendingReplyAttachmentIds: pending.replyAttachmentIds }
+      : {}),
     ...(pendingSchedule ? { pendingSchedule } : {}),
     ...(pendingShare ? { pendingShare } : {}),
     ...(pendingAgentCreate ? { pendingAgentCreate } : {}),
@@ -410,6 +436,19 @@ export function settlePendingAgentCreateInStore(
 ): DraftMap {
   if (map[scope]?.pendingAgentCreate?.idempotencyKey !== idempotencyKey)
     return map;
+  return text === undefined
+    ? deleteDraftFromStore(map, scope)
+    : setDraftInStore(map, scope, text, now);
+}
+
+export function settlePendingReplyInStore(
+  map: DraftMap,
+  scope: string,
+  key: string,
+  text?: string,
+  now = Date.now(),
+): DraftMap {
+  if (map[scope]?.pendingKey !== key) return map;
   return text === undefined
     ? deleteDraftFromStore(map, scope)
     : setDraftInStore(map, scope, text, now);
