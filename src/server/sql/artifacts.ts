@@ -259,20 +259,41 @@ const snippetsStatement = statement(
        max(m.created_at) AS last_used_at
      FROM messages m
      WHERE m.owner_id = @owner AND m.role = 'user'
+       AND m.run_id IS NOT NULL
+       AND json_extract(m.metadata, '$.progress') IS NOT 1
+       AND json_extract(m.metadata, '$.automation') IS NULL
+       AND COALESCE(json_extract(m.metadata, '$.shared'), 0) = 0
        AND trim(m.content, ' '||char(9)||char(10)||char(13)) IN (
          SELECT norm_content FROM unique_snippets WHERE norm_content <> ''
        )
      GROUP BY trim(m.content, ' '||char(9)||char(10)||char(13))
+   ),
+   ranked AS (
+     SELECT s.id, s.title, s.content, s.created_at, s.row,
+       COALESCE(u.use_count, 0) AS use_count,
+       COALESCE(u.last_used_at, 0) AS last_used_at,
+       row_number() OVER (ORDER BY s.created_at DESC, s.row DESC) AS recency_rank
+     FROM unique_snippets s
+     LEFT JOIN usage u ON u.norm_content = s.norm_content
+   ),
+   selected AS (
+     SELECT id, title, content, created_at, row, use_count, last_used_at,
+       row_number() OVER (
+         ORDER BY CASE WHEN recency_rank <= 20 THEN 0 ELSE 1 END,
+                  use_count DESC,
+                  last_used_at DESC,
+                  created_at DESC,
+                  row DESC
+       ) AS keep_rank
+     FROM ranked
    )
-   SELECT s.id, s.title, s.content, s.created_at,
-     COALESCE(u.use_count, 0) AS use_count
-   FROM unique_snippets s
-   LEFT JOIN usage u ON u.norm_content = s.norm_content
-   ORDER BY COALESCE(u.use_count, 0) DESC,
-            COALESCE(u.last_used_at, 0) DESC,
-            s.created_at DESC,
-            s.row DESC
-   LIMIT 100`,
+   SELECT id, title, content, created_at, use_count
+   FROM selected
+   WHERE keep_rank <= 100
+   ORDER BY use_count DESC,
+            last_used_at DESC,
+            created_at DESC,
+            row DESC`,
 );
 const snippetsRow = QueryRecords.artifacts
   .pick({

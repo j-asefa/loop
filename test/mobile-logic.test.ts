@@ -128,10 +128,13 @@ import { getAgentArt, PALETTES } from "../apps/mobile/src/agentArt.js";
 import {
   computeKeyboardInset,
   computeQuickSheetLayout,
+  createEmptySnippetUsageMap,
   MAX_TRACKED_SNIPPETS,
+  mergeSnippetUsageMaps,
   parseSnippetUsageStore,
   recordSnippetUseInStore,
   serializeSnippetUsageStore,
+  snippetUsageKey,
   sortSnippetsByUsage,
 } from "../apps/mobile/src/snippet-usage-codec.js";
 import type { ApiFeedItem } from "../apps/mobile/src/api/types.js";
@@ -3810,6 +3813,40 @@ describe("mobile snippet usage sorting and quick-reply keyboard layout", () => {
     const parsed = parseSnippetUsageStore(serialized);
     expect(parsed["Gamma prompt"]).toEqual({ count: 4, lastUsedAt: 4000 });
 
+    // Prototype property names and SQL-matching trim whitespace behave safely.
+    expect(snippetUsageKey("  \t\n\rhello\u00a0\r\n ")).toBe("hello\u00a0");
+    let protoMap = createEmptySnippetUsageMap();
+    for (const protoKey of ["__proto__", "constructor", "toString"]) {
+      protoMap = recordSnippetUseInStore(protoMap, protoKey, 0, 9000);
+    }
+    const protoParsed = parseSnippetUsageStore(
+      serializeSnippetUsageStore(protoMap),
+    );
+    expect(Object.prototype.hasOwnProperty.call(protoParsed, "__proto__")).toBe(
+      true,
+    );
+    expect(protoParsed["__proto__"]).toEqual({ count: 1, lastUsedAt: 9000 });
+    expect(protoParsed["constructor"]).toEqual({ count: 1, lastUsedAt: 9000 });
+    expect(protoParsed["toString"]).toEqual({ count: 1, lastUsedAt: 9000 });
+    const mergedProto = mergeSnippetUsageMaps(protoParsed, protoMap);
+    expect(mergedProto["__proto__"]).toEqual({ count: 1, lastUsedAt: 9000 });
+    expect(
+      sortSnippetsByUsage(
+        [
+          { id: "a", title: "Normal", content: "Normal", use_count: 0 },
+          { id: "b", title: "Proto", content: "__proto__", use_count: 0 },
+        ],
+        mergedProto,
+      ).map((s) => s.id),
+    ).toEqual(["b", "a"]);
+
+    // Share-intake blocklist rejects the snippet usage cache file.
+    expect(
+      isSafeLocalShareFileUri(
+        "file:///var/mobile/Library/Caches/loop-snippet-usage-abc123.json",
+      ),
+    ).toBe(false);
+
     let crowded = parsed;
     for (let i = 0; i < MAX_TRACKED_SNIPPETS + 10; i++) {
       crowded = recordSnippetUseInStore(crowded, `Extra ${i}`, 0, 5000 + i);
@@ -3834,7 +3871,7 @@ describe("mobile snippet usage sorting and quick-reply keyboard layout", () => {
       ),
     ).toBe(0);
 
-    // Android adjustResize already shrinks windowHeight to screenY -> inset 0 (no double padding).
+    // Android adjustResize already shrinks container height to screenY -> inset 0 (no double padding).
     expect(
       computeKeyboardInset(
         { endCoordinates: { height: 300, screenY: 544 } },
@@ -3842,6 +3879,14 @@ describe("mobile snippet usage sorting and quick-reply keyboard layout", () => {
         "android",
       ),
     ).toBe(0);
+    // Android overlay mode (non-shrinking container) computes exact keyboard height.
+    expect(
+      computeKeyboardInset(
+        { endCoordinates: { height: 300, screenY: 544 } },
+        844,
+        "android",
+      ),
+    ).toBe(300);
 
     const openLayout = computeQuickSheetLayout({
       windowHeight: 844,
@@ -3849,10 +3894,21 @@ describe("mobile snippet usage sorting and quick-reply keyboard layout", () => {
       insetBottom: 34,
       keyboardInset: iosInset,
     });
-    expect(openLayout.maxSheetHeight).toBe(429);
+    expect(openLayout.maxSheetHeight).toBe(437);
     expect(openLayout.sheetPaddingBottom).toBe(12);
-    expect(openLayout.maxScrollHeight).toBe(365);
+    expect(openLayout.maxScrollHeight).toBe(373);
     expect(openLayout.maxSheetHeight + iosInset + 59).toBeLessThanOrEqual(844);
+
+    // Short landscape / split-screen window never pushes the sheet header above the top inset.
+    const tightLayout = computeQuickSheetLayout({
+      windowHeight: 390,
+      insetTop: 20,
+      insetBottom: 0,
+      keyboardInset: 250,
+    });
+    expect(tightLayout.maxSheetHeight).toBe(108);
+    expect(tightLayout.maxSheetHeight + 250 + 20).toBeLessThanOrEqual(390);
+    expect(tightLayout.maxScrollHeight).toBe(44);
 
     const closedLayout = computeQuickSheetLayout({
       windowHeight: 844,

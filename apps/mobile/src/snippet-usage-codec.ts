@@ -8,28 +8,37 @@ export type SnippetUsageEntry = {
 export type SnippetUsageMap = Record<string, SnippetUsageEntry>;
 
 export function snippetUsageKey(content: string): string {
-  return content.trim();
+  // Match SQLite's trim(content, ' '||char(9)||char(10)||char(13)).
+  return content.replace(/^[ \t\n\r]+|[ \t\n\r]+$/g, "");
 }
 
 export function createEmptySnippetUsageMap(): SnippetUsageMap {
-  return {};
+  return Object.create(null) as SnippetUsageMap;
 }
 
 function pruneSnippetUsageMap(map: SnippetUsageMap): SnippetUsageMap {
   const entries = Object.entries(map);
-  if (entries.length <= MAX_TRACKED_SNIPPETS) return map;
+  if (entries.length <= MAX_TRACKED_SNIPPETS) {
+    const copy = createEmptySnippetUsageMap();
+    for (const [key, entry] of entries) copy[key] = entry;
+    return copy;
+  }
   entries.sort(([, a], [, b]) => {
     if (b.count !== a.count) return b.count - a.count;
     return b.lastUsedAt - a.lastUsedAt;
   });
-  return Object.fromEntries(entries.slice(0, MAX_TRACKED_SNIPPETS));
+  const pruned = createEmptySnippetUsageMap();
+  for (const [key, entry] of entries.slice(0, MAX_TRACKED_SNIPPETS)) {
+    pruned[key] = entry;
+  }
+  return pruned;
 }
 
 export function parseSnippetUsageStore(raw: string): SnippetUsageMap {
   try {
     const parsed = JSON.parse(raw) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return {};
+      return createEmptySnippetUsageMap();
     }
     const obj = parsed as Record<string, unknown>;
     const entriesObj =
@@ -38,8 +47,9 @@ export function parseSnippetUsageStore(raw: string): SnippetUsageMap {
       !Array.isArray(obj.entries)
         ? (obj.entries as Record<string, unknown>)
         : obj;
-    const next: SnippetUsageMap = {};
-    for (const [key, value] of Object.entries(entriesObj)) {
+    const next = createEmptySnippetUsageMap();
+    for (const key of Object.keys(entriesObj)) {
+      const value = entriesObj[key];
       const normalized = snippetUsageKey(key);
       if (!normalized || !value || typeof value !== "object") continue;
       const entry = value as { count?: unknown; lastUsedAt?: unknown };
@@ -56,7 +66,9 @@ export function parseSnippetUsageStore(raw: string): SnippetUsageMap {
         entry.lastUsedAt >= 0
           ? entry.lastUsedAt
           : 0;
-      const existing = next[normalized];
+      const existing = Object.hasOwn(next, normalized)
+        ? next[normalized]
+        : undefined;
       if (
         !existing ||
         entry.count > existing.count ||
@@ -67,12 +79,21 @@ export function parseSnippetUsageStore(raw: string): SnippetUsageMap {
     }
     return pruneSnippetUsageMap(next);
   } catch {
-    return {};
+    return createEmptySnippetUsageMap();
   }
 }
 
 export function serializeSnippetUsageStore(map: SnippetUsageMap): string {
-  return JSON.stringify({ v: 1, entries: pruneSnippetUsageMap(map) });
+  const entries: Record<string, SnippetUsageEntry> = {};
+  for (const [key, entry] of Object.entries(pruneSnippetUsageMap(map))) {
+    Object.defineProperty(entries, key, {
+      value: entry,
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
+  }
+  return JSON.stringify({ v: 1, entries });
 }
 
 export function recordSnippetUseInStore(
@@ -83,7 +104,7 @@ export function recordSnippetUseInStore(
 ): SnippetUsageMap {
   const key = snippetUsageKey(content);
   if (!key) return map;
-  const prev = map[key];
+  const prev = Object.hasOwn(map, key) ? map[key] : undefined;
   const baseServer =
     typeof serverUseCount === "number" &&
     Number.isFinite(serverUseCount) &&
@@ -92,10 +113,35 @@ export function recordSnippetUseInStore(
       : 0;
   const count = Math.max(prev?.count ?? 0, baseServer) + 1;
   const lastUsedAt = Math.max(prev?.lastUsedAt ?? 0, now);
-  return pruneSnippetUsageMap({
-    ...map,
-    [key]: { count, lastUsedAt },
-  });
+  const next = createEmptySnippetUsageMap();
+  for (const existingKey of Object.keys(map)) {
+    next[existingKey] = map[existingKey];
+  }
+  next[key] = { count, lastUsedAt };
+  return pruneSnippetUsageMap(next);
+}
+
+export function mergeSnippetUsageMaps(
+  disk: SnippetUsageMap,
+  memory: SnippetUsageMap,
+): SnippetUsageMap {
+  const merged = createEmptySnippetUsageMap();
+  for (const key of Object.keys(disk)) {
+    merged[key] = disk[key];
+  }
+  for (const key of Object.keys(memory)) {
+    const entry = memory[key];
+    const existing = Object.hasOwn(merged, key) ? merged[key] : undefined;
+    if (!existing) {
+      merged[key] = entry;
+      continue;
+    }
+    merged[key] = {
+      count: Math.max(existing.count, entry.count),
+      lastUsedAt: Math.max(existing.lastUsedAt, entry.lastUsedAt),
+    };
+  }
+  return pruneSnippetUsageMap(merged);
 }
 
 export function sortSnippetsByUsage<
@@ -104,7 +150,8 @@ export function sortSnippetsByUsage<
   if (items.length <= 1) return [...items];
   return items
     .map((item, index) => {
-      const local = usageMap[snippetUsageKey(item.content)];
+      const key = snippetUsageKey(item.content);
+      const local = Object.hasOwn(usageMap, key) ? usageMap[key] : undefined;
       const serverCount =
         typeof item.use_count === "number" &&
         Number.isFinite(item.use_count) &&
@@ -133,15 +180,15 @@ export function computeKeyboardInset(
       }
     | null
     | undefined,
-  windowHeight: number,
+  containerHeight: number,
   platform: string,
 ): number {
   const height = event?.endCoordinates?.height ?? 0;
   const screenY = event?.endCoordinates?.screenY;
   if (typeof screenY === "number" && Number.isFinite(screenY)) {
-    if (screenY >= windowHeight) return 0;
+    if (screenY >= containerHeight) return 0;
     if (platform === "android" && screenY > 0) {
-      return Math.max(0, Math.round(windowHeight - screenY));
+      return Math.max(0, Math.round(containerHeight - screenY));
     }
   }
   return Number.isFinite(height) ? Math.max(0, Math.round(height)) : 0;
@@ -164,13 +211,13 @@ export function computeQuickSheetLayout({
 } {
   const keyboardVisible = keyboardInset > 0;
   const maxSheetHeight = Math.max(
-    200,
-    Math.round(windowHeight - insetTop - keyboardInset - 20),
+    0,
+    Math.round(windowHeight - insetTop - keyboardInset - 12),
   );
   const sheetPaddingBottom = keyboardVisible
     ? 12
     : Math.max(insetBottom + 14, 22);
   const headerAndChromeHeight = 52 + sheetPaddingBottom;
-  const maxScrollHeight = Math.max(120, maxSheetHeight - headerAndChromeHeight);
+  const maxScrollHeight = Math.max(0, maxSheetHeight - headerAndChromeHeight);
   return { maxSheetHeight, maxScrollHeight, sheetPaddingBottom };
 }

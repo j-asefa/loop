@@ -106,6 +106,7 @@ import {
 } from "./src/offline-cache";
 import {
   clearWorkspaceSnippetUsage,
+  createEmptySnippetUsageMap,
   loadSnippetUsage,
   recordSnippetUse,
   recordSnippetUseInStore,
@@ -205,7 +206,9 @@ function LoopShell() {
   const [agents, setAgents] = useState<ApiAgent[]>(DEMO_AGENTS);
   const [folders, setFolders] = useState<ApiFolder[]>([]);
   const [snippets, setSnippets] = useState<ApiSnippet[]>([]);
-  const [snippetUsage, setSnippetUsage] = useState<SnippetUsageMap>({});
+  const [snippetUsage, setSnippetUsage] = useState<SnippetUsageMap>(() =>
+    createEmptySnippetUsageMap(),
+  );
   const sortedSnippets = useMemo(
     () => sortSnippetsByUsage(snippets, snippetUsage),
     [snippets, snippetUsage],
@@ -528,7 +531,7 @@ function LoopShell() {
     setApprovals([]);
     setDecisions([]);
     setSnippets([]);
-    setSnippetUsage({});
+    setSnippetUsage(createEmptySnippetUsageMap());
     setConnections([]);
     setActiveRuns([]);
     setQueuedFeedItems([]);
@@ -1867,11 +1870,18 @@ function LoopShell() {
           client={client}
           snippets={sortedSnippets}
           onUseSnippet={(snip) => {
-            setSnippetUsage((prev) =>
-              session?.origin
-                ? recordSnippetUse(session.origin, snip.content, snip.use_count)
-                : recordSnippetUseInStore(prev, snip.content, snip.use_count),
-            );
+            if (session?.origin) {
+              const next = recordSnippetUse(
+                session.origin,
+                snip.content,
+                snip.use_count,
+              );
+              setSnippetUsage(next);
+            } else {
+              setSnippetUsage((prev) =>
+                recordSnippetUseInStore(prev, snip.content, snip.use_count),
+              );
+            }
           }}
           theme={theme}
           onCancelQueuedRun={handleCancelQueuedRun}

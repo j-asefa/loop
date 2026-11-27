@@ -2,6 +2,7 @@ import { File as ExpoFile, Paths } from "expo-file-system";
 import { draftWorkspaceBucket } from "./drafts-codec";
 import {
   createEmptySnippetUsageMap,
+  mergeSnippetUsageMaps,
   parseSnippetUsageStore,
   recordSnippetUseInStore,
   serializeSnippetUsageStore,
@@ -11,45 +12,39 @@ import {
 export {
   computeKeyboardInset,
   computeQuickSheetLayout,
+  createEmptySnippetUsageMap,
+  mergeSnippetUsageMaps,
   recordSnippetUseInStore,
   sortSnippetsByUsage,
   type SnippetUsageEntry,
   type SnippetUsageMap,
 } from "./snippet-usage-codec";
 
+type PendingUseOp = {
+  content: string;
+  serverUseCount?: number;
+  now: number;
+};
+
 const memoryBuckets = new Map<string, SnippetUsageMap>();
 const loadedBuckets = new Set<string>();
 const pendingLoads = new Map<string, Promise<SnippetUsageMap>>();
+const pendingOpsByBucket = new Map<string, PendingUseOp[]>();
 const bucketEpoch = new Map<string, number>();
 
 function usageFileForBucket(bucket: string): ExpoFile {
   return new ExpoFile(Paths.cache, `loop-snippet-usage-${bucket}.json`);
 }
 
-function mergeUsageMaps(
-  disk: SnippetUsageMap,
-  memory: SnippetUsageMap,
-): SnippetUsageMap {
-  const merged: SnippetUsageMap = { ...disk };
-  for (const [key, entry] of Object.entries(memory)) {
-    const existing = merged[key];
-    if (!existing) {
-      merged[key] = entry;
-      continue;
-    }
-    merged[key] = {
-      count: Math.max(existing.count, entry.count),
-      lastUsedAt: Math.max(existing.lastUsedAt, entry.lastUsedAt),
-    };
+function writeBucketFile(bucket: string, map: SnippetUsageMap): void {
+  try {
+    usageFileForBucket(bucket).write(serializeSnippetUsageStore(map));
+  } catch {
+    // Best-effort local persistence; never block snippet selection.
   }
-  return merged;
 }
 
-export async function loadSnippetUsage(
-  origin: string | null | undefined,
-): Promise<SnippetUsageMap> {
-  if (!origin) return createEmptySnippetUsageMap();
-  const bucket = draftWorkspaceBucket(origin);
+async function ensureBucketLoaded(bucket: string): Promise<SnippetUsageMap> {
   if (loadedBuckets.has(bucket)) {
     return memoryBuckets.get(bucket) ?? createEmptySnippetUsageMap();
   }
@@ -70,17 +65,44 @@ export async function loadSnippetUsage(
     if ((bucketEpoch.get(bucket) ?? 0) !== epochAtStart) {
       return memoryBuckets.get(bucket) ?? createEmptySnippetUsageMap();
     }
-    const merged = mergeUsageMaps(
+    const pending = pendingOpsByBucket.get(bucket);
+    pendingOpsByBucket.delete(bucket);
+    let merged = mergeSnippetUsageMaps(
       loaded,
       memoryBuckets.get(bucket) ?? createEmptySnippetUsageMap(),
     );
+    let dirty = false;
+    if (pending?.length) {
+      for (const op of pending) {
+        merged = recordSnippetUseInStore(
+          merged,
+          op.content,
+          op.serverUseCount,
+          op.now,
+        );
+      }
+      dirty = true;
+    }
     memoryBuckets.set(bucket, merged);
     loadedBuckets.add(bucket);
-    pendingLoads.delete(bucket);
+    if (dirty) {
+      writeBucketFile(bucket, merged);
+    }
     return merged;
-  })();
+  })().finally(() => {
+    if (pendingLoads.get(bucket) === loadPromise) {
+      pendingLoads.delete(bucket);
+    }
+  });
   pendingLoads.set(bucket, loadPromise);
   return loadPromise;
+}
+
+export async function loadSnippetUsage(
+  origin: string | null | undefined,
+): Promise<SnippetUsageMap> {
+  if (!origin) return createEmptySnippetUsageMap();
+  return ensureBucketLoaded(draftWorkspaceBucket(origin));
 }
 
 export function recordSnippetUse(
@@ -90,14 +112,18 @@ export function recordSnippetUse(
 ): SnippetUsageMap {
   if (!origin) return createEmptySnippetUsageMap();
   const bucket = draftWorkspaceBucket(origin);
+  const now = Date.now();
   const current = memoryBuckets.get(bucket) ?? createEmptySnippetUsageMap();
-  const next = recordSnippetUseInStore(current, content, serverUseCount);
+  const next = recordSnippetUseInStore(current, content, serverUseCount, now);
   memoryBuckets.set(bucket, next);
-  try {
-    usageFileForBucket(bucket).write(serializeSnippetUsageStore(next));
-  } catch {
-    // Best-effort local persistence; never block snippet selection.
+  if (!loadedBuckets.has(bucket)) {
+    const queue = pendingOpsByBucket.get(bucket) ?? [];
+    queue.push({ content, serverUseCount, now });
+    pendingOpsByBucket.set(bucket, queue);
+    void ensureBucketLoaded(bucket);
+    return next;
   }
+  writeBucketFile(bucket, next);
   return next;
 }
 
@@ -110,6 +136,7 @@ export function clearWorkspaceSnippetUsage(
   memoryBuckets.delete(bucket);
   loadedBuckets.delete(bucket);
   pendingLoads.delete(bucket);
+  pendingOpsByBucket.delete(bucket);
   try {
     const file = usageFileForBucket(bucket);
     if (file.exists) file.delete();

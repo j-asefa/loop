@@ -3492,6 +3492,100 @@ it("orders snippets by usage count then recency while isolating owners", async (
     { content: "Check CI status", use_count: 1 },
     { content: "Summarize thread", use_count: 0 },
   ]);
+
+  // Unrelated messages (imported without run_id, progress, automation, shared) must not count.
+  const existingRun = (
+    db
+      .prepare(
+        "SELECT id FROM runs WHERE owner_id=? AND conversation_id=? LIMIT 1",
+      )
+      .get(w.owner, cid) as { id: string }
+  ).id;
+  const insertMsg = db.prepare(
+    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'user',?,?,?)",
+  );
+  insertMsg.run(id(), w.owner, cid, null, "Summarize thread", "{}", now());
+  insertMsg.run(
+    id(),
+    w.owner,
+    cid,
+    existingRun,
+    "Summarize thread",
+    JSON.stringify({ progress: 1 }),
+    now(),
+  );
+  insertMsg.run(
+    id(),
+    w.owner,
+    cid,
+    existingRun,
+    "Summarize thread",
+    JSON.stringify({ automation: { mailId: "m-1" } }),
+    now(),
+  );
+  insertMsg.run(
+    id(),
+    w.owner,
+    cid,
+    existingRun,
+    "Summarize thread",
+    JSON.stringify({ shared: true }),
+    now(),
+  );
+  expect(
+    (await api(w.owner, "/snippets")).data.items.map((s: any) => ({
+      content: s.content,
+      use_count: s.use_count,
+    })),
+  ).toEqual([
+    { content: "Review this PR", use_count: 2 },
+    { content: "Check CI status", use_count: 1 },
+    { content: "Summarize thread", use_count: 0 },
+  ]);
+
+  // Tie-breaking: when Check CI status gets a second use later than Review this PR, it moves first.
+  await api(w.owner, "/runs", "POST", {
+    agentId: a.id,
+    conversationId: cid,
+    input: "Check CI status",
+    idempotencyKey: "tie-" + randomBytes(6).toString("hex"),
+    queue: true,
+  });
+  expect(
+    (await api(w.owner, "/snippets")).data.items.map((s: any) => s.content),
+  ).toEqual(["Check CI status", "Review this PR", "Summarize thread"]);
+
+  // Having >100 used snippets must not push a newly created snippet off /snippets.
+  const insertSnippet = db.prepare(
+    "INSERT INTO artifacts(id,owner_id,title,kind,role,content,metadata,created_at,updated_at) VALUES(?,?,?,'markdown','snippet',?,'{\"snippet\":true}',?,?)",
+  );
+  const insertRunMsg = db.prepare(
+    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'user',?,'{\"personal\":true}',?)",
+  );
+  const baseTs = now() - 200_000;
+  for (let i = 0; i < 105; i++) {
+    const text = `Bulk used snippet ${i}`;
+    insertSnippet.run(
+      id(),
+      w.owner,
+      `Snippet: ${i}`,
+      text,
+      baseTs + i,
+      baseTs + i,
+    );
+    insertRunMsg.run(id(), w.owner, cid, existingRun, text, baseTs + i);
+  }
+  const brandNew = await api(w.owner, "/artifacts", "POST", {
+    title: "Snippet: Brand new",
+    content: "Brand new unused snippet",
+    metadata: { snippet: true },
+  });
+  expect(brandNew.status).toBe(201);
+  const withMany = (await api(w.owner, "/snippets")).data.items;
+  expect(withMany).toHaveLength(100);
+  expect(
+    withMany.some((s: any) => s.content === "Brand new unused snippet"),
+  ).toBe(true);
 });
 
 it("keeps your profile per owner, with counts matching your prompt history", async () => {

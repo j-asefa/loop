@@ -81,7 +81,8 @@ export function isSafeLocalShareFileUri(raw: string): boolean {
   const trimmed = raw.trim();
   if (!trimmed) return false;
   if (/(?:^|[\\/])\.\.(?:[\\/]|$)/.test(trimmed)) return false;
-  if (/loop-(?:cache|drafts|notif-prefs)-/i.test(trimmed)) return false;
+  if (/loop-(?:cache|drafts|notif-prefs|snippet-usage)-/i.test(trimmed))
+    return false;
   if (trimmed.startsWith("/")) return true;
   return /^(?:file|content|ph|assets-library):/i.test(trimmed);
 }

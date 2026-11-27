@@ -523,13 +523,25 @@ export function SpotlightCarousel({
     replyToMessageId?: string;
     locked: boolean;
   } | null>(null);
-  const initialKeyboardHeight = Keyboard.metrics?.()?.height ?? 0;
-  const [keyboardVisible, setKeyboardVisible] = useState(
-    initialKeyboardHeight > 0,
+  const initialMetrics = Keyboard.metrics?.();
+  const [keyboardCoords, setKeyboardCoords] = useState<{
+    height?: number;
+    screenY?: number;
+  } | null>(() =>
+    initialMetrics && initialMetrics.height > 0
+      ? { height: initialMetrics.height, screenY: initialMetrics.screenY }
+      : null,
   );
-  const [keyboardInset, setKeyboardInset] = useState(
-    initialKeyboardHeight > 0 ? Math.round(initialKeyboardHeight) : 0,
-  );
+  const [stageHeight, setStageHeight] = useState(0);
+  const effectiveStageHeight = stageHeight > 0 ? stageHeight : screenHeight;
+  const keyboardInset = keyboardCoords
+    ? computeKeyboardInset(
+        { endCoordinates: keyboardCoords },
+        effectiveStageHeight,
+        Platform.OS,
+      )
+    : 0;
+  const keyboardVisible = Boolean(keyboardCoords);
   const [steerableRunId, setSteerableRunId] = useState<string | null>(null);
   const [deliveryMode, setDeliveryMode] = useState<"steer" | "queue">("steer");
   const [retryModeLocked, setRetryModeLocked] = useState(false);
@@ -615,17 +627,17 @@ export function SpotlightCarousel({
     const onShow = (e?: {
       endCoordinates?: { height?: number; screenY?: number };
     }) => {
-      const inset = computeKeyboardInset(
-        e,
-        screenHeightRef.current,
-        Platform.OS,
+      setKeyboardCoords(
+        e?.endCoordinates
+          ? {
+              height: e.endCoordinates.height,
+              screenY: e.endCoordinates.screenY,
+            }
+          : { height: 0 },
       );
-      setKeyboardVisible(true);
-      setKeyboardInset(inset);
     };
     const onHide = () => {
-      setKeyboardVisible(false);
-      setKeyboardInset(0);
+      setKeyboardCoords(null);
     };
     const showSub = Keyboard.addListener(
       Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
@@ -638,16 +650,16 @@ export function SpotlightCarousel({
     const changeSub =
       Platform.OS === "ios"
         ? Keyboard.addListener("keyboardWillChangeFrame", (e) => {
-            const inset = computeKeyboardInset(
-              e,
-              screenHeightRef.current,
-              Platform.OS,
-            );
-            if (inset <= 0) onHide();
-            else {
-              setKeyboardVisible(true);
-              setKeyboardInset(inset);
+            const screenY = e?.endCoordinates?.screenY;
+            if (
+              typeof screenY === "number" &&
+              Number.isFinite(screenY) &&
+              screenY >= screenHeightRef.current
+            ) {
+              onHide();
+              return;
             }
+            onShow(e);
           })
         : null;
     return () => {
@@ -1186,6 +1198,12 @@ export function SpotlightCarousel({
     <View
       style={[StyleSheet.absoluteFill, { zIndex: 30 }]}
       pointerEvents="box-none"
+      onLayout={(e) => {
+        const h = e.nativeEvent.layout.height;
+        if (h > 0 && Math.abs(h - stageHeight) >= 1) {
+          setStageHeight(h);
+        }
+      }}
     >
       {/* Frosted blurred Feed backdrop */}
       <Animated.View style={[StyleSheet.absoluteFill, backdropAnimatedStyle]}>
@@ -2621,7 +2639,7 @@ export function SpotlightCarousel({
       {quickReplyOpen &&
         (() => {
           const quickSheetLayout = computeQuickSheetLayout({
-            windowHeight: screenHeight,
+            windowHeight: effectiveStageHeight,
             insetTop: insets.top,
             insetBottom: insets.bottom,
             keyboardInset,
@@ -2722,7 +2740,9 @@ export function SpotlightCarousel({
                       key={snip.id}
                       onPress={() => {
                         haptics.light();
-                        onUseSnippet?.(snip);
+                        if (!scheduleLocked) {
+                          onUseSnippet?.(snip);
+                        }
                         prefillReply(snip.content);
                       }}
                       style={({ pressed }) => [
