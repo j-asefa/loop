@@ -14,12 +14,16 @@ import {
 import { BlurView } from "expo-blur";
 import { ArrowUp, Paperclip, X } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { randomUuid, type LoopClient } from "../api/client";
+import {
+  isUncertainOutcomeError,
+  randomUuid,
+  type LoopClient,
+} from "../api/client";
 import type { ApiAgent, ApiConnection } from "../api/types";
 import {
   clearDraft,
   draftScopeForCompose,
-  loadDraft,
+  loadDraftEntry,
   saveDraft,
 } from "../drafts";
 import { haptics } from "../haptics";
@@ -98,13 +102,15 @@ export function ComposeSheet({
     [agent?.id, folderId],
   );
   const draftTouchedRef = useRef(false);
+  const restoredPendingKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     draftTouchedRef.current = false;
-    void loadDraft(client?.origin, draftScope).then((restored) => {
-      if (!cancelled && !draftTouchedRef.current && restored) {
-        setText(restored);
+    void loadDraftEntry(client?.origin, draftScope).then((entry) => {
+      if (!cancelled && !draftTouchedRef.current && entry?.text) {
+        restoredPendingKeyRef.current = entry.pendingKey ?? null;
+        setText(entry.text);
       }
     });
     return () => {
@@ -136,6 +142,11 @@ export function ComposeSheet({
 
   const attSig = composeAttachments.readyIds.join(",");
   useEffect(() => {
+    if (restoredPendingKeyRef.current) {
+      sendKeyRef.current = restoredPendingKeyRef.current;
+      restoredPendingKeyRef.current = null;
+      return;
+    }
     sendKeyRef.current = null;
   }, [text, connection?.id, attSig]);
 
@@ -184,6 +195,11 @@ export function ComposeSheet({
       clearAttachments();
       onClose();
     } catch (err) {
+      if (isUncertainOutcomeError(err)) {
+        saveDraft(client?.origin, draftScope, text, { key: idempotencyKey });
+      } else {
+        sendKeyRef.current = null;
+      }
       haptics.warning();
       setError(
         err instanceof Error

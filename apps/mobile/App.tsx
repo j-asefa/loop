@@ -160,10 +160,12 @@ function LoopShell() {
   );
   const [liveCards, setLiveCards] = useState<NativeResultCard[]>([]);
   const [olderFeedCards, setOlderFeedCards] = useState<NativeResultCard[]>([]);
-  const [feedNextCursor, setFeedNextCursor] = useState<string | null>(null);
-  const [feedCursorSource, setFeedCursorSource] = useState<"cards" | "feed">(
-    "cards",
-  );
+  // Keep cursor value and endpoint source atomic so a refresh can never mix a `feed`
+  // cursor with the `cards` endpoint (or vice versa).
+  const [feedCursor, setFeedCursor] = useState<{
+    source: "cards" | "feed";
+    before: string;
+  } | null>(null);
   const [loadingMoreFeed, setLoadingMoreFeed] = useState(false);
   const hasLoadedOlderFeedRef = useRef(false);
   const feedPageEpochRef = useRef(0);
@@ -328,24 +330,21 @@ function LoopShell() {
             doneSource,
             replyPage?.items ?? [],
           );
+          const nextPageCursor = useCardsSource
+            ? doneCardPage?.next
+              ? { source: "cards" as const, before: doneCardPage.next }
+              : null
+            : feedPage.next
+              ? { source: "feed" as const, before: feedPage.next }
+              : null;
           if (options?.silent === false) {
             feedPageEpochRef.current += 1;
             hasLoadedOlderFeedRef.current = false;
             setOlderFeedCards([]);
             setLoadingMoreFeed(false);
-            setFeedCursorSource(useCardsSource ? "cards" : "feed");
-            setFeedNextCursor(
-              useCardsSource
-                ? (doneCardPage?.next ?? null)
-                : (feedPage.next ?? null),
-            );
+            setFeedCursor(nextPageCursor);
           } else if (!hasLoadedOlderFeedRef.current) {
-            setFeedCursorSource(useCardsSource ? "cards" : "feed");
-            setFeedNextCursor(
-              useCardsSource
-                ? (doneCardPage?.next ?? null)
-                : (feedPage.next ?? null),
-            );
+            setFeedCursor(nextPageCursor);
           }
           setLiveCards(nextTopCards);
           if (queuedPage || workingPage) {
@@ -409,7 +408,7 @@ function LoopShell() {
     setRefreshing(false);
     setLiveCards([]);
     setOlderFeedCards([]);
-    setFeedNextCursor(null);
+    setFeedCursor(null);
     setLoadingMoreFeed(false);
     hasLoadedOlderFeedRef.current = false;
     feedPageEpochRef.current += 1;
@@ -478,17 +477,16 @@ function LoopShell() {
   }, [session, client, handleStreamEvents]);
 
   const handleLoadMoreFeed = useCallback(async () => {
-    if (!client || !feedNextCursor || loadingMoreFeed) return;
+    if (!client || !feedCursor || loadingMoreFeed) return;
     const gen = loadCoordRef.current.currentGeneration;
     const epoch = feedPageEpochRef.current;
-    const cursor = feedNextCursor;
-    const source = feedCursorSource;
+    const { source, before } = feedCursor;
     setLoadingMoreFeed(true);
     try {
       const page =
         source === "cards"
-          ? await client.doneCardsPage({ before: cursor })
-          : await client.feed("done", { before: cursor });
+          ? await client.doneCardsPage({ before })
+          : await client.feed("done", { before });
       if (
         gen !== loadCoordRef.current.currentGeneration ||
         epoch !== feedPageEpochRef.current
@@ -498,11 +496,18 @@ function LoopShell() {
       const mapped = mergeUnifiedFeedCards(page.items, []);
       hasLoadedOlderFeedRef.current = true;
       setOlderFeedCards((prev) => {
-        const seen = new Set(prev.map((c) => c.id));
-        const extra = mapped.filter((c) => !seen.has(c.id));
+        const seenIds = new Set(prev.map((c) => c.id));
+        const seenMsgIds = new Set(
+          prev.map((c) => c.messageId).filter(Boolean),
+        );
+        const extra = mapped.filter(
+          (c) =>
+            !seenIds.has(c.id) &&
+            (!c.messageId || !seenMsgIds.has(c.messageId)),
+        );
         return extra.length > 0 ? [...prev, ...extra] : prev;
       });
-      setFeedNextCursor(page.next ?? null);
+      setFeedCursor(page.next ? { source, before: page.next } : null);
     } catch (err) {
       if (
         gen === loadCoordRef.current.currentGeneration &&
@@ -520,13 +525,19 @@ function LoopShell() {
         setLoadingMoreFeed(false);
       }
     }
-  }, [client, feedCursorSource, feedNextCursor, loadingMoreFeed, showToast]);
+  }, [client, feedCursor, loadingMoreFeed, showToast]);
 
   const activeCards = useMemo(() => {
     if (!client) return demoCards;
     if (olderFeedCards.length === 0) return liveCards;
-    const seen = new Set(liveCards.map((c) => c.id));
-    const extra = olderFeedCards.filter((c) => !seen.has(c.id));
+    const seenIds = new Set(liveCards.map((c) => c.id));
+    const seenMsgIds = new Set(
+      liveCards.map((c) => c.messageId).filter(Boolean),
+    );
+    const extra = olderFeedCards.filter(
+      (c) =>
+        !seenIds.has(c.id) && (!c.messageId || !seenMsgIds.has(c.messageId)),
+    );
     return extra.length > 0 ? [...liveCards, ...extra] : liveCards;
   }, [client, demoCards, liveCards, olderFeedCards]);
 
@@ -1429,7 +1440,7 @@ function LoopShell() {
           environmentName={environmentName}
           socketStatus={socketStatus}
           refreshing={refreshing}
-          hasMore={Boolean(client && feedNextCursor)}
+          hasMore={Boolean(client && feedCursor)}
           loadingMore={loadingMoreFeed}
           theme={theme}
           scrollRef={feedScrollRef}

@@ -56,6 +56,7 @@ import {
   MAX_DRAFT_CHARS,
   MAX_DRAFTS_PER_WORKSPACE,
   parseDraftStore,
+  readDraftEntryFromStore,
   readDraftFromStore,
   serializeDraftStore,
   setDraftInStore,
@@ -2055,6 +2056,31 @@ describe("mobile persistent drafts and pagination cursors", () => {
       MAX_DRAFT_CHARS,
     );
     expect(readDraftFromStore(parsed, "thread:old", now)).toBe("");
+
+    // Pending uncertain-send idempotency key & queue mode survive serialize/parse,
+    // and clear automatically when the user edits the draft text.
+    const withPending = setDraftInStore(parsed, "thread:c-9", "Retry me", now, {
+      key: "retry-key-123456",
+      queue: true,
+    });
+    const reloaded = parseDraftStore(
+      serializeDraftStore(withPending, now),
+      now,
+    );
+    expect(readDraftEntryFromStore(reloaded, "thread:c-9", now)).toMatchObject({
+      text: "Retry me",
+      pendingKey: "retry-key-123456",
+      pendingQueue: true,
+    });
+    const edited = setDraftInStore(
+      reloaded,
+      "thread:c-9",
+      "Retry me edited",
+      now + 1,
+    );
+    expect(
+      readDraftEntryFromStore(edited, "thread:c-9", now + 1)?.pendingKey,
+    ).toBeUndefined();
 
     // Whitespace-only text deletes the draft cleanly
     const cleared = setDraftInStore(parsed, "constructor", "   ", now);

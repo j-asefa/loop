@@ -38,7 +38,7 @@ import type { ApiMessage } from "../api/types";
 import {
   clearDraft,
   draftScopeForThread,
-  loadDraft,
+  loadDraftEntry,
   saveDraft,
 } from "../drafts";
 import { relativeTime, type NativeResultCard } from "../fixtures";
@@ -129,6 +129,10 @@ export function ThreadSheet({
   const [draft, setDraft] = useState("");
   const draftScope = draftScopeForThread(conversationId);
   const draftTouchedRef = useRef(false);
+  const restoredPendingRef = useRef<{
+    idempotencyKey: string;
+    queue?: boolean;
+  } | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
@@ -141,9 +145,18 @@ export function ThreadSheet({
   useEffect(() => {
     let cancelled = false;
     draftTouchedRef.current = false;
-    void loadDraft(client?.origin, draftScope).then((restored) => {
-      if (!cancelled && !draftTouchedRef.current && restored) {
-        setDraft(restored);
+    void loadDraftEntry(client?.origin, draftScope).then((entry) => {
+      if (!cancelled && !draftTouchedRef.current && entry?.text) {
+        if (entry.pendingKey) {
+          restoredPendingRef.current = {
+            idempotencyKey: entry.pendingKey,
+            queue: entry.pendingQueue,
+          };
+          if (entry.pendingQueue !== undefined) {
+            setDeliveryMode(entry.pendingQueue ? "queue" : "steer");
+          }
+        }
+        setDraft(entry.text);
       }
     });
     return () => {
@@ -173,6 +186,12 @@ export function ThreadSheet({
 
   const attSig = replyAttachments.readyIds.join(",");
   useEffect(() => {
+    if (restoredPendingRef.current) {
+      pendingSendRef.current = restoredPendingRef.current;
+      restoredPendingRef.current = null;
+      setRetryModeLocked(true);
+      return;
+    }
     pendingSendRef.current = null;
     setRetryModeLocked(false);
   }, [draft, conversationId, attSig]);
@@ -378,6 +397,10 @@ export function ThreadSheet({
         setRetryModeLocked(false);
       } else {
         setRetryModeLocked(true);
+        saveDraft(client?.origin, draftScope, draft, {
+          key: idempotencyKey,
+          queue,
+        });
       }
       haptics.warning();
       setError(err instanceof Error ? err.message : "Could not send reply.");

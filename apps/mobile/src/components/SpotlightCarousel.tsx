@@ -81,7 +81,7 @@ import {
 import {
   clearDraft,
   draftScopeForCarousel,
-  loadDraft,
+  loadDraftEntry,
   saveDraft,
 } from "../drafts";
 import { haptics } from "../haptics";
@@ -435,15 +435,28 @@ export function SpotlightCarousel({
     ? draftScopeForCarousel(conversationId)
     : "";
   const draftTouchedRef = useRef(false);
+  const restoredPendingReplyRef = useRef<{
+    idempotencyKey: string;
+    queue?: boolean;
+  } | null>(null);
   const [sending, setSending] = useState(false);
 
   useEffect(() => {
     if (!draftScope) return;
     let cancelled = false;
     draftTouchedRef.current = false;
-    void loadDraft(client?.origin, draftScope).then((restored) => {
-      if (!cancelled && !draftTouchedRef.current && restored) {
-        setDraft(restored);
+    void loadDraftEntry(client?.origin, draftScope).then((entry) => {
+      if (!cancelled && !draftTouchedRef.current && entry?.text) {
+        if (entry.pendingKey) {
+          restoredPendingReplyRef.current = {
+            idempotencyKey: entry.pendingKey,
+            queue: entry.pendingQueue,
+          };
+          if (entry.pendingQueue !== undefined) {
+            setDeliveryMode(entry.pendingQueue ? "queue" : "steer");
+          }
+        }
+        setDraft(entry.text);
       }
     });
     return () => {
@@ -479,6 +492,15 @@ export function SpotlightCarousel({
   // toggling Steer/Queue after an uncertain timeout is locked so the chip matches the pending retry.
   const attachmentKeySig = replyAttachments.readyIds.join(",");
   useEffect(() => {
+    if (restoredPendingReplyRef.current) {
+      pendingReplyRef.current = {
+        idempotencyKey: restoredPendingReplyRef.current.idempotencyKey,
+        queue: restoredPendingReplyRef.current.queue,
+      };
+      restoredPendingReplyRef.current = null;
+      setRetryModeLocked(true);
+      return;
+    }
     pendingReplyRef.current = null;
     setRetryModeLocked(false);
   }, [draft, conversationId, attachmentKeySig]);
@@ -860,6 +882,12 @@ export function SpotlightCarousel({
         setRetryModeLocked(false);
       } else {
         setRetryModeLocked(true);
+        if (draftScope) {
+          saveDraft(client?.origin, draftScope, draft, {
+            key: idempotencyKey,
+            queue,
+          });
+        }
       }
       haptics.warning();
       setReplyError(
@@ -2019,14 +2047,31 @@ export function SpotlightCarousel({
               <Pressable
                 onPress={() => {
                   const target = actionSheetCard;
-                  const fullBody =
-                    (target.messageId && fullBodies.get(target.messageId)) ||
-                    target.body;
                   setActionSheetCard(null);
                   haptics.success();
-                  void Clipboard.setStringAsync(fullBody)
-                    .then(() => onNotify?.("Copied answer"))
-                    .catch(() => {});
+                  const resolveAndCopy = async () => {
+                    let bodyToCopy =
+                      (target.messageId && fullBodies.get(target.messageId)) ||
+                      target.body;
+                    if (
+                      target.bodyTruncated &&
+                      client &&
+                      target.messageId &&
+                      !fullBodies.has(target.messageId)
+                    ) {
+                      try {
+                        const detail = await client.messageDetail(
+                          target.messageId,
+                        );
+                        if (detail.content) bodyToCopy = detail.content;
+                      } catch {
+                        // Fall back to visible body if detail fetch fails
+                      }
+                    }
+                    await Clipboard.setStringAsync(bodyToCopy);
+                    onNotify?.("Copied answer");
+                  };
+                  void resolveAndCopy().catch(() => {});
                 }}
                 style={({ pressed }) => [
                   styles.quickOption,

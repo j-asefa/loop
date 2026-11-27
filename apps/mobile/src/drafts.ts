@@ -4,9 +4,10 @@ import {
   deleteDraftFromStore,
   draftWorkspaceBucket,
   parseDraftStore,
-  readDraftFromStore,
+  readDraftEntryFromStore,
   serializeDraftStore,
   setDraftInStore,
+  type DraftEntry,
   type DraftMap,
 } from "./drafts-codec";
 
@@ -14,12 +15,18 @@ export {
   draftScopeForCarousel,
   draftScopeForCompose,
   draftScopeForThread,
+  type DraftEntry,
 } from "./drafts-codec";
 
 const WRITE_DEBOUNCE_MS = 350;
 
+type PendingSaveOp = {
+  text: string;
+  pending?: { key?: string; queue?: boolean };
+};
+
 type PendingOps = {
-  saves: Map<string, string>;
+  saves: Map<string, PendingSaveOp>;
   deletes: Set<string>;
 };
 
@@ -108,8 +115,14 @@ async function ensureBucketLoaded(bucket: string): Promise<DraftMap> {
         merged = deleteDraftFromStore(merged, scope);
         dirty = true;
       }
-      for (const [scope, text] of ops.saves) {
-        merged = setDraftInStore(merged, scope, text);
+      for (const [scope, op] of ops.saves) {
+        merged = setDraftInStore(
+          merged,
+          scope,
+          op.text,
+          Date.now(),
+          op.pending,
+        );
         dirty = true;
       }
     }
@@ -129,26 +142,34 @@ async function ensureBucketLoaded(bucket: string): Promise<DraftMap> {
   return loadPromise;
 }
 
+export async function loadDraftEntry(
+  origin: string | null | undefined,
+  scope: string,
+): Promise<DraftEntry | null> {
+  const bucket = draftWorkspaceBucket(origin);
+  const map = await ensureBucketLoaded(bucket);
+  return readDraftEntryFromStore(map, scope);
+}
+
 export async function loadDraft(
   origin: string | null | undefined,
   scope: string,
 ): Promise<string> {
-  const bucket = draftWorkspaceBucket(origin);
-  const map = await ensureBucketLoaded(bucket);
-  return readDraftFromStore(map, scope);
+  return (await loadDraftEntry(origin, scope))?.text ?? "";
 }
 
 export function saveDraft(
   origin: string | null | undefined,
   scope: string,
   text: string,
+  pending?: { key?: string; queue?: boolean },
 ): void {
   const bucket = draftWorkspaceBucket(origin);
   if (!loadedBuckets.has(bucket)) {
     const ops = getOrCreatePendingOps(bucket);
     if (text.trim()) {
       ops.deletes.delete(scope);
-      ops.saves.set(scope, text);
+      ops.saves.set(scope, { text, pending });
     } else {
       ops.saves.delete(scope);
       ops.deletes.add(scope);
@@ -157,9 +178,13 @@ export function saveDraft(
     return;
   }
   const current = memoryBuckets.get(bucket) ?? createEmptyDraftMap();
-  const next = setDraftInStore(current, scope, text);
+  const next = setDraftInStore(current, scope, text, Date.now(), pending);
   memoryBuckets.set(bucket, next);
-  scheduleBucketFlush(bucket);
+  if (pending?.key) {
+    flushBucketNow(bucket);
+  } else {
+    scheduleBucketFlush(bucket);
+  }
 }
 
 export function clearDraft(

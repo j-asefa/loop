@@ -1,6 +1,10 @@
 export type DraftEntry = {
   text: string;
   updatedAt: number;
+  /** Durable idempotency key persisted when a send times out with uncertain outcome. */
+  pendingKey?: string;
+  /** Original queue delivery flag paired with `pendingKey` so retries never mutate semantics. */
+  pendingQueue?: boolean;
 };
 
 export type DraftMap = Record<string, DraftEntry>;
@@ -71,6 +75,12 @@ export function pruneDraftStore(input: DraftMap, now = Date.now()): DraftMap {
             ? entry.text.slice(0, MAX_DRAFT_CHARS)
             : entry.text,
         updatedAt: entry.updatedAt,
+        ...(typeof entry.pendingKey === "string" && entry.pendingKey.length >= 8
+          ? { pendingKey: entry.pendingKey }
+          : {}),
+        ...(typeof entry.pendingQueue === "boolean"
+          ? { pendingQueue: entry.pendingQueue }
+          : {}),
       },
     ]);
   }
@@ -97,14 +107,28 @@ export function parseDraftStore(raw: string, now = Date.now()): DraftMap {
     const loaded = createEmptyDraftMap();
     for (const key of Object.keys(source)) {
       if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
-      const item = source[key] as { text?: unknown; updatedAt?: unknown };
+      const item = source[key] as {
+        text?: unknown;
+        updatedAt?: unknown;
+        pendingKey?: unknown;
+        pendingQueue?: unknown;
+      };
       if (
         item &&
         typeof item === "object" &&
         typeof item.text === "string" &&
         typeof item.updatedAt === "number"
       ) {
-        loaded[key] = { text: item.text, updatedAt: item.updatedAt };
+        loaded[key] = {
+          text: item.text,
+          updatedAt: item.updatedAt,
+          ...(typeof item.pendingKey === "string" && item.pendingKey.length >= 8
+            ? { pendingKey: item.pendingKey }
+            : {}),
+          ...(typeof item.pendingQueue === "boolean"
+            ? { pendingQueue: item.pendingQueue }
+            : {}),
+        };
       }
     }
     return pruneDraftStore(loaded, now);
@@ -123,6 +147,7 @@ export function setDraftInStore(
   scope: string,
   text: string,
   now = Date.now(),
+  pending?: { key?: string; queue?: boolean },
 ): DraftMap {
   const next = Object.assign(createEmptyDraftMap(), map);
   if (!text.trim()) {
@@ -132,6 +157,8 @@ export function setDraftInStore(
   next[scope] = {
     text: text.length > MAX_DRAFT_CHARS ? text.slice(0, MAX_DRAFT_CHARS) : text,
     updatedAt: now,
+    ...(pending?.key ? { pendingKey: pending.key } : {}),
+    ...(pending?.queue !== undefined ? { pendingQueue: pending.queue } : {}),
   };
   return pruneDraftStore(next, now);
 }
@@ -143,13 +170,21 @@ export function deleteDraftFromStore(map: DraftMap, scope: string): DraftMap {
   return next;
 }
 
+export function readDraftEntryFromStore(
+  map: DraftMap,
+  scope: string,
+  now = Date.now(),
+): DraftEntry | null {
+  if (!Object.prototype.hasOwnProperty.call(map, scope)) return null;
+  const entry = map[scope];
+  if (!entry || entry.updatedAt < now - DRAFT_TTL_MS) return null;
+  return entry;
+}
+
 export function readDraftFromStore(
   map: DraftMap,
   scope: string,
   now = Date.now(),
 ): string {
-  if (!Object.prototype.hasOwnProperty.call(map, scope)) return "";
-  const entry = map[scope];
-  if (!entry || entry.updatedAt < now - DRAFT_TTL_MS) return "";
-  return entry.text;
+  return readDraftEntryFromStore(map, scope, now)?.text ?? "";
 }
