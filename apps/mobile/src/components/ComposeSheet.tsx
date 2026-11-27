@@ -107,9 +107,11 @@ export function ComposeSheet({
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleBusy, setScheduleBusy] = useState(false);
   const [scheduleError, setScheduleError] = useState("");
+  const [hasPendingSend, setHasPendingSend] = useState(false);
   const [pendingSchedule, setPendingSchedule] = useState<{
     idempotencyKey: string;
     sendAt: number;
+    attachmentIds: string[];
   } | null>(null);
   const draftScope = useMemo(
     () => draftScopeForCompose(agent?.id, folderId),
@@ -120,6 +122,7 @@ export function ComposeSheet({
   const restoredPendingScheduleRef = useRef<{
     idempotencyKey: string;
     sendAt: number;
+    attachmentIds: string[];
   } | null>(null);
 
   useEffect(() => {
@@ -132,6 +135,7 @@ export function ComposeSheet({
           ? {
               idempotencyKey: entry.pendingSchedule.key,
               sendAt: entry.pendingSchedule.sendAt,
+              attachmentIds: entry.pendingSchedule.attachmentIds ?? [],
             }
           : null;
         setText(entry.text);
@@ -176,9 +180,11 @@ export function ComposeSheet({
     if (restoredPendingKeyRef.current) {
       sendKeyRef.current = restoredPendingKeyRef.current;
       restoredPendingKeyRef.current = null;
+      setHasPendingSend(true);
       return;
     }
     sendKeyRef.current = null;
+    setHasPendingSend(false);
   }, [text, connection?.id, attSig]);
 
   const ready = agent
@@ -197,12 +203,14 @@ export function ComposeSheet({
     agent &&
     client &&
     onSchedule &&
-    (Boolean(text.trim()) || composeAttachments.readyIds.length > 0) &&
+    (Boolean(text.trim()) ||
+      composeAttachments.readyIds.length > 0 ||
+      Boolean(pendingSchedule)) &&
     !composeAttachments.uploading &&
     ready &&
     !busy &&
     !scheduleBusy &&
-    !sendKeyRef.current,
+    !hasPendingSend,
   );
 
   async function handleSchedule(sendAt: number) {
@@ -210,7 +218,8 @@ export function ComposeSheet({
     const trimmed = text.trim();
     const { readyIds, readyNames, uploading, clearAttachments } =
       composeAttachments;
-    if ((!trimmed && readyIds.length === 0) || uploading) return;
+    if (!pendingSchedule && ((!trimmed && readyIds.length === 0) || uploading))
+      return;
     const finalText =
       trimmed ||
       (readyNames.length === 1
@@ -219,33 +228,39 @@ export function ComposeSheet({
     const nextPending = pendingSchedule ?? {
       idempotencyKey: randomUuid(),
       sendAt,
+      attachmentIds: readyIds,
     };
     setPendingSchedule(nextPending);
     setScheduleBusy(true);
     setScheduleError("");
+    // Record durable schedule identity + payload metadata before dispatch so app
+    // kills or uncertain timeouts never replay under a second key or lose attachments.
+    saveDraft(client?.origin, draftScope, text || finalText, {
+      schedule: {
+        key: nextPending.idempotencyKey,
+        sendAt: nextPending.sendAt,
+        attachmentIds: nextPending.attachmentIds,
+      },
+    });
     try {
       await onSchedule(agent, {
         text: finalText,
-        attachmentIds: readyIds,
+        attachmentIds: nextPending.attachmentIds,
         idempotencyKey: nextPending.idempotencyKey,
         sendAt: nextPending.sendAt,
       });
       setPendingSchedule(null);
       setScheduleOpen(false);
       sendKeyRef.current = null;
+      setHasPendingSend(false);
       clearDraft(client?.origin, draftScope);
       clearAttachments();
       onClose();
     } catch (err) {
-      if (isUncertainOutcomeError(err)) {
-        saveDraft(client?.origin, draftScope, text || finalText, {
-          schedule: {
-            key: nextPending.idempotencyKey,
-            sendAt: nextPending.sendAt,
-          },
-        });
-      } else {
+      if (!isUncertainOutcomeError(err)) {
         setPendingSchedule(null);
+        if (text.trim()) saveDraft(client?.origin, draftScope, text);
+        else clearDraft(client?.origin, draftScope);
       }
       haptics.warning();
       setScheduleError(
@@ -291,9 +306,11 @@ export function ComposeSheet({
       onClose();
     } catch (err) {
       if (isUncertainOutcomeError(err)) {
+        setHasPendingSend(true);
         saveDraft(client?.origin, draftScope, text, { key: idempotencyKey });
       } else {
         sendKeyRef.current = null;
+        setHasPendingSend(false);
       }
       haptics.warning();
       setError(
@@ -561,7 +578,11 @@ export function ComposeSheet({
           theme={theme}
           agentName={agent.name}
           previewText={text}
-          attachmentCount={composeAttachments.readyIds.length}
+          attachmentCount={
+            pendingSchedule
+              ? pendingSchedule.attachmentIds.length
+              : composeAttachments.readyIds.length
+          }
           busy={scheduleBusy}
           error={scheduleError}
           lockedSendAt={pendingSchedule?.sendAt ?? null}

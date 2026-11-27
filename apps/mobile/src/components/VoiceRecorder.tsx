@@ -72,7 +72,6 @@ export function VoiceRecorderButton({
   const finishRecording = useCallback(
     async (attach: boolean) => {
       if (busyRef.current || !recordingRef.current) return;
-      if (attach && disabledRef.current) return;
       busyRef.current = true;
       recordingRef.current = false;
       stopTimer();
@@ -99,6 +98,7 @@ export function VoiceRecorderButton({
             uri,
             name: buildVoiceRecordingFilename(),
             mime: "audio/mp4",
+            deleteAfterUpload: true,
           });
         }
       } catch (err) {

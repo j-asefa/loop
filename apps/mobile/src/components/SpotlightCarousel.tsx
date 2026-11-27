@@ -452,6 +452,7 @@ export function SpotlightCarousel({
   const restoredPendingScheduleRef = useRef<{
     idempotencyKey: string;
     sendAt: number;
+    attachmentIds: string[];
     replyToMessageId?: string;
   } | null>(null);
   const [sending, setSending] = useState(false);
@@ -475,6 +476,7 @@ export function SpotlightCarousel({
           restoredPendingScheduleRef.current = {
             idempotencyKey: entry.pendingSchedule.key,
             sendAt: entry.pendingSchedule.sendAt,
+            attachmentIds: entry.pendingSchedule.attachmentIds ?? [],
             replyToMessageId: entry.pendingSchedule.replyToMessageId,
           };
         }
@@ -492,6 +494,7 @@ export function SpotlightCarousel({
   const [pendingSchedule, setPendingSchedule] = useState<{
     idempotencyKey: string;
     sendAt: number;
+    attachmentIds: string[];
     replyToMessageId?: string;
   } | null>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
@@ -955,7 +958,11 @@ export function SpotlightCarousel({
       const trimmed = draft.trim();
       const { readyIds, readyNames, uploading, clearAttachments } =
         replyAttachments;
-      if ((!trimmed && readyIds.length === 0) || uploading) return;
+      if (
+        !pendingSchedule &&
+        ((!trimmed && readyIds.length === 0) || uploading)
+      )
+        return;
       const finalPrompt =
         trimmed ||
         (readyNames.length === 1
@@ -964,6 +971,7 @@ export function SpotlightCarousel({
       const nextPending = pendingSchedule ?? {
         idempotencyKey: randomUuid(),
         sendAt,
+        attachmentIds: readyIds,
         replyToMessageId: activeCard.messageId,
       };
       const targetCard =
@@ -973,11 +981,23 @@ export function SpotlightCarousel({
       setPendingSchedule(nextPending);
       setScheduleBusy(true);
       setScheduleError("");
+      if (draftScope) {
+        saveDraft(client?.origin, draftScope, draft || finalPrompt, {
+          schedule: {
+            key: nextPending.idempotencyKey,
+            sendAt: nextPending.sendAt,
+            attachmentIds: nextPending.attachmentIds,
+            ...(nextPending.replyToMessageId
+              ? { replyToMessageId: nextPending.replyToMessageId }
+              : {}),
+          },
+        });
+      }
       try {
         await onScheduleReply(
           targetCard,
           finalPrompt,
-          readyIds,
+          nextPending.attachmentIds,
           nextPending.idempotencyKey,
           nextPending.sendAt,
         );
@@ -990,20 +1010,12 @@ export function SpotlightCarousel({
         clearAttachments();
         Keyboard.dismiss();
       } catch (err) {
-        if (isUncertainOutcomeError(err)) {
-          if (draftScope) {
-            saveDraft(client?.origin, draftScope, draft || finalPrompt, {
-              schedule: {
-                key: nextPending.idempotencyKey,
-                sendAt: nextPending.sendAt,
-                ...(nextPending.replyToMessageId
-                  ? { replyToMessageId: nextPending.replyToMessageId }
-                  : {}),
-              },
-            });
-          }
-        } else {
+        if (!isUncertainOutcomeError(err)) {
           setPendingSchedule(null);
+          if (draftScope) {
+            if (draft.trim()) saveDraft(client?.origin, draftScope, draft);
+            else clearDraft(client?.origin, draftScope);
+          }
         }
         haptics.warning();
         setScheduleError(
@@ -2012,7 +2024,11 @@ export function SpotlightCarousel({
         theme={theme}
         agentName={agentName}
         previewText={draft}
-        attachmentCount={replyAttachments.readyIds.length}
+        attachmentCount={
+          pendingSchedule
+            ? pendingSchedule.attachmentIds.length
+            : replyAttachments.readyIds.length
+        }
         busy={scheduleBusy}
         error={scheduleError}
         lockedSendAt={pendingSchedule?.sendAt ?? null}

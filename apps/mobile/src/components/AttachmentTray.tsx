@@ -10,6 +10,7 @@ import {
   View,
 } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
+import { File as ExpoFile } from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
 import {
   AlertCircle,
@@ -45,7 +46,19 @@ export type PickedFile = {
   name: string;
   mime: string;
   size?: number;
+  /** Delete the local temp file once upload settles (used for ephemeral voice recordings). */
+  deleteAfterUpload?: boolean;
 };
+
+function deleteTempUploadFile(uri?: string): void {
+  if (!uri) return;
+  try {
+    const file = new ExpoFile(uri);
+    if (file.exists) file.delete();
+  } catch {
+    // Best-effort temp cleanup.
+  }
+}
 
 function formatFileSize(bytes?: number): string {
   if (!bytes || bytes <= 0) return "";
@@ -156,6 +169,10 @@ export function useAttachments(
                   : a,
               ),
             );
+          } finally {
+            if (src.deleteAfterUpload) {
+              deleteTempUploadFile(src.uri);
+            }
           }
         }),
       );

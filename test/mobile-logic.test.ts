@@ -2402,6 +2402,7 @@ describe("mobile voice recording and scheduled send helpers", () => {
         schedule: {
           key: "idem-sched-persist-1",
           sendAt,
+          attachmentIds: ["11111111-2222-4333-8444-555555555555"],
           replyToMessageId: "msg-42",
         },
       },
@@ -2413,6 +2414,7 @@ describe("mobile voice recording and scheduled send helpers", () => {
       pendingSchedule: {
         key: "idem-sched-persist-1",
         sendAt,
+        attachmentIds: ["11111111-2222-4333-8444-555555555555"],
         replyToMessageId: "msg-42",
       },
     });

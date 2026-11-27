@@ -149,6 +149,7 @@ export function ThreadSheet({
   const restoredPendingScheduleRef = useRef<{
     idempotencyKey: string;
     sendAt: number;
+    attachmentIds: string[];
   } | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
@@ -158,6 +159,7 @@ export function ThreadSheet({
   const [pendingSchedule, setPendingSchedule] = useState<{
     idempotencyKey: string;
     sendAt: number;
+    attachmentIds: string[];
   } | null>(null);
   const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
   const pendingSendRef = useRef<{
@@ -184,6 +186,7 @@ export function ThreadSheet({
           restoredPendingScheduleRef.current = {
             idempotencyKey: entry.pendingSchedule.key,
             sendAt: entry.pendingSchedule.sendAt,
+            attachmentIds: entry.pendingSchedule.attachmentIds ?? [],
           };
         }
         setDraft(entry.text);
@@ -458,7 +461,8 @@ export function ThreadSheet({
     const trimmed = draft.trim();
     const { readyIds, readyNames, uploading, clearAttachments } =
       replyAttachments;
-    if ((!trimmed && readyIds.length === 0) || uploading) return;
+    if (!pendingSchedule && ((!trimmed && readyIds.length === 0) || uploading))
+      return;
     const finalText =
       trimmed ||
       (readyNames.length === 1
@@ -467,17 +471,25 @@ export function ThreadSheet({
     const nextPending = pendingSchedule ?? {
       idempotencyKey: randomUuid(),
       sendAt,
+      attachmentIds: readyIds,
     };
     setPendingSchedule(nextPending);
     setScheduleBusy(true);
     setScheduleError("");
+    saveDraft(client?.origin, draftScope, draft || finalText, {
+      schedule: {
+        key: nextPending.idempotencyKey,
+        sendAt: nextPending.sendAt,
+        attachmentIds: nextPending.attachmentIds,
+      },
+    });
     try {
       await onScheduleReply({
         conversationId,
         agentId: resolvedAgentId || "",
         agentName,
         text: finalText,
-        attachmentIds: readyIds,
+        attachmentIds: nextPending.attachmentIds,
         idempotencyKey: nextPending.idempotencyKey,
         sendAt: nextPending.sendAt,
       });
@@ -489,15 +501,10 @@ export function ThreadSheet({
       setDraft("");
       clearAttachments();
     } catch (err) {
-      if (isUncertainOutcomeError(err)) {
-        saveDraft(client?.origin, draftScope, draft || finalText, {
-          schedule: {
-            key: nextPending.idempotencyKey,
-            sendAt: nextPending.sendAt,
-          },
-        });
-      } else {
+      if (!isUncertainOutcomeError(err)) {
         setPendingSchedule(null);
+        if (draft.trim()) saveDraft(client?.origin, draftScope, draft);
+        else clearDraft(client?.origin, draftScope);
       }
       haptics.warning();
       setScheduleError(
@@ -1179,7 +1186,11 @@ export function ThreadSheet({
         theme={theme}
         agentName={agentName}
         previewText={draft}
-        attachmentCount={replyAttachments.readyIds.length}
+        attachmentCount={
+          pendingSchedule
+            ? pendingSchedule.attachmentIds.length
+            : replyAttachments.readyIds.length
+        }
         busy={scheduleBusy}
         error={scheduleError}
         lockedSendAt={pendingSchedule?.sendAt ?? null}

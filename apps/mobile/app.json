@@ -23,6 +23,15 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "plugins": ["expo-secure-store", "expo-sharing", "expo-audio"]
+    "plugins": [
+      "expo-secure-store",
+      "expo-sharing",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow Loop to record voice notes to attach to agent prompts."
+        }
+      ]
+    ]
   }
 }

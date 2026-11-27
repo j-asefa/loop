@@ -1,6 +1,7 @@
 export type PendingScheduleDraft = {
   key: string;
   sendAt: number;
+  attachmentIds?: string[];
   replyToMessageId?: string;
 };
 
@@ -17,7 +18,7 @@ export type DraftEntry = {
   pendingKey?: string;
   /** Original queue delivery flag paired with `pendingKey` so retries never mutate semantics. */
   pendingQueue?: boolean;
-  /** Durable schedule identity + timestamp persisted after an uncertain schedule timeout. */
+  /** Durable schedule identity + payload metadata persisted before dispatch / across uncertain timeouts. */
   pendingSchedule?: PendingScheduleDraft;
 };
 
@@ -28,6 +29,7 @@ function sanitizePendingSchedule(
   const item = raw as {
     key?: unknown;
     sendAt?: unknown;
+    attachmentIds?: unknown;
     replyToMessageId?: unknown;
   };
   if (
@@ -39,9 +41,15 @@ function sanitizePendingSchedule(
   ) {
     return undefined;
   }
+  const attachmentIds = Array.isArray(item.attachmentIds)
+    ? item.attachmentIds
+        .filter((id): id is string => typeof id === "string" && id.length > 0)
+        .slice(0, 8)
+    : undefined;
   return {
     key: item.key,
     sendAt: item.sendAt,
+    ...(attachmentIds && attachmentIds.length > 0 ? { attachmentIds } : {}),
     ...(typeof item.replyToMessageId === "string" && item.replyToMessageId
       ? { replyToMessageId: item.replyToMessageId }
       : {}),
