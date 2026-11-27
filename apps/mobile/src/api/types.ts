@@ -381,3 +381,19 @@ export type ApiPersonalProfile = {
   agent_count?: number;
   project_count?: number;
 };
+
+export type ApiSharePreview = {
+  mode: "queue" | "create";
+  agent: {
+    id: string;
+    name: string;
+    provider: string;
+    model: string;
+    effort: string | null;
+  } | null;
+  source?: {
+    url: string;
+    title: string;
+    excerpt: string;
+  };
+};

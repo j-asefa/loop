@@ -78,9 +78,32 @@ import { ProjectsScreen } from "./src/components/ProjectsScreen";
 import { PullRequestsScreen } from "./src/components/PullRequestsScreen";
 import { RemindSheet, type RemindChoice } from "./src/components/RemindSheet";
 import { SearchScreen } from "./src/components/SearchScreen";
+import {
+  ShareInboxSheet,
+  useIncomingShareIntake,
+} from "./src/components/ShareInboxSheet";
 import { SpotlightCarousel } from "./src/components/SpotlightCarousel";
 import { ThreadSheet } from "./src/components/ThreadSheet";
 import { clearWorkspaceDrafts } from "./src/drafts";
+import { draftWorkspaceBucket } from "./src/drafts-codec";
+import {
+  clearWorkspaceNotificationPrefs,
+  configureNotificationsHandler,
+  DEFAULT_NOTIFICATION_PREFS,
+  deliverLocalNotifications,
+  detectNotificationEvents,
+  loadNotificationPrefs,
+  parseNotificationTapTarget,
+  saveNotificationPrefs,
+  subscribeNotificationTaps,
+  type NotificationPrefs,
+  type NotificationSnapshot,
+} from "./src/notifications";
+import {
+  clearWorkspaceCache,
+  loadWorkspaceCache,
+  saveWorkspaceCache,
+} from "./src/offline-cache";
 import { formatScheduledTime } from "./src/schedule-utils";
 import {
   buildSimulatedReply,
@@ -190,8 +213,19 @@ function LoopShell() {
   activeRunsRef.current = activeRuns;
   const [environmentName, setEnvironmentName] = useState<string>("");
   const [refreshing, setRefreshing] = useState(false);
+  const [showingCachedSnapshot, setShowingCachedSnapshot] = useState(false);
+  const [cachedAt, setCachedAt] = useState<number | null>(null);
+  const hasLiveLoadRef = useRef(false);
+  const [notificationPrefs, setNotificationPrefs] = useState<NotificationPrefs>(
+    () => ({ ...DEFAULT_NOTIFICATION_PREFS }),
+  );
+  const notificationPrefsRef = useRef<NotificationPrefs>(notificationPrefs);
+  notificationPrefsRef.current = notificationPrefs;
+  const notificationSnapshotRef = useRef<NotificationSnapshot | null>(null);
+  const pendingNotificationTapRef = useRef<unknown>(null);
   // Bumped after each workspace load so an open thread refreshes in place.
   const [workspaceVersion, setWorkspaceVersion] = useState(0);
+  const { incomingShare, dismissIncomingShare } = useIncomingShareIntake();
 
   // Overlays & modals
   const [openConversationId, setOpenConversationId] = useState<string | null>(
@@ -228,6 +262,7 @@ function LoopShell() {
 
   // Load saved Keychain session on startup & listen for deep-linked pairing URLs
   useEffect(() => {
+    configureNotificationsHandler();
     void loadPairedSession().then((saved) => {
       if (saved) setSession(saved);
     });
@@ -244,8 +279,52 @@ function LoopShell() {
     const sub = Linking.addEventListener("url", (event) =>
       inspectUrl(event.url),
     );
-    return () => sub.remove();
+    const unsubNotifTap = subscribeNotificationTaps((data) => {
+      const origin = activeSessionRef.current?.origin;
+      if (!origin) {
+        // Hold cold-start notification taps until Keychain session finishes loading
+        pendingNotificationTapRef.current = data;
+        return;
+      }
+      const target = parseNotificationTapTarget(
+        data,
+        draftWorkspaceBucket(origin),
+      );
+      if (!target) return;
+      setOpenConversationId(null);
+      setCarouselOverrideCards(null);
+      setProfileAgent(null);
+      setThreadOverlay({
+        conversationId: target.conversationId,
+        title: target.title,
+        agentName: target.agentName,
+      });
+    });
+    return () => {
+      sub.remove();
+      unsubNotifTap();
+    };
   }, []);
+
+  // Drain any cold-start notification tap once the saved Keychain session loads
+  useEffect(() => {
+    if (!session || !pendingNotificationTapRef.current) return;
+    const data = pendingNotificationTapRef.current;
+    pendingNotificationTapRef.current = null;
+    const target = parseNotificationTapTarget(
+      data,
+      draftWorkspaceBucket(session.origin),
+    );
+    if (!target) return;
+    setOpenConversationId(null);
+    setCarouselOverrideCards(null);
+    setProfileAgent(null);
+    setThreadOverlay({
+      conversationId: target.conversationId,
+      title: target.title,
+      agentName: target.agentName,
+    });
+  }, [session]);
 
   const activeSessionRef = useRef<PairedSession | null>(null);
   activeSessionRef.current = session;
@@ -255,6 +334,8 @@ function LoopShell() {
       // Ignore stale 401s from a previous workspace after switching workspaces
       if (activeSessionRef.current !== expiredSession) return;
       clearWorkspaceDrafts(expiredSession.origin);
+      clearWorkspaceCache(expiredSession.origin);
+      clearWorkspaceNotificationPrefs(expiredSession.origin);
       void clearPairedSession();
       setSession(null);
       setSocketStatus("offline");
@@ -376,6 +457,32 @@ function LoopShell() {
             }
           }
           setWorkspaceVersion((v) => v + 1);
+          hasLiveLoadRef.current = true;
+          setShowingCachedSnapshot(false);
+          setCachedAt(null);
+          const currentOrigin = activeSessionRef.current?.origin;
+          if (currentOrigin) {
+            saveWorkspaceCache(currentOrigin, {
+              environmentName: boot.environmentName || "",
+              cards: nextTopCards,
+              agents: boot.agents,
+              folders: boot.folders,
+              summary: feedPage.summary,
+            });
+            const { nextSnapshot, events } = detectNotificationEvents(
+              notificationSnapshotRef.current,
+              {
+                approvals: appList,
+                decisions: decList,
+                cards: nextTopCards,
+              },
+              notificationPrefsRef.current,
+            );
+            notificationSnapshotRef.current = nextSnapshot;
+            if (events.length > 0) {
+              void deliverLocalNotifications(currentOrigin, events);
+            }
+          }
         },
         onError: (err) => {
           if (err instanceof Error && !err.message.includes("401")) {
@@ -428,6 +535,10 @@ function LoopShell() {
     setLiveStreams(new Map());
     setSummary(null);
     setEnvironmentName("");
+    setShowingCachedSnapshot(false);
+    setCachedAt(null);
+    hasLiveLoadRef.current = false;
+    notificationSnapshotRef.current = null;
     setOpenConversationId(null);
     setCarouselOverrideCards(null);
     setProfileAgent(null);
@@ -437,10 +548,38 @@ function LoopShell() {
     setPreviewFile(null);
     if (!client) {
       setAgents(DEMO_AGENTS);
+      setNotificationPrefs({ ...DEFAULT_NOTIFICATION_PREFS });
       setSocketStatus("offline");
       return;
     }
     setAgents([]);
+    const gen = workspaceGenRef.current;
+    const origin = activeSessionRef.current?.origin;
+    if (origin) {
+      void loadNotificationPrefs(origin).then((prefs) => {
+        if (gen === workspaceGenRef.current) {
+          setNotificationPrefs(prefs);
+        }
+      });
+      void loadWorkspaceCache(origin).then((snap) => {
+        // Hydrate instant cold-start cache only if still on the same workspace
+        // and no live server load has completed yet.
+        if (
+          !snap ||
+          gen !== workspaceGenRef.current ||
+          hasLiveLoadRef.current
+        ) {
+          return;
+        }
+        setLiveCards(snap.cards);
+        setAgents(snap.agents);
+        setFolders(snap.folders);
+        setSummary(snap.summary);
+        setEnvironmentName(snap.environmentName);
+        setShowingCachedSnapshot(true);
+        setCachedAt(snap.cachedAt);
+      });
+    }
     void loadWorkspace({ silent: true });
   }, [client, loadWorkspace]);
 
@@ -1221,6 +1360,8 @@ function LoopShell() {
     // Never wipe a newly paired workspace if the user switched while sign-out was in flight
     if (activeSessionRef.current !== signingOutSession) return;
     clearWorkspaceDrafts(signingOutSession?.origin);
+    clearWorkspaceCache(signingOutSession?.origin);
+    clearWorkspaceNotificationPrefs(signingOutSession?.origin);
     await clearPairedSession();
     if (activeSessionRef.current !== signingOutSession) return;
     setSession(null);
@@ -1510,6 +1651,8 @@ function LoopShell() {
           isLive={Boolean(client)}
           environmentName={environmentName}
           socketStatus={socketStatus}
+          showingCached={showingCachedSnapshot}
+          cachedAt={cachedAt}
           refreshing={refreshing}
           hasMore={Boolean(client && feedCursor)}
           loadingMore={loadingMoreFeed}
@@ -1590,6 +1733,11 @@ function LoopShell() {
           onSignOut={() => void handleSignOut()}
           onOpenConversation={(conv) => setThreadOverlay(conv)}
           onOpenFile={handleOpenFile}
+          notificationPrefs={notificationPrefs}
+          onChangeNotificationPrefs={(next) => {
+            setNotificationPrefs(next);
+            saveNotificationPrefs(session?.origin, next);
+          }}
         />
       )}
 
@@ -1882,6 +2030,35 @@ function LoopShell() {
             setOpenConversationId(null);
             setCarouselOverrideCards(null);
             setThreadOverlay(conv);
+          }}
+        />
+      )}
+
+      {/* Incoming OS Share Sheet ("Bring into Loop") */}
+      {incomingShare && (
+        <ShareInboxSheet
+          key={incomingShare.fingerprint}
+          share={incomingShare}
+          client={client}
+          agents={agents}
+          folders={folders}
+          theme={theme}
+          onClose={dismissIncomingShare}
+          onOpenPairing={() => {
+            setPairingOpen(true);
+          }}
+          onSent={(message, conversationId, agentName) => {
+            const gen = workspaceGenRef.current;
+            dismissIncomingShare();
+            showToast(message);
+            scheduleSilentRefresh(350, gen);
+            if (conversationId) {
+              setThreadOverlay({
+                conversationId,
+                title: incomingShare.sourceTitle || "Shared conversation",
+                agentName: agentName || "agent",
+              });
+            }
           }}
         />
       )}
