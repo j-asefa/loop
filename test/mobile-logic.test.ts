@@ -4037,3 +4037,14 @@ it("reconciles an uncertain carousel save only with a read started afterward", (
     revision: 4,
   });
 });
+
+it("allows a fresh carousel read to update a settled save while preserving an in-flight edit", () => {
+  const edits = new Map([
+    ["settled", { saved: true, revision: 4 }],
+    ["pending", { saved: true, revision: 2, pending: true }],
+  ]);
+  expect(reconcileCarouselSaves(edits, [], 3)).toBe(edits);
+  const refreshed = reconcileCarouselSaves(edits, [], 4);
+  expect(refreshed.get("settled")).toEqual({ saved: false, revision: 4 });
+  expect(refreshed.get("pending")).toBe(edits.get("pending"));
+});

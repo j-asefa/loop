@@ -240,9 +240,11 @@ export function reconcileCarouselSaves(
   const saved = new Set(savedIds);
   let next = edits;
   for (const [key, edit] of edits) {
-    if (!edit.uncertain || edit.revision > requestRevision) continue;
+    if (edit.pending || edit.revision > requestRevision) continue;
+    const serverSaved = saved.has(key);
+    if (!edit.uncertain && edit.saved === serverSaved) continue;
     if (next === edits) next = new Map(edits);
-    next.set(key, { revision: edit.revision, saved: saved.has(key) });
+    next.set(key, { revision: edit.revision, saved: serverSaved });
   }
   return next;
 }

@@ -292,7 +292,7 @@ export function SpotlightCarousel({
   const [loadingMoreHistory, setLoadingMoreHistory] = useState(false);
   const [historyUnavailable, setHistoryUnavailable] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(Boolean(initialHistory));
-  const [historyRetry, setHistoryRetry] = useState(0);
+  const [historyRetry, setHistoryRetry] = useState<string>();
   const [savedEdits, setSavedEdits] = useState(
     new Map<string, CarouselSaveEdit>(),
   );
@@ -331,6 +331,7 @@ export function SpotlightCarousel({
       )
       .then((page) => {
         if (cancelled) return;
+        setHistoryUnavailable(false);
         setSavedEdits((prev) =>
           reconcileCarouselSaves(prev, page.saved, requestRevision),
         );
@@ -623,11 +624,7 @@ export function SpotlightCarousel({
   });
 
   const holdHistoryUpdates =
-    !draftLoaded ||
-    keyboardVisible ||
-    recordingAudio ||
-    sending ||
-    safeIndex > 0;
+    !draftLoaded || keyboardVisible || recordingAudio || sending;
   useEffect(() => {
     const page = fetchedHistory;
     if (
@@ -638,7 +635,6 @@ export function SpotlightCarousel({
     )
       return;
     appliedHistoryRef.current = page;
-    setHistoryUnavailable(false);
     setHistoryLoaded(true);
     const {
       promptMap,
@@ -1074,48 +1070,24 @@ export function SpotlightCarousel({
         pending: true,
       };
       setSavedEdits((prev) => new Map(prev).set(key, optimistic));
-      const markUncertain = () => {
-        const unresolved = {
-          ...optimistic,
+      const settle = (saved: boolean, uncertain = false) => {
+        // Reads started before the mutation settled can still carry the old state.
+        const settled = {
           revision: ++saveRevisionRef.current,
-          pending: false,
-          uncertain: true,
+          saved,
+          uncertain,
         };
         setSavedEdits((prev) =>
-          prev.get(key) === optimistic
-            ? new Map(prev).set(key, unresolved)
-            : prev,
+          prev.get(key) === optimistic ? new Map(prev).set(key, settled) : prev,
         );
-        setHistoryRetry((attempt) => attempt + 1);
+        if (uncertain) setHistoryRetry(randomUuid());
       };
       void Promise.resolve()
         .then(() => onToggleSaved(target))
-        .then((outcome) => {
-          if (outcome === "uncertain") {
-            markUncertain();
-            return;
-          }
-          setSavedEdits((prev) =>
-            prev.get(key) === optimistic
-              ? new Map(prev).set(key, { ...optimistic, pending: false })
-              : prev,
-          );
-        })
+        .then((outcome) => settle(optimistic.saved, outcome === "uncertain"))
         .catch((err) => {
-          if (isUncertainOutcomeError(err)) {
-            markUncertain();
-            return;
-          }
-          // A stale failure cannot undo a later tap.
-          setSavedEdits((prev) =>
-            prev.get(key) === optimistic
-              ? new Map(prev).set(key, {
-                  ...optimistic,
-                  pending: false,
-                  saved: target.saved,
-                })
-              : prev,
-          );
+          if (isUncertainOutcomeError(err)) settle(optimistic.saved, true);
+          else settle(target.saved);
         })
         .finally(() => inFlight.delete(key));
     },
@@ -1551,8 +1523,7 @@ export function SpotlightCarousel({
                       disabled={loadingMoreHistory}
                       onPress={() => {
                         haptics.light();
-                        if (historyUnavailable)
-                          setHistoryRetry((attempt) => attempt + 1);
+                        if (historyUnavailable) setHistoryRetry(randomUuid());
                         else void loadMoreHistory();
                       }}
                       style={({ pressed }) => [
