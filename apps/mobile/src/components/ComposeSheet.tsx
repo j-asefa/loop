@@ -26,6 +26,7 @@ import {
   loadDraftEntry,
   saveDraft,
   saveDraftAndFlush,
+  settlePendingAgentCreate,
   type PendingAgentCreate,
 } from "../drafts";
 import { haptics } from "../haptics";
@@ -418,7 +419,14 @@ export function ComposeSheet({
         await onCreate(creation);
       }
       sendKeyRef.current = null;
-      clearDraft(client?.origin, draftScope);
+      if (!agent && client) {
+        if (
+          !settlePendingAgentCreate(client.origin, draftScope, idempotencyKey)
+        )
+          return;
+      } else {
+        clearDraft(client?.origin, draftScope);
+      }
       clearAttachments();
       onClose();
     } catch (err) {
@@ -432,8 +440,17 @@ export function ComposeSheet({
         sendKeyRef.current = null;
         setHasPendingSend(false);
         if (!agent) {
+          if (
+            client &&
+            !settlePendingAgentCreate(
+              client.origin,
+              draftScope,
+              idempotencyKey,
+              text.trim() || finalText,
+            )
+          )
+            return;
           setPendingCreate(null);
-          saveDraft(client?.origin, draftScope, text.trim() || finalText);
         }
       }
       haptics.warning();

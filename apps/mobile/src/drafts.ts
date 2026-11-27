@@ -6,6 +6,7 @@ import {
   parseDraftStore,
   readDraftEntryFromStore,
   serializeDraftStore,
+  settlePendingAgentCreateInStore,
   setDraftInStore,
   type DraftEntry,
   type DraftMap,
@@ -201,6 +202,12 @@ export function saveDraft(
     return;
   }
   const current = memoryBuckets.get(bucket) ?? createEmptyDraftMap();
+  const pendingCreate = current[scope]?.pendingAgentCreate;
+  if (
+    pendingCreate &&
+    pendingCreate.idempotencyKey !== pending?.agentCreate?.idempotencyKey
+  )
+    return;
   const next = setDraftInStore(current, scope, text, Date.now(), pending);
   memoryBuckets.set(bucket, next);
   if (
@@ -273,6 +280,27 @@ export async function saveDraftAndFlush(
     );
   }
   memoryBuckets.set(bucket, next);
+}
+
+export function settlePendingAgentCreate(
+  origin: string,
+  scope: string,
+  idempotencyKey: string,
+  text?: string,
+): boolean {
+  const bucket = draftWorkspaceBucket(origin);
+  const current = memoryBuckets.get(bucket);
+  if (!current) return false;
+  const next = settlePendingAgentCreateInStore(
+    current,
+    scope,
+    idempotencyKey,
+    text,
+  );
+  if (next === current) return false;
+  memoryBuckets.set(bucket, next);
+  flushBucketNow(bucket);
+  return true;
 }
 
 export function clearDraft(

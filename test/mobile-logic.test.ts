@@ -3954,6 +3954,16 @@ it("keeps the tapped older profile card in the first three carousel positions", 
   expect(
     openingCarouselCardIds(cards, recent, { ...cards[3], id: "profile-card" }),
   ).toEqual(["A", "D", "C"]);
+  const newest = { id: "E", messageId: "E" } as NativeResultCard;
+  const afterArrival = [newest, ...cards];
+  expect(
+    openingCarouselCardIds(
+      afterArrival,
+      afterArrival.slice(0, 3),
+      cards[3],
+      false,
+    ),
+  ).toEqual(["E", "D", "A"]);
 });
 
 it("preserves the older cursor boundary when refreshing during an older-page request", () => {

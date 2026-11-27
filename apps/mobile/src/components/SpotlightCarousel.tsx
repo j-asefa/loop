@@ -257,7 +257,8 @@ export function SpotlightCarousel({
     }
     return byMessageId;
   }, [cards]);
-  const lastTopCardRef = useRef(recentCards[0]?.id);
+  const topCardId = recentCards[0]?.id;
+  const lastTopCardRef = useRef(topCardId);
 
   const conversationId = cards[0]?.conversationId;
   const [initialHistory] = useState(() => {
@@ -304,7 +305,7 @@ export function SpotlightCarousel({
     void client
       .refreshCarouselPage(
         conversationId,
-        JSON.stringify([activeRun?.id, activeRun?.state]),
+        JSON.stringify([activeRun?.id, activeRun?.state, topCardId]),
       )
       .then((page) => {
         if (cancelled) return;
@@ -339,7 +340,14 @@ export function SpotlightCarousel({
     return () => {
       cancelled = true;
     };
-  }, [client, conversationId, activeRun?.id, activeRun?.state, historyRetry]);
+  }, [
+    client,
+    conversationId,
+    activeRun?.id,
+    activeRun?.state,
+    historyRetry,
+    topCardId,
+  ]);
 
   const loadMoreHistory = useCallback(async () => {
     if (
@@ -1244,9 +1252,18 @@ export function SpotlightCarousel({
     lastTopCardRef.current = top;
     if (pinnedIds.includes(top)) return;
     haptics.light();
-    setPinnedIds(recentCards.map((c) => c.id));
+    setPinnedIds(
+      openingCarouselCardIds(cards, recentCards, openingCard, false),
+    );
     requestAnimationFrame(() => scrollToSlide(0, true));
-  }, [keyboardVisible, pinnedIds, recentCards, scrollToSlide]);
+  }, [
+    cards,
+    keyboardVisible,
+    openingCard,
+    pinnedIds,
+    recentCards,
+    scrollToSlide,
+  ]);
 
   if (!slides.length) return null;
 
@@ -1403,15 +1420,16 @@ export function SpotlightCarousel({
                     <Pressable
                       accessibilityRole="button"
                       accessibilityLabel={
-                        historyNextCursor
-                          ? "Load earlier cards in thread"
-                          : "Retry loading conversation history"
+                        historyUnavailable
+                          ? "Retry loading conversation history"
+                          : "Load earlier cards in thread"
                       }
                       disabled={loadingMoreHistory}
                       onPress={() => {
                         haptics.light();
-                        if (historyNextCursor) void loadMoreHistory();
-                        else setHistoryRetry((attempt) => attempt + 1);
+                        if (historyUnavailable)
+                          setHistoryRetry((attempt) => attempt + 1);
+                        else void loadMoreHistory();
                       }}
                       style={({ pressed }) => [
                         styles.loadMorePill,
@@ -1432,9 +1450,9 @@ export function SpotlightCarousel({
                       >
                         {loadingMoreHistory
                           ? "…"
-                          : historyNextCursor
-                            ? "+Older"
-                            : "Retry history"}
+                          : historyUnavailable
+                            ? "Retry history"
+                            : "+Older"}
                       </Text>
                     </Pressable>
                   )}

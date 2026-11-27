@@ -387,6 +387,21 @@ export function deleteDraftFromStore(map: DraftMap, scope: string): DraftMap {
   return next;
 }
 
+// A late completion can only settle the creation whose key it dispatched.
+export function settlePendingAgentCreateInStore(
+  map: DraftMap,
+  scope: string,
+  idempotencyKey: string,
+  text?: string,
+  now = Date.now(),
+): DraftMap {
+  if (map[scope]?.pendingAgentCreate?.idempotencyKey !== idempotencyKey)
+    return map;
+  return text === undefined
+    ? deleteDraftFromStore(map, scope)
+    : setDraftInStore(map, scope, text, now);
+}
+
 export function readDraftEntryFromStore(
   map: DraftMap,
   scope: string,

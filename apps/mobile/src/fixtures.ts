@@ -210,6 +210,7 @@ export function openingCarouselCardIds(
   cards: NativeResultCard[],
   recentCards: NativeResultCard[],
   openingCard?: NativeResultCard,
+  prioritizeOpening = true,
 ): string[] {
   const selected =
     openingCard &&
@@ -219,12 +220,14 @@ export function openingCarouselCardIds(
           openingCard.messageId && card.messageId === openingCard.messageId,
       ));
   const ids = recentCards.map((card) => card.id);
-  return selected
-    ? [selected.id, ...ids.filter((id) => id !== selected.id)].slice(
-        0,
-        ids.length,
-      )
-    : ids;
+  if (!selected) return ids;
+  if (prioritizeOpening) {
+    return [selected.id, ...ids.filter((id) => id !== selected.id)].slice(
+      0,
+      ids.length,
+    );
+  }
+  return ids.includes(selected.id) ? ids : [...ids.slice(0, -1), selected.id];
 }
 
 export type CarouselHistoryPage = {

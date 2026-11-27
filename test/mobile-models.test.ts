@@ -13,6 +13,7 @@ import {
   DRAFT_TTL_MS,
   parseDraftStore,
   serializeDraftStore,
+  settlePendingAgentCreateInStore,
   setDraftInStore,
 } from "../apps/mobile/src/drafts-codec.js";
 import type { ApiConnection } from "../apps/mobile/src/api/types.js";
@@ -154,6 +155,27 @@ describe("mobile model defaults", () => {
       now + DRAFT_TTL_MS + 1,
     );
     expect(restored[scope].pendingAgentCreate).toEqual(pending);
+    const staleKey = "older-creation-key";
+    expect(settlePendingAgentCreateInStore(restored, scope, staleKey)).toBe(
+      restored,
+    );
+    expect(
+      settlePendingAgentCreateInStore(restored, scope, staleKey, "Old text"),
+    ).toBe(restored);
+    expect(
+      settlePendingAgentCreateInStore(restored, scope, pending.idempotencyKey)[
+        scope
+      ],
+    ).toBeUndefined();
+    expect(
+      settlePendingAgentCreateInStore(
+        restored,
+        scope,
+        pending.idempotencyKey,
+        "Try again",
+        now,
+      )[scope],
+    ).toEqual({ text: "Try again", updatedAt: now });
   });
 
   it("sends the configured model and effort through the create and update client calls", async () => {
