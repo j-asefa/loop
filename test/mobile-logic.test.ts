@@ -2624,13 +2624,26 @@ describe("mobile native Mermaid diagram parser and layout", () => {
     }
 
     const uml = parseMermaidDiagram(
-      'classDiagram\n  Owner "1" *-- "*" Part\n  Impl <|.. Iface',
+      'classDiagram\n  Owner "1" *-- "*" Part\n  Impl <|.. Iface\n  A "1" -- B\n  C -- "1" D',
     );
     expect(uml?.kind).toBe("class");
     if (uml?.kind === "class") {
       expect(uml.edges[0].markerStart).toBe("diamond");
+      expect(uml.edges[0].label).toBe("1..*");
       expect(uml.edges[1].markerStart).toBe("triangle");
       expect(uml.edges[1].style).toBe("dashed");
+      expect(uml.edges[2].label).toBe("1..");
+      expect(uml.edges[3].label).toBe("..1");
+    }
+
+    // State diagram [*] sentinel never collides with a user state named __start__
+    const stateSentinel = parseMermaidDiagram(
+      "stateDiagram-v2\n  [*] --> __start__\n  __start__ --> Ready",
+    );
+    expect(stateSentinel?.kind).toBe("state");
+    if (stateSentinel?.kind === "state") {
+      expect(stateSentinel.nodes).toHaveLength(3);
+      expect(stateSentinel.edges[0].from).not.toBe(stateSentinel.edges[0].to);
     }
 
     expect(
@@ -2641,7 +2654,9 @@ describe("mobile native Mermaid diagram parser and layout", () => {
 
     // Adversarial ReDoS & repeated & fan-out inputs must complete quickly without blowing up
     const t0 = Date.now();
+    parseMermaidDiagram(`flowchart TD\n  A ${"-- ".repeat(10_000)} x`);
     parseMermaidDiagram(`flowchart TD\n  A -- ${" ".repeat(30_000)} x`);
+    parseMermaidDiagram(`sequenceDiagram\n  ${"a->".repeat(10_000)}`);
     parseMermaidDiagram(`sequenceDiagram\n  Note over ${" ".repeat(30_000)} x`);
     parseMermaidDiagram(`${"%%{".repeat(5_000)}flowchart TD\nA-->B`);
     const dedupFan = parseMermaidDiagram(
@@ -2653,16 +2668,18 @@ describe("mobile native Mermaid diagram parser and layout", () => {
     }
     expect(Date.now() - t0).toBeLessThan(2000);
 
-    // Node cap bounds large graphs safely
+    // Oversized graphs return null so MermaidDiagram falls back to full source instead of truncating silently
     const hugeLines = ["graph LR"];
     for (let i = 0; i < MAX_MERMAID_NODES + 25; i += 1) {
       hugeLines.push(`N${i} --> N${i + 1}`);
     }
-    const capped = parseMermaidDiagram(hugeLines.join("\n"));
-    expect(capped?.kind).toBe("flowchart");
-    if (capped?.kind === "flowchart") {
-      expect(capped.nodes.length).toBeLessThanOrEqual(MAX_MERMAID_NODES);
+    expect(parseMermaidDiagram(hugeLines.join("\n"))).toBeNull();
+
+    const manySubgraphs = ["flowchart TD"];
+    for (let i = 0; i < 40; i += 1) {
+      manySubgraphs.push(`subgraph S${i}\n  N${i}\nend`);
     }
+    expect(parseMermaidDiagram(manySubgraphs.join("\n"))).toBeNull();
   });
 });
 
@@ -2678,6 +2695,7 @@ describe("mobile native LaTeX math parser and currency safety", () => {
     expect(findInlineMathAt("export PATH=$PATH:$HOME/bin", 12)).toBeNull();
     expect(findInlineMathAt("See $ref/$id for details", 4)).toBeNull();
     expect(findInlineMathAt("Path ${A}/${B}", 5)).toBeNull();
+    expect(findInlineMathAt("Run $(pwd)/$(whoami) now", 4)).toBeNull();
 
     expect(findInlineMathAt("Given $x^2 + y^2 = r^2$, we have", 6)).toEqual({
       raw: "x^2 + y^2 = r^2",
@@ -2736,6 +2754,21 @@ describe("mobile native LaTeX math parser and currency safety", () => {
             ["R&D", "2"],
             ["3", "4"],
           ],
+        },
+      ],
+    ]);
+
+    // Nested matrices keep inner \\ and & inside the inner environment
+    const nestedMat = parseLatexDisplayRows(
+      "\\begin{bmatrix}\\begin{pmatrix}1 & 2 \\\\ 3 & 4\\end{pmatrix} & 5\\end{bmatrix}",
+    );
+    expect(nestedMat).toEqual([
+      [
+        {
+          kind: "matrix",
+          left: "[",
+          right: "]",
+          rows: [["(1, 2; 3, 4)", "5"]],
         },
       ],
     ]);

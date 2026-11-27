@@ -365,24 +365,88 @@ export type MathDisplaySegment =
   | { kind: "fraction"; num: string; den: string }
   | { kind: "matrix"; left: string; right: string; rows: string[][] };
 
-function splitMatrixCells(row: string): string[] {
-  const cells: string[] = [];
+function findMatchingEnvEnd(
+  src: string,
+  env: string,
+  searchFrom: number,
+): number {
+  let envDepth = 1;
+  let i = searchFrom;
+  while (i < src.length) {
+    const nextBegin = src.indexOf("\\begin{", i);
+    const nextEnd = src.indexOf("\\end{", i);
+    if (nextEnd === -1) return -1;
+    if (nextBegin !== -1 && nextBegin < nextEnd) {
+      const closeBrace = src.indexOf("}", nextBegin + 7);
+      if (closeBrace === -1) return -1;
+      envDepth += 1;
+      i = closeBrace + 1;
+      continue;
+    }
+    const closeBrace = src.indexOf("}", nextEnd + 5);
+    if (closeBrace === -1) return -1;
+    envDepth -= 1;
+    if (envDepth === 0) {
+      const endName = src.slice(nextEnd + 5, closeBrace).trim();
+      return endName === env ? nextEnd : -1;
+    }
+    i = closeBrace + 1;
+  }
+  return -1;
+}
+
+function splitMatrixTopLevel(body: string, sep: "\\\\" | "&"): string[] {
+  const parts: string[] = [];
   let current = "";
-  for (let i = 0; i < row.length; i += 1) {
-    if (row[i] === "\\" && i + 1 < row.length) {
-      current += row.slice(i, i + 2);
+  let envDepth = 0;
+  let braceDepth = 0;
+  for (let i = 0; i < body.length; i += 1) {
+    if (body.startsWith("\\begin{", i)) {
+      const closeBrace = body.indexOf("}", i + 7);
+      if (closeBrace !== -1) {
+        envDepth += 1;
+        current += body.slice(i, closeBrace + 1);
+        i = closeBrace;
+        continue;
+      }
+    }
+    if (body.startsWith("\\end{", i)) {
+      const closeBrace = body.indexOf("}", i + 5);
+      if (closeBrace !== -1) {
+        envDepth = Math.max(0, envDepth - 1);
+        current += body.slice(i, closeBrace + 1);
+        i = closeBrace;
+        continue;
+      }
+    }
+    if (
+      sep === "\\\\" &&
+      envDepth === 0 &&
+      braceDepth === 0 &&
+      body[i] === "\\" &&
+      body[i + 1] === "\\"
+    ) {
+      parts.push(current.trim());
+      current = "";
       i += 1;
       continue;
     }
-    if (row[i] === "&") {
-      cells.push(current.trim());
+    if (body[i] === "\\" && i + 1 < body.length) {
+      current += body.slice(i, i + 2);
+      i += 1;
+      continue;
+    }
+    if (body[i] === "{") braceDepth += 1;
+    else if (body[i] === "}") braceDepth = Math.max(0, braceDepth - 1);
+    if (sep === "&" && envDepth === 0 && braceDepth === 0 && body[i] === "&") {
+      parts.push(current.trim());
       current = "";
       continue;
     }
-    current += row[i];
+    current += body[i];
   }
-  cells.push(current.trim());
-  return cells;
+  parts.push(current.trim());
+  return parts;
 }
 
 function formatMatrixEnv(
@@ -391,12 +455,12 @@ function formatMatrixEnv(
   depth: number,
 ): { left: string; right: string; rows: string[][] } {
   const [left, right] = MATRIX_DELIMITERS.get(env) ?? ["", ""];
-  const rows = body
-    .split(/\\\\/)
-    .map((r) => r.trim())
+  const rows = splitMatrixTopLevel(body, "\\\\")
     .filter(Boolean)
     .map((row) =>
-      splitMatrixCells(row).map((cell) => formatLatexInline(cell, depth + 1)),
+      splitMatrixTopLevel(row, "&").map((cell) =>
+        formatLatexInline(cell, depth + 1),
+      ),
     );
   return { left, right, rows };
 }
@@ -418,13 +482,13 @@ export function formatLatexInline(rawExpr: string, depth = 0): string {
   while (i < src.length) {
     const ch = src[i];
 
-    // Environment blocks \begin{...}...\end{...}
+    // Environment blocks \begin{...}...\end{...} (depth-aware for nested matrices)
     if (src.startsWith("\\begin{", i)) {
       const endName = src.indexOf("}", i + 7);
       if (endName !== -1) {
         const env = src.slice(i + 7, endName).trim();
         const closeTag = `\\end{${env}}`;
-        const closeIdx = src.indexOf(closeTag, endName + 1);
+        const closeIdx = findMatchingEnvEnd(src, env, endName + 1);
         if (closeIdx !== -1) {
           const body = src.slice(endName + 1, closeIdx);
           const mat = formatMatrixEnv(env, body, depth);
@@ -668,7 +732,7 @@ export function parseLatexDisplayRows(rawExpr: string): MathDisplaySegment[][] {
       if (endName !== -1) {
         const env = src.slice(i + 7, endName).trim();
         const closeTag = `\\end{${env}}`;
-        const closeIdx = src.indexOf(closeTag, endName + 1);
+        const closeIdx = findMatchingEnvEnd(src, env, endName + 1);
         if (closeIdx !== -1) {
           flushText();
           const mat = formatMatrixEnv(env, src.slice(endName + 1, closeIdx), 0);
@@ -785,15 +849,15 @@ export function findInlineMathAt(
     }
     if (ch === "$") {
       // Closing $ must not be preceded by whitespace, must not be $$, and must
-      // not be immediately followed by an identifier/digit/template brace
-      // (blocks "$5 and $10", "$PATH:$HOME", "$ref/$id", "${A}/${B}").
+      // not be immediately followed by an identifier/digit/template brace/subshell paren
+      // (blocks "$5 and $10", "$PATH:$HOME", "$ref/$id", "${A}/${B}", "$(pwd)/$(whoami)").
       const prev = text[i - 1];
       const next = text[i + 1];
       if (
         !prev ||
         /\s/.test(prev) ||
         next === "$" ||
-        (next !== undefined && /[A-Za-z0-9_{]/.test(next))
+        (next !== undefined && /[A-Za-z0-9_{(]/.test(next))
       ) {
         return null;
       }

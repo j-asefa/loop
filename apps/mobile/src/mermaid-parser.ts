@@ -1,6 +1,7 @@
 export const MAX_MERMAID_SOURCE_CHARS = 32_000;
 export const MAX_MERMAID_NODES = 80;
 export const MAX_MERMAID_EDGES = 160;
+export const MAX_MERMAID_SUBGRAPHS = 32;
 export const MAX_MERMAID_SEQUENCE_STEPS = 100;
 
 export type MermaidDirection = "TD" | "TB" | "LR" | "RL" | "BT";
@@ -231,12 +232,9 @@ function splitTopLevelDelimiter(segment: string, delim: string): string[] {
   return parts;
 }
 
-function preprocessLines(source: string): string[] {
-  const capped =
-    source.length > MAX_MERMAID_SOURCE_CHARS
-      ? source.slice(0, MAX_MERMAID_SOURCE_CHARS)
-      : source;
-  const withoutDirectives = stripInitDirectives(capped);
+function preprocessLines(source: string): string[] | null {
+  if (source.length > MAX_MERMAID_SOURCE_CHARS) return null;
+  const withoutDirectives = stripInitDirectives(source);
   const out: string[] = [];
   for (const rawLine of withoutDirectives.replace(/\r\n/g, "\n").split("\n")) {
     const stripped = stripLineComment(rawLine);
@@ -353,26 +351,33 @@ function matchInlineLabeledConnector(
     }
     if (labelStart >= line.length) continue;
 
-    // Linear scan for the nearest closing connector token
-    let bestIdx = -1;
-    let bestCloser: { token: string; arrowEnd: boolean } | null = null;
+    // Stop at the very first forbidden character: since the label cannot contain
+    // `spec.forbidChar`, any valid closer must start at that exact first occurrence.
+    // This guarantees each character on the line is visited O(1) times overall.
+    const firstForbid = line.indexOf(spec.forbidChar, labelStart);
+    if (firstForbid === -1) continue;
+    let matchedCloser: { token: string; arrowEnd: boolean } | null = null;
     for (const closer of spec.closers) {
-      const idx = line.indexOf(closer.token, labelStart);
-      if (idx !== -1 && (bestIdx === -1 || idx < bestIdx)) {
-        bestIdx = idx;
-        bestCloser = closer;
+      if (line.startsWith(closer.token, firstForbid)) {
+        matchedCloser = closer;
+        break;
       }
     }
-    if (bestIdx === -1 || !bestCloser) continue;
-    if (line[bestIdx - 1] !== " " && line[bestIdx - 1] !== "\t") continue;
-    const rawLabel = line.slice(labelStart, bestIdx).trim();
-    if (!rawLabel || rawLabel.includes(spec.forbidChar)) continue;
+    if (!matchedCloser) continue;
+    if (
+      firstForbid <= labelStart ||
+      (line[firstForbid - 1] !== " " && line[firstForbid - 1] !== "\t")
+    ) {
+      continue;
+    }
+    const rawLabel = line.slice(labelStart, firstForbid).trim();
+    if (!rawLabel) continue;
     return {
       index,
-      length: bestIdx + bestCloser.token.length - index,
+      length: firstForbid + matchedCloser.token.length - index,
       style: spec.style,
       arrowStart: false,
-      arrowEnd: bestCloser.arrowEnd,
+      arrowEnd: matchedCloser.arrowEnd,
       label: cleanLabel(rawLabel),
     };
   }
@@ -715,6 +720,7 @@ function parseFlowchart(lines: string[]): MermaidFlowLayout | null {
   const subgraphStack: Array<{ id: string; label: string; nodeIds: string[] }> =
     [];
 
+  let overflowed = false;
   const ensureNode = (spec: {
     id: string;
     label?: string;
@@ -729,7 +735,10 @@ function parseFlowchart(lines: string[]): MermaidFlowLayout | null {
         existing.shape = spec.shape;
       }
     } else {
-      if (nodes.size >= MAX_MERMAID_NODES) return null;
+      if (nodes.size >= MAX_MERMAID_NODES) {
+        overflowed = true;
+        return null;
+      }
       nodes.set(spec.id, {
         id: spec.id,
         label: spec.label || spec.id,
@@ -751,6 +760,7 @@ function parseFlowchart(lines: string[]): MermaidFlowLayout | null {
       }
       const sgMatch = /^subgraph\s+(.+)$/i.exec(line);
       if (sgMatch) {
+        if (subgraphs.length >= MAX_MERMAID_SUBGRAPHS) return null;
         const rest = sgMatch[1].trim();
         const bracketLabel = /^([A-Za-z0-9_.-]+)\s*\[(.+)\]$/.exec(rest);
         const sg = {
@@ -785,6 +795,7 @@ function parseFlowchart(lines: string[]): MermaidFlowLayout | null {
           const parsed = parseNodeSpec(part);
           if (parsed) {
             const id = ensureNode(parsed);
+            if (overflowed) return null;
             if (id && !seenInGroup.has(id)) {
               seenInGroup.add(id);
               groupIds.push(id);
@@ -793,9 +804,9 @@ function parseFlowchart(lines: string[]): MermaidFlowLayout | null {
         }
 
         if (pendingConn && prevGroup.length > 0 && groupIds.length > 0) {
-          outer: for (const from of prevGroup) {
+          for (const from of prevGroup) {
             for (const to of groupIds) {
-              if (edges.length >= MAX_MERMAID_EDGES) break outer;
+              if (edges.length >= MAX_MERMAID_EDGES) return null;
               edges.push({
                 from,
                 to,
@@ -826,7 +837,10 @@ function parseFlowchart(lines: string[]): MermaidFlowLayout | null {
 
       if (!foundConnector && prevGroup.length === 0) {
         const standalone = parseNodeSpec(line);
-        if (standalone) ensureNode(standalone);
+        if (standalone) {
+          ensureNode(standalone);
+          if (overflowed) return null;
+        }
       }
     }
   }
@@ -855,22 +869,60 @@ function parseSequence(lines: string[]): MermaidSequenceLayout | null {
     | { kind: "note"; from: string; to: string; text: string }
   > = [];
 
-  const ensureParticipant = (id: string, label?: string, isActor = false) => {
+  const ensureParticipant = (
+    id: string,
+    label?: string,
+    isActor = false,
+  ): boolean => {
     const cleanId = id.trim();
-    if (!cleanId) return;
+    if (!cleanId) return true;
     const existing = participantMap.get(cleanId);
     if (existing) {
       if (label) existing.label = cleanLabel(label);
       if (isActor) existing.isActor = true;
-      return;
+      return true;
     }
-    if (participantOrder.length >= MAX_MERMAID_NODES) return;
+    if (participantOrder.length >= MAX_MERMAID_NODES) return false;
     participantOrder.push(cleanId);
     participantMap.set(cleanId, {
       id: cleanId,
       label: cleanLabel(label || cleanId),
       isActor,
     });
+    return true;
+  };
+
+  const SEQ_OPS = [
+    "-->>",
+    "->>",
+    "-->",
+    "--x",
+    "--)",
+    "->",
+    "-x",
+    "-)",
+  ] as const;
+
+  const parseSequenceMessage = (
+    line: string,
+  ): { from: string; op: string; to: string; label: string } | null => {
+    const colonIdx = line.indexOf(":");
+    if (colonIdx === -1) return null;
+    const head = line.slice(0, colonIdx).trim();
+    const label = line.slice(colonIdx + 1).trim();
+    for (let pos = 1; pos < head.length; pos += 1) {
+      if (head[pos] !== "-") continue;
+      for (const op of SEQ_OPS) {
+        if (!head.startsWith(op, pos)) continue;
+        const from = head.slice(0, pos).trim();
+        const rawTo = head.slice(pos + op.length).trim();
+        const to = rawTo.replace(/^[+-]/, "");
+        if (from && to && !/\s/.test(from) && !/\s/.test(to)) {
+          return { from, op, to, label };
+        }
+      }
+    }
+    return null;
   };
 
   for (let i = 1; i < lines.length; i += 1) {
@@ -890,19 +942,24 @@ function parseSequence(lines: string[]): MermaidSequenceLayout | null {
       line,
     );
     if (decl) {
-      ensureParticipant(
-        decl[2],
-        decl[3] || decl[2],
-        decl[1].toLowerCase() === "actor",
-      );
+      if (
+        !ensureParticipant(
+          decl[2],
+          decl[3] || decl[2],
+          decl[1].toLowerCase() === "actor",
+        )
+      ) {
+        return null;
+      }
       continue;
     }
 
     // Linear parse for `Note right of|left of|over Target[,Target2] : text` (no overlapping quantifiers)
     const notePrefix = /^Note\s+(?:right of|left of|over)\s+/i.exec(line);
-    if (notePrefix && rawSteps.length < MAX_MERMAID_SEQUENCE_STEPS) {
+    if (notePrefix) {
       const colonIdx = line.indexOf(":", notePrefix[0].length);
       if (colonIdx !== -1) {
+        if (rawSteps.length >= MAX_MERMAID_SEQUENCE_STEPS) return null;
         const targetSpec = line.slice(notePrefix[0].length, colonIdx).trim();
         const noteText = line.slice(colonIdx + 1).trim();
         const targets = targetSpec
@@ -912,8 +969,8 @@ function parseSequence(lines: string[]): MermaidSequenceLayout | null {
         const from = targets[0];
         const to = targets[targets.length - 1] || from;
         if (from && noteText) {
-          ensureParticipant(from);
-          if (to !== from) ensureParticipant(to);
+          if (!ensureParticipant(from)) return null;
+          if (to !== from && !ensureParticipant(to)) return null;
           rawSteps.push({
             kind: "note",
             from,
@@ -925,29 +982,24 @@ function parseSequence(lines: string[]): MermaidSequenceLayout | null {
       }
     }
 
-    const msgMatch =
-      /^([^\s:]+?)\s*(-->>|->>|-->|->|--x|-x|--\)|-\))\s*[+-]?([^\s:]+)\s*:\s*(.*)$/.exec(
-        line,
-      );
-    if (msgMatch && rawSteps.length < MAX_MERMAID_SEQUENCE_STEPS) {
-      const from = msgMatch[1].trim();
-      const op = msgMatch[2];
-      const to = msgMatch[3].trim();
-      const label = cleanLabel(msgMatch[4]);
-      ensureParticipant(from);
-      ensureParticipant(to);
+    const msg = parseSequenceMessage(line);
+    if (msg) {
+      if (rawSteps.length >= MAX_MERMAID_SEQUENCE_STEPS) return null;
+      if (!ensureParticipant(msg.from) || !ensureParticipant(msg.to)) {
+        return null;
+      }
       const head: "arrow" | "cross" | "none" =
-        op.endsWith(">>") || op.endsWith(")")
+        msg.op.endsWith(">>") || msg.op.endsWith(")")
           ? "arrow"
-          : op.endsWith("x")
+          : msg.op.endsWith("x")
             ? "cross"
             : "none";
       rawSteps.push({
         kind: "message",
-        from,
-        to,
-        label,
-        dashed: op.startsWith("--"),
+        from: msg.from,
+        to: msg.to,
+        label: cleanLabel(msg.label),
+        dashed: msg.op.startsWith("--"),
         arrow: head === "arrow",
         head,
       });
@@ -1005,6 +1057,7 @@ function parseStateDiagram(lines: string[]): MermaidFlowLayout | null {
   const nodes = new Map<string, RawNode>();
   const edges: MermaidFlowEdge[] = [];
 
+  let overflowed = false;
   const ensureState = (
     rawId: string,
     role: "from" | "to" | "decl",
@@ -1013,22 +1066,31 @@ function parseStateDiagram(lines: string[]): MermaidFlowLayout | null {
     const trimmed = rawId.trim();
     if (!trimmed) return null;
     if (trimmed === "[*]") {
-      const id = role === "to" ? "__end__" : "__start__";
-      if (!nodes.has(id) && nodes.size < MAX_MERMAID_NODES) {
+      // Sentinel keys use characters disallowed in ordinary state IDs so they
+      // can never collide with user states named e.g. `__start__` or `__end__`.
+      const id = role === "to" ? "[*]:end" : "[*]:start";
+      if (!nodes.has(id)) {
+        if (nodes.size >= MAX_MERMAID_NODES) {
+          overflowed = true;
+          return null;
+        }
         nodes.set(id, {
           id,
           label: "",
           shape: role === "to" ? "end" : "start",
         });
       }
-      return nodes.has(id) ? id : null;
+      return id;
     }
     const existing = nodes.get(trimmed);
     if (existing) {
       if (label) existing.label = cleanLabel(label);
       return trimmed;
     }
-    if (nodes.size >= MAX_MERMAID_NODES) return null;
+    if (nodes.size >= MAX_MERMAID_NODES) {
+      overflowed = true;
+      return null;
+    }
     nodes.set(trimmed, {
       id: trimmed,
       label: cleanLabel(label || trimmed),
@@ -1056,6 +1118,7 @@ function parseStateDiagram(lines: string[]): MermaidFlowLayout | null {
     );
     if (aliasMatch) {
       ensureState(aliasMatch[2], "decl", aliasMatch[1]);
+      if (overflowed) return null;
       continue;
     }
 
@@ -1066,7 +1129,9 @@ function parseStateDiagram(lines: string[]): MermaidFlowLayout | null {
     if (transMatch) {
       const from = ensureState(transMatch[1], "from");
       const to = ensureState(transMatch[2], "to");
-      if (from && to && edges.length < MAX_MERMAID_EDGES) {
+      if (overflowed) return null;
+      if (from && to) {
+        if (edges.length >= MAX_MERMAID_EDGES) return null;
         edges.push({
           from,
           to,
@@ -1082,6 +1147,7 @@ function parseStateDiagram(lines: string[]): MermaidFlowLayout | null {
     const descMatch = /^([A-Za-z0-9_.-]+)\s*:\s*(.+)$/.exec(line);
     if (descMatch) {
       ensureState(descMatch[1], "decl", `${descMatch[1]}\n${descMatch[2]}`);
+      if (overflowed) return null;
     }
   }
 
@@ -1096,12 +1162,16 @@ function parseClassDiagram(lines: string[]): MermaidFlowLayout | null {
   const edges: MermaidFlowEdge[] = [];
   let activeClass: string | null = null;
 
+  let overflowed = false;
   const ensureClass = (name: string): RawNode | null => {
     const id = name.trim();
     if (!id) return null;
     const existing = nodes.get(id);
     if (existing) return existing;
-    if (nodes.size >= MAX_MERMAID_NODES) return null;
+    if (nodes.size >= MAX_MERMAID_NODES) {
+      overflowed = true;
+      return null;
+    }
     const created: RawNode = {
       id,
       label: id,
@@ -1134,13 +1204,16 @@ function parseClassDiagram(lines: string[]): MermaidFlowLayout | null {
 
     const blockStart = /^class\s+([A-Za-z0-9_.-]+)\s*\{$/.exec(line);
     if (blockStart) {
-      if (ensureClass(blockStart[1])) activeClass = blockStart[1];
+      const cls = ensureClass(blockStart[1]);
+      if (overflowed) return null;
+      if (cls) activeClass = blockStart[1];
       continue;
     }
 
     const singleClass = /^class\s+([A-Za-z0-9_.-]+)\s*$/.exec(line);
     if (singleClass) {
       ensureClass(singleClass[1]);
+      if (overflowed) return null;
       continue;
     }
 
@@ -1151,9 +1224,20 @@ function parseClassDiagram(lines: string[]): MermaidFlowLayout | null {
     if (relMatch) {
       const left = ensureClass(relMatch[1]);
       const right = ensureClass(relMatch[5]);
-      if (left && right && edges.length < MAX_MERMAID_EDGES) {
+      if (overflowed) return null;
+      if (left && right) {
+        if (edges.length >= MAX_MERMAID_EDGES) return null;
         const op = relMatch[3];
-        const cardParts = [relMatch[2], relMatch[4]].filter(Boolean).join("..");
+        const leftCard = relMatch[2]?.trim() || "";
+        const rightCard = relMatch[4]?.trim() || "";
+        const cardParts =
+          leftCard && rightCard
+            ? `${leftCard}..${rightCard}`
+            : leftCard
+              ? `${leftCard}..`
+              : rightCard
+                ? `..${rightCard}`
+                : "";
         const baseLabel = relMatch[6] ? cleanLabel(relMatch[6]) : "";
         const combinedLabel = [baseLabel, cardParts].filter(Boolean).join(" ");
         const markerStart: MermaidMarkerKind = op.startsWith("<|")
@@ -1191,6 +1275,7 @@ function parseClassDiagram(lines: string[]): MermaidFlowLayout | null {
     const memberLine = /^([A-Za-z0-9_.-]+)\s*:\s*(.+)$/.exec(line);
     if (memberLine) {
       const cls = ensureClass(memberLine[1]);
+      if (overflowed) return null;
       if (cls && cls.members && cls.members.length < 10) {
         cls.members.push(cleanLabel(memberLine[2]));
       }
@@ -1202,7 +1287,7 @@ function parseClassDiagram(lines: string[]): MermaidFlowLayout | null {
 
 export function parseMermaidDiagram(source: string): MermaidLayout | null {
   const lines = preprocessLines(source);
-  if (lines.length === 0) return null;
+  if (!lines || lines.length === 0) return null;
   const first = lines[0];
   if (/^(?:flowchart|graph)\b/i.test(first)) return parseFlowchart(lines);
   if (/^sequenceDiagram\b/i.test(first)) return parseSequence(lines);
