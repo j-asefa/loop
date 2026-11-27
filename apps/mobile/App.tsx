@@ -801,7 +801,7 @@ function LoopShell() {
         if (!card.messageId) return;
         const msgId = card.messageId;
         const gen = workspaceGenRef.current;
-        await runSaveToggle({
+        return runSaveToggle({
           nextSaved,
           generation: gen,
           getGeneration: () => workspaceGenRef.current,
@@ -825,7 +825,6 @@ function LoopShell() {
             );
           },
         });
-        return;
       }
       setDemoCards(applySaved(nextSaved));
       setCarouselOverrideCards((prev) =>

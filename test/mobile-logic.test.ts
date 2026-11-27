@@ -75,6 +75,7 @@ import {
   mergeCarouselCards,
   mergeCarouselHistoryPage,
   openingCarouselCardIds,
+  reconcileCarouselSaves,
   resolveCarouselSelection,
   mergeUnifiedFeedCards,
   type NativeResultCard,
@@ -4020,4 +4021,19 @@ it("keeps the selected message when refreshed cards are inserted before it", () 
   );
   expect(resolveCarouselSelection(cards, { index: 1, key: "B" })).toBe(2);
   expect(resolveCarouselSelection(cards, { index: 1, key: "deleted" })).toBe(1);
+});
+
+it("reconciles an uncertain carousel save only with a read started afterward", () => {
+  const edits = new Map([
+    ["reply", { saved: true, revision: 4, uncertain: true }],
+  ]);
+  expect(reconcileCarouselSaves(edits, [], 3)).toBe(edits);
+  expect(reconcileCarouselSaves(edits, [], 4).get("reply")).toEqual({
+    saved: false,
+    revision: 4,
+  });
+  expect(reconcileCarouselSaves(edits, ["reply"], 4).get("reply")).toEqual({
+    saved: true,
+    revision: 4,
+  });
 });

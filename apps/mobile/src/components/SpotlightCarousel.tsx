@@ -81,9 +81,11 @@ import {
   carouselCardKey,
   mergeCarouselHistoryPage,
   openingCarouselCardIds,
+  reconcileCarouselSaves,
   resolveCarouselSelection,
   QUICK_REPLIES,
   type CarouselHistoryPage,
+  type CarouselSaveEdit,
   relativeTime,
   type NativeResultCard,
 } from "../fixtures";
@@ -137,7 +139,9 @@ type SpotlightCarouselProps = {
   onOpenFile?: (file: PublishedFileItem) => void;
   onOpenFileTarget?: (target: LoopFileTarget, label?: string) => void;
   onMarkRead: (card: NativeResultCard) => void;
-  onToggleSaved: (card: NativeResultCard) => Promise<void> | void;
+  onToggleSaved: (
+    card: NativeResultCard,
+  ) => Promise<"committed" | "uncertain" | "stale" | void> | void;
   onRemind: (card: NativeResultCard) => void;
   onDismissCard: (card: NativeResultCard) => void;
   onNotify?: (message: string) => void;
@@ -289,6 +293,10 @@ export function SpotlightCarousel({
   const [historyUnavailable, setHistoryUnavailable] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(Boolean(initialHistory));
   const [historyRetry, setHistoryRetry] = useState(0);
+  const [savedEdits, setSavedEdits] = useState(
+    new Map<string, CarouselSaveEdit>(),
+  );
+  const saveRevisionRef = useRef(0);
   const [fetchedHistory, setFetchedHistory] = useState<ApiConversationPage>();
   const appliedHistoryRef = useRef<ApiConversationPage | undefined>(undefined);
   const hasLoadedOlderHistoryRef = useRef(false);
@@ -309,13 +317,22 @@ export function SpotlightCarousel({
   useEffect(() => {
     if (!client || !conversationId) return;
     let cancelled = false;
+    const requestRevision = saveRevisionRef.current;
     void client
       .refreshCarouselPage(
         conversationId,
-        JSON.stringify([activeRun?.id, activeRun?.state, topCardId]),
+        JSON.stringify([
+          activeRun?.id,
+          activeRun?.state,
+          topCardId,
+          historyRetry,
+        ]),
       )
       .then((page) => {
         if (cancelled) return;
+        setSavedEdits((prev) =>
+          reconcileCarouselSaves(prev, page.saved, requestRevision),
+        );
         setFetchedHistory(page);
         setSteerableRunId(page.steerable_run_id ?? null);
       })
@@ -380,9 +397,6 @@ export function SpotlightCarousel({
     }
   }, [client, conversationId, historyNextCursor]);
 
-  const [savedEdits, setSavedEdits] = useState(
-    new Map<string, { saved: boolean }>(),
-  );
   const slides = useMemo(() => {
     const ordered: NativeResultCard[] = [];
     const seenMsgs = new Set<string>();
@@ -1048,20 +1062,44 @@ export function SpotlightCarousel({
 
   const handleSlideToggleSaved = useCallback(
     (target: NativeResultCard) => {
+      if (client && !target.messageId) return;
       const key = carouselCardKey(target);
-      const optimistic = { saved: !target.saved };
+      const optimistic = {
+        revision: ++saveRevisionRef.current,
+        saved: !target.saved,
+      };
       setSavedEdits((prev) => new Map(prev).set(key, optimistic));
-      void Promise.resolve(onToggleSaved(target)).catch((err) => {
-        // A stale failure cannot undo a later tap or an uncertain save.
-        if (isUncertainOutcomeError(err)) return;
+      const markUncertain = () => {
+        const unresolved = {
+          ...optimistic,
+          revision: ++saveRevisionRef.current,
+          uncertain: true,
+        };
         setSavedEdits((prev) =>
           prev.get(key) === optimistic
-            ? new Map(prev).set(key, { saved: target.saved })
+            ? new Map(prev).set(key, unresolved)
             : prev,
         );
-      });
+        setHistoryRetry((attempt) => attempt + 1);
+      };
+      void Promise.resolve(onToggleSaved(target))
+        .then((outcome) => {
+          if (outcome === "uncertain") markUncertain();
+        })
+        .catch((err) => {
+          if (isUncertainOutcomeError(err)) {
+            markUncertain();
+            return;
+          }
+          // A stale failure cannot undo a later tap.
+          setSavedEdits((prev) =>
+            prev.get(key) === optimistic
+              ? new Map(prev).set(key, { ...optimistic, saved: target.saved })
+              : prev,
+          );
+        });
     },
-    [onToggleSaved],
+    [client, onToggleSaved],
   );
 
   const submitReply = useCallback(async () => {
@@ -1303,17 +1341,25 @@ export function SpotlightCarousel({
     lastTopCardRef.current = top;
     if (pinnedIds.includes(top)) return;
     haptics.light();
-    setPinnedIds(
-      openingCarouselCardIds(cards, recentCards, openingCard, false),
+    const nextPinned = openingCarouselCardIds(
+      cards,
+      recentCards,
+      openingCard,
+      false,
     );
-    requestAnimationFrame(() => scrollToSlide(0, true));
+    const newest = cardsById.get(nextPinned[0]);
+    setPinnedIds(nextPinned);
+    setSelection({ index: 0, key: newest && carouselCardKey(newest) });
+    lastCenteredIdx.value = 0;
+    scrollRef.current?.scrollTo({ x: 0, y: 0, animated: true });
   }, [
     cards,
+    cardsById,
     holdHistoryUpdates,
+    lastCenteredIdx,
     openingCard,
     pinnedIds,
     recentCards,
-    scrollToSlide,
   ]);
 
   if (!slides.length) return null;

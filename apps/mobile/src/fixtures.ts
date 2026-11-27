@@ -225,6 +225,27 @@ export function resolveCarouselSelection(
     : Math.max(0, Math.min(selection.index, cards.length - 1));
 }
 
+export type CarouselSaveEdit = {
+  saved: boolean;
+  revision: number;
+  uncertain?: boolean;
+};
+
+export function reconcileCarouselSaves(
+  edits: Map<string, CarouselSaveEdit>,
+  savedIds: string[],
+  requestRevision: number,
+): Map<string, CarouselSaveEdit> {
+  const saved = new Set(savedIds);
+  let next = edits;
+  for (const [key, edit] of edits) {
+    if (!edit.uncertain || edit.revision > requestRevision) continue;
+    if (next === edits) next = new Map(edits);
+    next.set(key, { revision: edit.revision, saved: saved.has(key) });
+  }
+  return next;
+}
+
 export function openingCarouselCardIds(
   cards: NativeResultCard[],
   recentCards: NativeResultCard[],
