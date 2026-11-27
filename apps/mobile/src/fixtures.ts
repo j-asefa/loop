@@ -228,6 +228,7 @@ export function resolveCarouselSelection(
 export type CarouselSaveEdit = {
   saved: boolean;
   revision: number;
+  pending?: boolean;
   uncertain?: boolean;
 };
 

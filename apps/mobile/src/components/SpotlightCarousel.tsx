@@ -297,6 +297,7 @@ export function SpotlightCarousel({
     new Map<string, CarouselSaveEdit>(),
   );
   const saveRevisionRef = useRef(0);
+  const savingCardKeysRef = useRef(new Set<string>());
   const [fetchedHistory, setFetchedHistory] = useState<ApiConversationPage>();
   const appliedHistoryRef = useRef<ApiConversationPage | undefined>(undefined);
   const hasLoadedOlderHistoryRef = useRef(false);
@@ -1064,15 +1065,20 @@ export function SpotlightCarousel({
     (target: NativeResultCard) => {
       if (client && !target.messageId) return;
       const key = carouselCardKey(target);
+      const inFlight = savingCardKeysRef.current;
+      if (inFlight.has(key)) return;
+      inFlight.add(key);
       const optimistic = {
         revision: ++saveRevisionRef.current,
         saved: !target.saved,
+        pending: true,
       };
       setSavedEdits((prev) => new Map(prev).set(key, optimistic));
       const markUncertain = () => {
         const unresolved = {
           ...optimistic,
           revision: ++saveRevisionRef.current,
+          pending: false,
           uncertain: true,
         };
         setSavedEdits((prev) =>
@@ -1082,9 +1088,18 @@ export function SpotlightCarousel({
         );
         setHistoryRetry((attempt) => attempt + 1);
       };
-      void Promise.resolve(onToggleSaved(target))
+      void Promise.resolve()
+        .then(() => onToggleSaved(target))
         .then((outcome) => {
-          if (outcome === "uncertain") markUncertain();
+          if (outcome === "uncertain") {
+            markUncertain();
+            return;
+          }
+          setSavedEdits((prev) =>
+            prev.get(key) === optimistic
+              ? new Map(prev).set(key, { ...optimistic, pending: false })
+              : prev,
+          );
         })
         .catch((err) => {
           if (isUncertainOutcomeError(err)) {
@@ -1094,10 +1109,15 @@ export function SpotlightCarousel({
           // A stale failure cannot undo a later tap.
           setSavedEdits((prev) =>
             prev.get(key) === optimistic
-              ? new Map(prev).set(key, { ...optimistic, saved: target.saved })
+              ? new Map(prev).set(key, {
+                  ...optimistic,
+                  pending: false,
+                  saved: target.saved,
+                })
               : prev,
           );
-        });
+        })
+        .finally(() => inFlight.delete(key));
     },
     [client, onToggleSaved],
   );
@@ -1361,6 +1381,13 @@ export function SpotlightCarousel({
     pinnedIds,
     recentCards,
   ]);
+
+  const actionSavedEdit =
+    actionSheetCard && savedEdits.get(carouselCardKey(actionSheetCard));
+  const actionSaved = actionSavedEdit?.saved ?? actionSheetCard?.saved;
+  const actionSavePending = Boolean(
+    actionSavedEdit?.pending || actionSavedEdit?.uncertain,
+  );
 
   if (!slides.length) return null;
 
@@ -2665,8 +2692,12 @@ export function SpotlightCarousel({
               </Pressable>
 
               <Pressable
+                disabled={actionSavePending}
                 onPress={() => {
-                  const target = actionSheetCard;
+                  const target = {
+                    ...actionSheetCard,
+                    saved: Boolean(actionSaved),
+                  };
                   setActionSheetCard(null);
                   haptics.medium();
                   handleSlideToggleSaved(target);
@@ -2675,13 +2706,11 @@ export function SpotlightCarousel({
                   styles.quickOption,
                   {
                     backgroundColor: pressed ? theme.attention : theme.soft,
-                    borderColor: actionSheetCard.saved
-                      ? theme.attentionLine
-                      : theme.line,
+                    borderColor: actionSaved ? theme.attentionLine : theme.line,
                   },
                 ]}
               >
-                {actionSheetCard.saved ? (
+                {actionSaved ? (
                   <BookmarkCheck size={18} color={theme.brassText} />
                 ) : (
                   <Bookmark size={18} color={theme.brassText} />
@@ -2690,12 +2719,16 @@ export function SpotlightCarousel({
                   <Text
                     style={[styles.quickOptionLabel, { color: theme.text }]}
                   >
-                    {actionSheetCard.saved ? "Remove from Saved" : "Save card"}
+                    {actionSavePending
+                      ? "Checking Saved…"
+                      : actionSaved
+                        ? "Remove from Saved"
+                        : "Save card"}
                   </Text>
                   <Text
                     style={[styles.quickOptionHint, { color: theme.muted }]}
                   >
-                    {actionSheetCard.saved
+                    {actionSaved
                       ? "Unbookmark this answer"
                       : "Keep this answer in your Saved library"}
                   </Text>

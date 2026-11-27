@@ -123,6 +123,12 @@ import {
 import { haptics } from "./src/haptics";
 import { DARK_THEME, LIGHT_THEME } from "./src/theme";
 
+function clearPairedWorkspaceData(origin: string) {
+  clearWorkspaceDrafts(origin);
+  clearWorkspaceCache(origin);
+  clearWorkspaceNotificationPrefs(origin);
+}
+
 type AppTab = "feed" | "projects" | "pulls" | "search" | "profile";
 
 const DEMO_AGENTS: ApiAgent[] = [
@@ -329,9 +335,7 @@ function LoopShell() {
       // Invalidate any in-flight workspace loads BEFORE deleting local files so a
       // sibling fetchAll cannot recreate cache or fire notifications after expiry.
       workspaceGenRef.current = loadCoordRef.current.reset();
-      clearWorkspaceDrafts(expiredSession.origin);
-      clearWorkspaceCache(expiredSession.origin);
-      clearWorkspaceNotificationPrefs(expiredSession.origin);
+      clearPairedWorkspaceData(expiredSession.origin);
       void clearPairedSession();
       setComposeTarget(null);
       setSession(null);
@@ -2126,8 +2130,12 @@ function LoopShell() {
           onPaired={(nextSession) => {
             const prevOrigin = activeSessionRef.current?.origin;
             if (prevOrigin && prevOrigin !== nextSession.origin) {
-              clearWorkspaceCache(prevOrigin);
+              clearPairedWorkspaceData(prevOrigin);
             }
+            // A QR pairing is a new credential boundary even at the same URL.
+            // Normal startup restores the saved session without clearing its drafts.
+            clearPairedWorkspaceData(nextSession.origin);
+            setComposeTarget(null);
             setSession(nextSession);
             setPairingOpen(false);
             setPairingInitialUrl("");
