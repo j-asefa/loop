@@ -41,6 +41,7 @@ export type ShareSendRequestBody = {
   sharedText?: string;
   folderId?: string;
   newAgentId?: string;
+  attachmentIds?: string[];
   idempotencyKey: string;
 };
 
@@ -180,7 +181,7 @@ export function normalizeIncomingSharePayloads(
 
   const fingerprintSeed = [
     sourceUrl || "",
-    sharedText ? sharedText.slice(0, 512) : "",
+    sharedText || "",
     ...files.map((f) => `${f.name}:${f.mimeType}:${f.size ?? 0}:${f.uri}`),
   ].join("|");
   const fingerprint = draftWorkspaceBucket(fingerprintSeed);
@@ -196,13 +197,15 @@ export function normalizeIncomingSharePayloads(
 
 /**
  * Builds a request body matching server `ShareSendInput` (`POST /api/share/send`).
- * Returns `null` if the question is empty or idempotency key is invalid.
+ * All incoming shares — links, text, and uploaded files — route through `/api/share/send`
+ * so the server preserves untrusted-share handling (`shared: true`).
  */
 export function buildShareSendPayload(input: {
   question: string;
   share: NormalizedIncomingShare;
   folderId?: string | null;
   agentId?: string | null;
+  attachmentIds?: string[];
   idempotencyKey: string;
 }): ShareSendRequestBody | null {
   const question = input.question.trim().slice(0, MAX_SHARE_QUESTION_CHARS);
@@ -236,24 +239,17 @@ export function buildShareSendPayload(input: {
   if (input.agentId && input.agentId.trim()) {
     body.newAgentId = input.agentId.trim();
   }
+  if (input.attachmentIds && input.attachmentIds.length > 0) {
+    body.attachmentIds = input.attachmentIds.slice(0, MAX_SHARE_FILES);
+  }
 
   return body;
 }
 
-/**
- * Builds the combined prompt text when a share includes file attachments
- * (which are uploaded via `/api/uploads` and submitted via `/api/runs`).
- */
-export function buildFileShareRunInput(
-  question: string,
-  share: NormalizedIncomingShare,
-): string {
-  const parts: string[] = [question.trim()];
-  if (share.sourceUrl && isSafeHttpUrl(share.sourceUrl)) {
-    parts.push(`Shared link: ${share.sourceUrl}`);
-  }
-  if (share.sharedText) {
-    parts.push(`Shared text:\n${share.sharedText}`);
-  }
-  return parts.filter(Boolean).join("\n\n").slice(0, MAX_SHARE_QUESTION_CHARS);
+/** Extracts a leading `@handle` mention if present so UI notices match server routing. */
+export function extractLeadingShareHandle(question: string): string | null {
+  const match = question.trim().match(/^@([^\s]+)(?:\s|$)/);
+  if (!match) return null;
+  const cleaned = match[1].toLowerCase().replace(/[,;:]$/, "");
+  return cleaned || null;
 }

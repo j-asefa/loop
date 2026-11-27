@@ -95,27 +95,44 @@ function cardNotificationKey(card: NativeResultCard): string {
   return card.messageId || card.doneCardKey || card.replyCardKey || card.id;
 }
 
-export function buildNotificationSnapshot(input: {
-  approvals: ApiApproval[];
-  decisions: ApiNativeDecision[];
-  cards: NativeResultCard[];
-}): NotificationSnapshot {
-  const approvalIds = new Set<string>();
-  for (const a of input.approvals) {
-    if (a.state === "pending" && a.id) approvalIds.add(a.id);
+export function buildNotificationSnapshot(
+  input: {
+    approvals: ApiApproval[] | null;
+    decisions: ApiNativeDecision[] | null;
+    cards: NativeResultCard[];
+    repliesLoaded?: boolean;
+  },
+  previous?: NotificationSnapshot | null,
+): NotificationSnapshot {
+  const approvalIds =
+    input.approvals === null
+      ? new Set(previous?.approvalIds ?? [])
+      : new Set<string>();
+  if (input.approvals !== null) {
+    for (const a of input.approvals) {
+      if (a.state === "pending" && a.id) approvalIds.add(a.id);
+    }
   }
 
-  const decisionIds = new Set<string>();
-  for (const d of input.decisions) {
-    if (d.state === "pending" && d.id) decisionIds.add(d.id);
+  const decisionIds =
+    input.decisions === null
+      ? new Set(previous?.decisionIds ?? [])
+      : new Set<string>();
+  if (input.decisions !== null) {
+    for (const d of input.decisions) {
+      if (d.state === "pending" && d.id) decisionIds.add(d.id);
+    }
   }
 
   const doneUnreadIds = new Set<string>();
-  const replyUnreadIds = new Set<string>();
+  const repliesLoaded = input.repliesLoaded !== false;
+  const replyUnreadIds = repliesLoaded
+    ? new Set<string>()
+    : new Set(previous?.replyUnreadIds ?? []);
   for (const c of input.cards) {
     const key = cardNotificationKey(c);
     if (!key) continue;
-    if (c.replyUnread) {
+    if (repliesLoaded && c.replyUnread) {
       replyUnreadIds.add(key);
     }
     if (c.doneUnread || (c.unread && !c.replyUnread)) {
@@ -132,17 +149,21 @@ export function buildNotificationSnapshot(input: {
  *
  * When `previous` is `null` (cold start, cache hydration, or workspace switch),
  * no notifications are emitted so initial loads never spam the user.
+ * When a sub-fetch (`approvals`, `decisions`, or `replies`) transiently fails
+ * (`null` / `repliesLoaded: false`), its previous ID set is preserved so the
+ * next successful refresh does not re-alert on already-seen items.
  */
 export function detectNotificationEvents(
   previous: NotificationSnapshot | null,
   current: {
-    approvals: ApiApproval[];
-    decisions: ApiNativeDecision[];
+    approvals: ApiApproval[] | null;
+    decisions: ApiNativeDecision[] | null;
     cards: NativeResultCard[];
+    repliesLoaded?: boolean;
   },
   prefs: NotificationPrefs,
 ): { nextSnapshot: NotificationSnapshot; events: NotificationEvent[] } {
-  const nextSnapshot = buildNotificationSnapshot(current);
+  const nextSnapshot = buildNotificationSnapshot(current, previous);
   if (!previous || !prefs.enabled) {
     return { nextSnapshot, events: [] };
   }
@@ -154,50 +175,55 @@ export function detectNotificationEvents(
   };
 
   if (prefs.needsYou) {
-    for (const a of current.approvals) {
-      if (a.state !== "pending" || !a.id || previous.approvalIds.has(a.id)) {
-        continue;
+    if (current.approvals !== null) {
+      for (const a of current.approvals) {
+        if (a.state !== "pending" || !a.id || previous.approvalIds.has(a.id)) {
+          continue;
+        }
+        const agent = sanitizeNotificationLine(a.agent_name || "agent", 32);
+        const tool = sanitizeNotificationLine(a.tool_name || "tool action", 48);
+        const detail = sanitizeNotificationLine(
+          a.summary || `Approve ${tool}`,
+          120,
+        );
+        pushEvent({
+          id: `approval:${a.id}`,
+          kind: "approval",
+          title: `Approval needed · @${agent}`,
+          body: detail || `Approve ${tool}`,
+          conversationId: a.conversation_id,
+          agentName: agent,
+        });
       }
-      const agent = sanitizeNotificationLine(a.agent_name || "agent", 32);
-      const tool = sanitizeNotificationLine(a.tool_name || "tool action", 48);
-      const detail = sanitizeNotificationLine(
-        a.summary || `Approve ${tool}`,
-        120,
-      );
-      pushEvent({
-        id: `approval:${a.id}`,
-        kind: "approval",
-        title: `Approval needed · @${agent}`,
-        body: detail || `Approve ${tool}`,
-        conversationId: a.conversation_id,
-        agentName: agent,
-      });
     }
 
-    for (const d of current.decisions) {
-      if (d.state !== "pending" || !d.id || previous.decisionIds.has(d.id)) {
-        continue;
+    if (current.decisions !== null) {
+      for (const d of current.decisions) {
+        if (d.state !== "pending" || !d.id || previous.decisionIds.has(d.id)) {
+          continue;
+        }
+        const titleText = sanitizeNotificationLine(
+          d.title || "Decision needed",
+          64,
+        );
+        const bodyText = sanitizeNotificationLine(
+          d.question || d.prompt || "An agent is waiting for your input.",
+          120,
+        );
+        pushEvent({
+          id: `decision:${d.id}`,
+          kind: "decision",
+          title: titleText || "Decision needed",
+          body: bodyText || "An agent is waiting for your input.",
+          conversationId: d.conversation_id,
+          agentName: "agent",
+        });
       }
-      const titleText = sanitizeNotificationLine(
-        d.title || "Decision needed",
-        64,
-      );
-      const bodyText = sanitizeNotificationLine(
-        d.question || d.prompt || "An agent is waiting for your input.",
-        120,
-      );
-      pushEvent({
-        id: `decision:${d.id}`,
-        kind: "decision",
-        title: titleText || "Decision needed",
-        body: bodyText || "An agent is waiting for your input.",
-        conversationId: d.conversation_id,
-        agentName: "agent",
-      });
     }
   }
 
-  if (prefs.replies) {
+  const repliesLoaded = current.repliesLoaded !== false;
+  if (prefs.replies && repliesLoaded) {
     for (const c of current.cards) {
       if (!c.replyUnread) continue;
       const key = cardNotificationKey(c);
@@ -227,7 +253,12 @@ export function detectNotificationEvents(
       const key = cardNotificationKey(c);
       if (!key || previous.doneUnreadIds.has(key)) continue;
       // Avoid double-notifying if the same card also fired as a reply above
-      if (prefs.replies && c.replyUnread && !previous.replyUnreadIds.has(key)) {
+      if (
+        prefs.replies &&
+        repliesLoaded &&
+        c.replyUnread &&
+        !previous.replyUnreadIds.has(key)
+      ) {
         continue;
       }
       const agent = sanitizeNotificationLine(c.agentName || "agent", 32);

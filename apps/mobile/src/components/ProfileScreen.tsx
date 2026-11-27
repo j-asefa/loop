@@ -79,6 +79,7 @@ export function ProfileScreen({
   onOpenConversation,
   onOpenFile,
   notificationPrefs,
+  notificationPrefsLoaded = true,
   onChangeNotificationPrefs,
 }: {
   client: LoopClient | null;
@@ -96,6 +97,7 @@ export function ProfileScreen({
   }) => void;
   onOpenFile?: (file: PublishedFileItem) => void;
   notificationPrefs?: NotificationPrefs;
+  notificationPrefsLoaded?: boolean;
   onChangeNotificationPrefs?: (next: NotificationPrefs) => void;
 }) {
   const insets = useSafeAreaInsets();
@@ -1126,8 +1128,9 @@ export function ProfileScreen({
                 </View>
               </View>
               <Text style={[styles.cardSub, { color: theme.muted }]}>
-                Receive native alerts when agents need approval, finish work, or
-                send a reply. Tapping an alert opens its conversation.
+                Receive local alerts while Loop is open or connected when agents
+                need approval, finish work, or send a reply. Tapping an alert
+                opens its conversation.
               </Text>
               {notifPermission !== "granted" &&
               notifPermission !== "unavailable" ? (
@@ -1205,7 +1208,8 @@ export function ProfileScreen({
                   ] as const
                 ).map((row) => {
                   const disabled =
-                    row.key !== "enabled" && !notificationPrefs.enabled;
+                    !notificationPrefsLoaded ||
+                    (row.key !== "enabled" && !notificationPrefs.enabled);
                   return (
                     <View
                       key={row.key}

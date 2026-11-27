@@ -35,10 +35,16 @@ import {
   type LoopClient,
 } from "../api/client";
 import type { ApiAgent, ApiFolder } from "../api/types";
+import {
+  clearDraft,
+  draftScopeForShare,
+  loadDraftEntry,
+  saveDraftAndFlush,
+} from "../drafts";
 import { haptics } from "../haptics";
 import {
-  buildFileShareRunInput,
   buildShareSendPayload,
+  extractLeadingShareHandle,
   normalizeIncomingSharePayloads,
   type NormalizedIncomingShare,
   type RawIncomingSharePayload,
@@ -77,7 +83,6 @@ export function useIncomingShareIntake(): {
 } {
   const [incomingShare, setIncomingShare] =
     useState<NormalizedIncomingShare | null>(null);
-  const dismissedFingerprintRef = useRef<string | null>(null);
   const activeKeyRef = useRef<string>("");
 
   const poll = useCallback(async () => {
@@ -115,10 +120,7 @@ export function useIncomingShareIntake(): {
     }
 
     const normalized = normalizeIncomingSharePayloads(effective);
-    if (
-      normalized &&
-      normalized.fingerprint !== dismissedFingerprintRef.current
-    ) {
+    if (normalized) {
       setIncomingShare(normalized);
     }
   }, []);
@@ -126,7 +128,10 @@ export function useIncomingShareIntake(): {
   useEffect(() => {
     void poll();
     const sub = AppState.addEventListener("change", (nextState) => {
-      if (nextState === "active") {
+      if (nextState === "background") {
+        // Allow re-sharing the same link/file when returning from another app
+        activeKeyRef.current = "";
+      } else if (nextState === "active") {
         void poll();
       }
     });
@@ -134,11 +139,7 @@ export function useIncomingShareIntake(): {
   }, [poll]);
 
   const dismissIncomingShare = useCallback(() => {
-    setIncomingShare((prev) => {
-      if (prev) dismissedFingerprintRef.current = prev.fingerprint;
-      return null;
-    });
-    activeKeyRef.current = "";
+    setIncomingShare(null);
     clearNativeSharedPayloads();
   }, []);
 
@@ -183,10 +184,10 @@ export function ShareInboxSheet({
   const [error, setError] = useState("");
   const [routedNotice, setRoutedNotice] = useState("");
 
-  // Durable idempotency key per share + workspace; preserved across uncertain
-  // timeouts (with inputs locked) so manual retry safely deduplicates on the server.
+  // Durable idempotency key persisted before dispatch; restored if the sheet is
+  // reopened or the app restarts after an uncertain timeout so retries deduplicate.
   const idempotencyKeyRef = useRef<string>(randomUuid());
-  const uploadedIdsByUriRef = useRef<Map<string, string>>(new Map());
+  const uploadedIdsByKeyRef = useRef<Map<string, string>>(new Map());
   const clientRef = useRef<LoopClient | null>(client);
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -196,14 +197,34 @@ export function ShareInboxSheet({
     };
   }, []);
 
-  // Reset upload cache and retry state if the active workspace switches while open
+  // Reset state on workspace switch and restore any durable pending share key from disk
   useEffect(() => {
     clientRef.current = client;
     idempotencyKeyRef.current = randomUuid();
-    uploadedIdsByUriRef.current = new Map();
+    uploadedIdsByKeyRef.current = new Map();
+    setSending(false);
     setUncertainRetryLocked(false);
     setError("");
     setRoutedNotice("");
+    if (!client) return;
+    let cancelled = false;
+    const scope = draftScopeForShare(share.fingerprint);
+    void loadDraftEntry(client.origin, scope).then((entry) => {
+      if (cancelled || !mountedRef.current || clientRef.current !== client) {
+        return;
+      }
+      if (entry?.pendingKey) {
+        idempotencyKeyRef.current = entry.pendingKey;
+        setQuestion(entry.text);
+        setUncertainRetryLocked(true);
+        setError(
+          "A previous send of this shared item timed out — tap Retry safely to reuse the same request ID, or Cancel to check your Feed.",
+        );
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [client, share.fingerprint]);
 
   // Keep selectedAgentId valid when agent list loads
@@ -272,8 +293,15 @@ export function ShareInboxSheet({
     if (!client || sending) return;
     const activeClient = client;
     const trimmed = question.trim() || "Summarize and analyze this.";
-    const agent = activeAgents.find((a) => a.id === selectedAgentId);
-    if (!agent) {
+    const leadingHandle = extractLeadingShareHandle(trimmed);
+    const routedAgent = leadingHandle
+      ? activeAgents.find(
+          (a) => a.name.toLowerCase() === leadingHandle.toLowerCase(),
+        )
+      : undefined;
+    const agent =
+      routedAgent ?? activeAgents.find((a) => a.id === selectedAgentId);
+    if (!agent && !leadingHandle) {
       setError("Choose an agent first.");
       return;
     }
@@ -282,13 +310,23 @@ export function ShareInboxSheet({
     setError("");
     haptics.medium();
 
+    const shareScope = draftScopeForShare(share.fingerprint);
     try {
-      let runResult: { id: string; conversation_id?: string };
+      // Persist durable idempotency key BEFORE any network dispatch so an uncertain
+      // timeout survives sheet dismissal or app restart.
+      await saveDraftAndFlush(activeClient.origin, shareScope, trimmed, {
+        key: idempotencyKeyRef.current,
+      });
+      if (!mountedRef.current || clientRef.current !== activeClient) return;
+
+      const effectiveFolderId =
+        selectedFolderId ?? agent?.folder_id ?? undefined;
+      const attachmentIds: string[] = [];
       if (share.files.length > 0) {
-        // Upload each shared file at most once per workspace, caching artifact IDs by URI
-        const attachmentIds: string[] = [];
+        const destPrefix = `${agent?.id ?? leadingHandle ?? ""}|${effectiveFolderId ?? ""}|`;
         for (const f of share.files) {
-          const existingId = uploadedIdsByUriRef.current.get(f.uri);
+          const cacheKey = `${destPrefix}${f.uri}`;
+          const existingId = uploadedIdsByKeyRef.current.get(cacheKey);
           if (existingId) {
             attachmentIds.push(existingId);
             continue;
@@ -296,51 +334,52 @@ export function ShareInboxSheet({
           const uploaded = await activeClient.uploadFile(
             { uri: f.uri, name: f.name, mimeType: f.mimeType },
             {
-              agentId: agent.id,
-              folderId: selectedFolderId ?? agent.folder_id ?? null,
+              agentId: agent?.id,
+              folderId: effectiveFolderId ?? null,
             },
           );
           if (!mountedRef.current || clientRef.current !== activeClient) return;
-          uploadedIdsByUriRef.current.set(f.uri, uploaded.id);
+          uploadedIdsByKeyRef.current.set(cacheKey, uploaded.id);
           attachmentIds.push(uploaded.id);
         }
-        runResult = await activeClient.submitRun({
-          agentId: agent.id,
-          folderId: selectedFolderId ?? agent.folder_id ?? null,
-          input: buildFileShareRunInput(trimmed, share),
-          attachmentIds,
-          idempotencyKey: idempotencyKeyRef.current,
-        });
-      } else {
-        const payload = buildShareSendPayload({
-          question: trimmed,
-          share,
-          folderId: selectedFolderId,
-          agentId: agent.id,
-          idempotencyKey: idempotencyKeyRef.current,
-        });
-        if (!payload) {
-          setError("Could not prepare shared request.");
-          setSending(false);
-          return;
-        }
-        runResult = await activeClient.shareSend(payload);
       }
 
+      // All shares (links, text, and files) route through POST /api/share/send
+      // so the server consistently applies untrusted-share handling (`shared: true`).
+      const payload = buildShareSendPayload({
+        question: trimmed,
+        share,
+        folderId: selectedFolderId,
+        agentId: agent?.id,
+        attachmentIds,
+        idempotencyKey: idempotencyKeyRef.current,
+      });
+      if (!payload) {
+        clearDraft(activeClient.origin, shareScope);
+        setError("Could not prepare shared request.");
+        setSending(false);
+        return;
+      }
+      const runResult = await activeClient.shareSend(payload);
+
       if (!mountedRef.current || clientRef.current !== activeClient) return;
+      clearDraft(activeClient.origin, shareScope);
       setUncertainRetryLocked(false);
       haptics.success();
-      onSent(`Sent to @${agent.name}`, runResult.conversation_id, agent.name);
+      const targetName =
+        routedAgent?.name ?? leadingHandle ?? agent?.name ?? "agent";
+      onSent(`Sent to @${targetName}`, runResult.conversation_id, targetName);
     } catch (err) {
       if (!mountedRef.current || clientRef.current !== activeClient) return;
       if (isUncertainOutcomeError(err)) {
-        // Lock inputs and keep the exact idempotencyKey so manual Retry safely deduplicates
+        // Keep persisted pendingKey and lock inputs so retry safely deduplicates
         setUncertainRetryLocked(true);
         setError(
           "Send timed out — tap Retry safely to reuse the same request ID, or Cancel to check your Feed.",
         );
       } else {
-        // Definite server rejection: unlock inputs and rotate key for a revised send
+        // Definite rejection: clear persisted lock and rotate key for a revised send
+        clearDraft(activeClient.origin, shareScope);
         setUncertainRetryLocked(false);
         idempotencyKeyRef.current = randomUuid();
         setError(

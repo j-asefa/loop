@@ -25,6 +25,7 @@ const { OWNER: owner } = await import("../src/server/workspace-identity");
 const { closeExecution } = await import("../src/server/execution-client");
 const { createAgent, ownedRun } = await import("../src/server/domain");
 const { submit } = await import("../src/server/agent-runtime");
+const { uploadFile } = await import("../src/server/uploads");
 const { sendMail, mailStatus } = await import("../src/server/agent-mail");
 const { seal } = await import("../src/server/secrets");
 const server = app.listen(0, "127.0.0.1");
@@ -495,6 +496,43 @@ it("shareSend returns a production run and does not replay an idempotent send", 
   expect(
     await request("/share/send", { ...input, idempotencyKey: "short" }),
   ).toMatchObject(bad);
+
+  // Shared file attachments preserve untrusted-share handling (`shared: true`) and enforce owner isolation
+  const ownedUpload = uploadFile(owner, {
+    originalname: "shared.txt",
+    mimetype: "text/plain",
+    buffer: Buffer.from("untrusted shared file"),
+  });
+  const foreignUpload = uploadFile("other-owner", {
+    originalname: "secret.txt",
+    mimetype: "text/plain",
+    buffer: Buffer.from("private file"),
+  });
+  const fileShareInput = {
+    question: `@${agents[0].name} inspect this file`,
+    attachmentIds: [ownedUpload.id],
+    idempotencyKey: id(),
+  };
+  const fileShareRes = await request("/share/send", fileShareInput);
+  valid(workspaceApi.shareSend, fileShareRes);
+  const runRow = ownedRun(fileShareRes.data.id, owner);
+  expect(runRow.payload.attachmentIds).toEqual([ownedUpload.id]);
+  const msgMetaRow = db
+    .prepare("select metadata from messages where run_id = ? and role = 'user'")
+    .get(fileShareRes.data.id) as { metadata: string } | undefined;
+  expect(JSON.parse(msgMetaRow?.metadata ?? "{}").shared).toBe(true);
+  expect((await request("/share/send", fileShareInput)).data.id).toBe(
+    fileShareRes.data.id,
+  );
+  expect(
+    (
+      await request("/share/send", {
+        question: `@${agents[0].name} steal file`,
+        attachmentIds: [foreignUpload.id],
+        idempotencyKey: id(),
+      })
+    ).status,
+  ).toBe(404);
 });
 it("routingPreview selects a public agent without leaking connection credentials", async () => {
   const result = await request("/routing/preview", {

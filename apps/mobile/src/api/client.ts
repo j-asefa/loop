@@ -921,6 +921,7 @@ export class LoopClient {
     sharedText?: string;
     folderId?: string;
     newAgentId?: string;
+    attachmentIds?: string[];
     idempotencyKey: string;
   }): Promise<{ id: string; conversation_id?: string }> {
     return this.request<{ id: string; conversation_id?: string }>(

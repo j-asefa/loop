@@ -15,6 +15,7 @@ import {
 export {
   draftScopeForCarousel,
   draftScopeForCompose,
+  draftScopeForShare,
   draftScopeForThread,
   type DraftEntry,
   type DraftPendingMeta,

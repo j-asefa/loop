@@ -19,6 +19,7 @@ import { z } from "zod";
 import { AgentHandle, AgentInput } from "./agent-contract-schemas.js";
 import { MAX_DEFINITION_BYTES } from "./agent-definitions.js";
 import { ProviderSchema } from "./provider-schema.js";
+import { AttachmentIds } from "./uploads.js";
 
 const Text = z.string(),
   Time = z.number();
@@ -160,6 +161,7 @@ export const ShareInput = z.object({
 });
 export const ShareSendInput = ShareInput.extend({
   newAgentId: requestId(AgentId).optional(),
+  attachmentIds: AttachmentIds,
   idempotencyKey: requestId(IdempotencyKey).min(10).max(150),
 });
 export const RoutingInput = z.object({

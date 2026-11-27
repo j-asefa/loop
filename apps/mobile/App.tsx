@@ -219,6 +219,7 @@ function LoopShell() {
   const [notificationPrefs, setNotificationPrefs] = useState<NotificationPrefs>(
     () => ({ ...DEFAULT_NOTIFICATION_PREFS }),
   );
+  const [notificationPrefsLoaded, setNotificationPrefsLoaded] = useState(false);
   const notificationPrefsRef = useRef<NotificationPrefs>(notificationPrefs);
   notificationPrefsRef.current = notificationPrefs;
   const notificationSnapshotRef = useRef<NotificationSnapshot | null>(null);
@@ -306,26 +307,6 @@ function LoopShell() {
     };
   }, []);
 
-  // Drain any cold-start notification tap once the saved Keychain session loads
-  useEffect(() => {
-    if (!session || !pendingNotificationTapRef.current) return;
-    const data = pendingNotificationTapRef.current;
-    pendingNotificationTapRef.current = null;
-    const target = parseNotificationTapTarget(
-      data,
-      draftWorkspaceBucket(session.origin),
-    );
-    if (!target) return;
-    setOpenConversationId(null);
-    setCarouselOverrideCards(null);
-    setProfileAgent(null);
-    setThreadOverlay({
-      conversationId: target.conversationId,
-      title: target.title,
-      agentName: target.agentName,
-    });
-  }, [session]);
-
   const activeSessionRef = useRef<PairedSession | null>(null);
   activeSessionRef.current = session;
 
@@ -389,8 +370,8 @@ function LoopShell() {
             client.feed("replies").catch(() => null),
             client.feed("queued").catch(() => null),
             client.feed("working").catch(() => null),
-            client.approvals().catch(() => [] as ApiApproval[]),
-            client.nativeDecisions().catch(() => [] as ApiNativeDecision[]),
+            client.approvals().catch(() => null),
+            client.nativeDecisions().catch(() => null),
             client.snippets().catch(() => [] as ApiSnippet[]),
             client.runs(true).catch(() => null),
           ]);
@@ -444,8 +425,8 @@ function LoopShell() {
               }
             }
           }
-          setApprovals(appList);
-          setDecisions(decList);
+          if (appList !== null) setApprovals(appList);
+          if (decList !== null) setDecisions(decList);
           setSnippets(snipList);
           if (runList !== null) {
             setActiveRuns(runList);
@@ -460,28 +441,28 @@ function LoopShell() {
           hasLiveLoadRef.current = true;
           setShowingCachedSnapshot(false);
           setCachedAt(null);
-          const currentOrigin = activeSessionRef.current?.origin;
-          if (currentOrigin) {
-            saveWorkspaceCache(currentOrigin, {
-              environmentName: boot.environmentName || "",
+          // Bind cache and notifications strictly to the client that performed this fetch
+          const fetchOrigin = client.origin;
+          saveWorkspaceCache(fetchOrigin, {
+            environmentName: boot.environmentName || "",
+            cards: nextTopCards,
+            agents: boot.agents,
+            folders: boot.folders,
+            summary: feedPage.summary,
+          });
+          const { nextSnapshot, events } = detectNotificationEvents(
+            notificationSnapshotRef.current,
+            {
+              approvals: appList,
+              decisions: decList,
               cards: nextTopCards,
-              agents: boot.agents,
-              folders: boot.folders,
-              summary: feedPage.summary,
-            });
-            const { nextSnapshot, events } = detectNotificationEvents(
-              notificationSnapshotRef.current,
-              {
-                approvals: appList,
-                decisions: decList,
-                cards: nextTopCards,
-              },
-              notificationPrefsRef.current,
-            );
-            notificationSnapshotRef.current = nextSnapshot;
-            if (events.length > 0) {
-              void deliverLocalNotifications(currentOrigin, events);
-            }
+              repliesLoaded: replyPage !== null,
+            },
+            notificationPrefsRef.current,
+          );
+          notificationSnapshotRef.current = nextSnapshot;
+          if (events.length > 0) {
+            void deliverLocalNotifications(fetchOrigin, events);
           }
         },
         onError: (err) => {
@@ -549,37 +530,52 @@ function LoopShell() {
     if (!client) {
       setAgents(DEMO_AGENTS);
       setNotificationPrefs({ ...DEFAULT_NOTIFICATION_PREFS });
+      setNotificationPrefsLoaded(true);
       setSocketStatus("offline");
       return;
     }
     setAgents([]);
+    setNotificationPrefs({ ...DEFAULT_NOTIFICATION_PREFS });
+    setNotificationPrefsLoaded(false);
     const gen = workspaceGenRef.current;
-    const origin = activeSessionRef.current?.origin;
-    if (origin) {
-      void loadNotificationPrefs(origin).then((prefs) => {
-        if (gen === workspaceGenRef.current) {
-          setNotificationPrefs(prefs);
-        }
-      });
-      void loadWorkspaceCache(origin).then((snap) => {
-        // Hydrate instant cold-start cache only if still on the same workspace
-        // and no live server load has completed yet.
-        if (
-          !snap ||
-          gen !== workspaceGenRef.current ||
-          hasLiveLoadRef.current
-        ) {
-          return;
-        }
-        setLiveCards(snap.cards);
-        setAgents(snap.agents);
-        setFolders(snap.folders);
-        setSummary(snap.summary);
-        setEnvironmentName(snap.environmentName);
-        setShowingCachedSnapshot(true);
-        setCachedAt(snap.cachedAt);
-      });
+    const origin = client.origin;
+    // Drain any cold-start notification tap AFTER resetting overlays so this
+    // commit never wipes out the deep-linked thread.
+    if (pendingNotificationTapRef.current) {
+      const pendingTap = pendingNotificationTapRef.current;
+      pendingNotificationTapRef.current = null;
+      const target = parseNotificationTapTarget(
+        pendingTap,
+        draftWorkspaceBucket(origin),
+      );
+      if (target) {
+        setThreadOverlay({
+          conversationId: target.conversationId,
+          title: target.title,
+          agentName: target.agentName,
+        });
+      }
     }
+    void loadNotificationPrefs(origin).then((prefs) => {
+      if (gen === workspaceGenRef.current) {
+        setNotificationPrefs(prefs);
+        setNotificationPrefsLoaded(true);
+      }
+    });
+    void loadWorkspaceCache(origin).then((snap) => {
+      // Hydrate instant cold-start cache only if still on the same workspace
+      // and no live server load has completed yet.
+      if (!snap || gen !== workspaceGenRef.current || hasLiveLoadRef.current) {
+        return;
+      }
+      setLiveCards(snap.cards);
+      setAgents(snap.agents);
+      setFolders(snap.folders);
+      setSummary(snap.summary);
+      setEnvironmentName(snap.environmentName);
+      setShowingCachedSnapshot(true);
+      setCachedAt(snap.cachedAt);
+    });
     void loadWorkspace({ silent: true });
   }, [client, loadWorkspace]);
 
@@ -1734,9 +1730,11 @@ function LoopShell() {
           onOpenConversation={(conv) => setThreadOverlay(conv)}
           onOpenFile={handleOpenFile}
           notificationPrefs={notificationPrefs}
+          notificationPrefsLoaded={notificationPrefsLoaded}
           onChangeNotificationPrefs={(next) => {
+            if (!notificationPrefsLoaded) return;
             setNotificationPrefs(next);
-            saveNotificationPrefs(session?.origin, next);
+            saveNotificationPrefs(client?.origin, next);
           }}
         />
       )}

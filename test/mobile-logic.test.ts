@@ -26,8 +26,8 @@ import {
   serializeWorkspaceCache,
 } from "../apps/mobile/src/offline-cache-codec.js";
 import {
-  buildFileShareRunInput,
   buildShareSendPayload,
+  extractLeadingShareHandle,
   isSafeHttpUrl,
   normalizeIncomingSharePayloads,
 } from "../apps/mobile/src/share-utils.js";
@@ -2974,6 +2974,26 @@ describe("mobile native notification diffing, preferences, and workspace isolati
       DEFAULT_NOTIFICATION_PREFS,
     );
     expect(burst.events).toHaveLength(MAX_NOTIFICATION_BURST);
+
+    // Transient sub-fetch failures (null approvals/decisions or repliesLoaded: false)
+    // must preserve the previous snapshot so the next healthy refresh does not re-alert.
+    const transientFailure = detectNotificationEvents(
+      allEnabled.nextSnapshot,
+      {
+        approvals: null,
+        decisions: null,
+        cards: [baseCard, nextState.cards[1]],
+        repliesLoaded: false,
+      },
+      DEFAULT_NOTIFICATION_PREFS,
+    );
+    expect(transientFailure.events).toEqual([]);
+    const recovered = detectNotificationEvents(
+      transientFailure.nextSnapshot,
+      nextState,
+      DEFAULT_NOTIFICATION_PREFS,
+    );
+    expect(recovered.events).toEqual([]);
   });
 
   it("round-trips notification prefs safely and isolates notification tap targets by workspace bucket", () => {
@@ -3098,7 +3118,7 @@ describe("mobile incoming share normalization and server contract compatibility"
       conversation_id: "conv-share-1",
     });
 
-    // File share normalization + combined prompt
+    // File share normalization routes through ShareSendInput with attachmentIds
     const fileShare = normalizeIncomingSharePayloads([
       {
         shareType: "image",
@@ -3118,9 +3138,17 @@ describe("mobile incoming share normalization and server contract compatibility"
         size: 2048,
       },
     ]);
-    expect(buildFileShareRunInput("Inspect this", fileShare!)).toContain(
-      "What changed here?",
-    );
+    const fileSendBody = buildShareSendPayload({
+      question: "@willow inspect this screenshot",
+      share: fileShare!,
+      agentId: "agent-1",
+      attachmentIds: ["11111111-2222-4333-8444-555555555555"],
+      idempotencyKey: "share-file-idem-123456",
+    });
+    expect(fileSendBody).not.toBeNull();
+    expect(() => ShareSendInput.parse(fileSendBody)).not.toThrow();
+    expect(extractLeadingShareHandle("@Willow, check this")).toBe("willow");
+    expect(extractLeadingShareHandle("Summarize this")).toBeNull();
   });
 });
 

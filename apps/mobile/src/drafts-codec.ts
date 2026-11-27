@@ -128,6 +128,10 @@ export function draftScopeForThread(conversationId: string): string {
   return `thread:${conversationId}`;
 }
 
+export function draftScopeForShare(fingerprint: string): string {
+  return `share:${fingerprint}`;
+}
+
 export function draftScopeForCompose(
   agentId?: string | null,
   folderId?: string | null,
