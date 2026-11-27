@@ -1,10 +1,38 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ScheduleInput } from "../src/shared/mobile-contract-schemas.js";
 import {
+  ShareInput,
+  ShareSendInput,
+} from "../src/shared/team-contract-schemas.js";
+import {
   isUncertainOutcomeError,
   LoopApiError,
   LoopClient,
 } from "../apps/mobile/src/api/client.js";
+import {
+  DEFAULT_NOTIFICATION_PREFS,
+  detectNotificationEvents,
+  MAX_NOTIFICATION_BURST,
+  parseNotificationPrefs,
+  parseNotificationTapTarget,
+  serializeNotificationPrefs,
+} from "../apps/mobile/src/notifications-prefs.js";
+import {
+  MAX_CACHED_AGENTS,
+  MAX_CACHED_CARD_BODY_CHARS,
+  MAX_CACHED_CARDS,
+  OFFLINE_CACHE_TTL_MS,
+  parseWorkspaceCache,
+  serializeWorkspaceCache,
+} from "../apps/mobile/src/offline-cache-codec.js";
+import {
+  buildShareSendPayload,
+  classifyShareSendFailure,
+  extractLeadingShareHandle,
+  isSafeHttpUrl,
+  isSafeLocalShareFileUri,
+  normalizeIncomingSharePayloads,
+} from "../apps/mobile/src/share-utils.js";
 import {
   formatFileBytes,
   isPreviewableImageMime,
@@ -52,6 +80,7 @@ import {
   DRAFT_TTL_MS,
   draftScopeForCarousel,
   draftScopeForCompose,
+  draftScopeForShare,
   draftScopeForThread,
   draftWorkspaceBucket,
   MAX_DRAFT_CHARS,
@@ -2794,5 +2823,618 @@ describe("mobile native LaTeX math parser and currency safety", () => {
         },
       ],
     ]);
+  });
+});
+
+describe("mobile native notification diffing, preferences, and workspace isolation", () => {
+  it("never notifies on initial baseline load, respects per-kind toggles, and caps bursts", () => {
+    const baseCard: NativeResultCard = {
+      id: "card-1",
+      conversationId: "conv-1",
+      tab: "done",
+      agentId: "agent-1",
+      agentName: "willow",
+      projectName: "Loop",
+      model: "claude-sonnet-4",
+      prompt: "Check CI",
+      fallbackTitle: "CI Summary",
+      body: "All green",
+      createdAt: 1000,
+      saved: false,
+      unread: true,
+      doneUnread: true,
+      messageId: "msg-1",
+    };
+
+    // Baseline (previous === null) must emit zero events so cold start / cache hydration never spam
+    const baseline = detectNotificationEvents(
+      null,
+      {
+        approvals: [
+          {
+            id: "app-0",
+            run_id: "r0",
+            conversation_id: "conv-0",
+            agent_id: "a1",
+            agent_name: "willow",
+            tool_name: "bash",
+            state: "pending",
+            created_at: 900,
+          },
+        ],
+        decisions: [],
+        cards: [baseCard],
+      },
+      DEFAULT_NOTIFICATION_PREFS,
+    );
+    expect(baseline.events).toEqual([]);
+
+    // Newly arrived approval, decision, completed result, and reply fire only enabled kinds
+    const nextState = {
+      approvals: [
+        {
+          id: "app-0",
+          run_id: "r0",
+          conversation_id: "conv-0",
+          agent_id: "a1",
+          agent_name: "willow",
+          tool_name: "bash",
+          state: "pending",
+          created_at: 900,
+        },
+        {
+          id: "app-1",
+          run_id: "r1",
+          conversation_id: "conv-1",
+          agent_id: "a1",
+          agent_name: "willow",
+          tool_name: "git_push",
+          summary: "Push release tag",
+          state: "pending",
+          created_at: 1100,
+        },
+      ],
+      decisions: [
+        {
+          id: "dec-1",
+          run_id: "r2",
+          conversation_id: "conv-2",
+          title: "Pick strategy",
+          question: "Merge or rebase?",
+          state: "pending",
+          created_at: 1150,
+        },
+      ],
+      cards: [
+        baseCard,
+        {
+          ...baseCard,
+          id: "card-2",
+          conversationId: "conv-3",
+          messageId: "msg-2",
+          fallbackTitle: "Benchmarks ready",
+          doneUnread: true,
+          unread: true,
+        },
+        {
+          ...baseCard,
+          id: "card-3",
+          conversationId: "conv-4",
+          messageId: "msg-3",
+          agentName: "cedar",
+          body: "Ready for review",
+          doneUnread: false,
+          replyUnread: true,
+          unread: true,
+        },
+      ],
+    };
+
+    const allEnabled = detectNotificationEvents(
+      baseline.nextSnapshot,
+      nextState,
+      DEFAULT_NOTIFICATION_PREFS,
+    );
+    expect(allEnabled.events.map((e) => e.kind)).toEqual([
+      "approval",
+      "decision",
+      "reply",
+      "completed",
+    ]);
+
+    // Master switch off suppresses all events while still advancing snapshot
+    const muted = detectNotificationEvents(baseline.nextSnapshot, nextState, {
+      ...DEFAULT_NOTIFICATION_PREFS,
+      enabled: false,
+    });
+    expect(muted.events).toEqual([]);
+
+    // Selective preferences filter out disabled categories
+    const onlyNeeds = detectNotificationEvents(
+      baseline.nextSnapshot,
+      nextState,
+      { enabled: true, needsYou: true, completed: false, replies: false },
+    );
+    expect(onlyNeeds.events.map((e) => e.kind)).toEqual([
+      "approval",
+      "decision",
+    ]);
+
+    // Burst cap prevents notification storms after returning online
+    const manyApprovals = Array.from({ length: 12 }, (_, idx) => ({
+      id: `burst-${idx}`,
+      run_id: `r-${idx}`,
+      conversation_id: `c-${idx}`,
+      agent_id: "a1",
+      agent_name: "willow",
+      tool_name: "bash",
+      state: "pending",
+      created_at: 2000 + idx,
+    }));
+    const burst = detectNotificationEvents(
+      baseline.nextSnapshot,
+      { approvals: manyApprovals, decisions: [], cards: [] },
+      DEFAULT_NOTIFICATION_PREFS,
+    );
+    expect(burst.events).toHaveLength(MAX_NOTIFICATION_BURST);
+
+    // Transient sub-fetch failures (null approvals/decisions or repliesLoaded: false)
+    // must preserve the previous snapshot so the next healthy refresh does not re-alert.
+    const transientFailure = detectNotificationEvents(
+      allEnabled.nextSnapshot,
+      {
+        approvals: null,
+        decisions: null,
+        cards: [baseCard, nextState.cards[1]],
+        repliesLoaded: false,
+      },
+      DEFAULT_NOTIFICATION_PREFS,
+    );
+    expect(transientFailure.events).toEqual([]);
+    const recovered = detectNotificationEvents(
+      transientFailure.nextSnapshot,
+      nextState,
+      DEFAULT_NOTIFICATION_PREFS,
+    );
+    expect(recovered.events).toEqual([]);
+
+    // Partial first load (approvals/decisions/replies failed on initial load) must
+    // establish silent baselines when those categories later recover, without spamming.
+    const partialFirst = detectNotificationEvents(
+      null,
+      {
+        approvals: null,
+        decisions: null,
+        cards: [baseCard],
+        repliesLoaded: false,
+      },
+      DEFAULT_NOTIFICATION_PREFS,
+    );
+    expect(partialFirst.events).toEqual([]);
+    const recoveredAfterPartialFirst = detectNotificationEvents(
+      partialFirst.nextSnapshot,
+      {
+        approvals: nextState.approvals,
+        decisions: nextState.decisions,
+        cards: [baseCard, nextState.cards[2]],
+        repliesLoaded: true,
+      },
+      DEFAULT_NOTIFICATION_PREFS,
+    );
+    expect(recoveredAfterPartialFirst.events).toEqual([]);
+  });
+
+  it("round-trips notification prefs safely and isolates notification tap targets by workspace bucket", () => {
+    const saved = serializeNotificationPrefs({
+      enabled: true,
+      needsYou: true,
+      completed: false,
+      replies: true,
+    });
+    expect(parseNotificationPrefs(saved)).toEqual({
+      enabled: true,
+      needsYou: true,
+      completed: false,
+      replies: true,
+    });
+    expect(parseNotificationPrefs("{bad json")).toEqual(
+      DEFAULT_NOTIFICATION_PREFS,
+    );
+
+    const bucketA = draftWorkspaceBucket("https://alpha.loop.example");
+    const bucketB = draftWorkspaceBucket("https://beta.loop.example");
+    const tapData = {
+      originBucket: bucketA,
+      conversationId: "conv-alpha-1",
+      title: "Approval needed",
+      agentName: "willow",
+    };
+    expect(parseNotificationTapTarget(tapData, bucketA)).toEqual({
+      conversationId: "conv-alpha-1",
+      title: "Approval needed",
+      agentName: "willow",
+    });
+    // Tapping an alert from workspace A while signed into workspace B must be rejected
+    expect(parseNotificationTapTarget(tapData, bucketB)).toBeNull();
+    expect(
+      parseNotificationTapTarget({ originBucket: bucketA }, bucketA),
+    ).toBeNull();
+  });
+});
+
+describe("mobile incoming share normalization and server contract compatibility", () => {
+  it("normalizes links, text, and files while rejecting unsafe URLs and matching server Zod schemas", async () => {
+    expect(isSafeHttpUrl("https://example.com/article?id=1")).toBe(true);
+    expect(isSafeHttpUrl("javascript:alert(1)")).toBe(false);
+    expect(isSafeHttpUrl("https://user:pass@example.com/secret")).toBe(false);
+    expect(isSafeHttpUrl("file:///etc/passwd")).toBe(false);
+
+    const normalized = normalizeIncomingSharePayloads([
+      { shareType: "url", value: "javascript:alert(1)" },
+      { shareType: "url", value: "https://docs.example.com/spec" },
+      { shareType: "text", value: "Key excerpt from section 2" },
+    ]);
+    expect(normalized).not.toBeNull();
+    expect(normalized?.sourceUrl).toBe("https://docs.example.com/spec");
+    expect(normalized?.sourceTitle).toBe("docs.example.com");
+    expect(normalized?.sharedText).toBe("Key excerpt from section 2");
+    expect(normalized?.files).toEqual([]);
+
+    const sendBody = buildShareSendPayload({
+      question: "Summarize the trade-offs",
+      share: normalized!,
+      folderId: "folder-1",
+      agentId: "agent-1",
+      idempotencyKey: "share-idem-key-123456",
+    });
+    expect(sendBody).not.toBeNull();
+    // Validate exact wire shape against production server Zod schemas
+    expect(() => ShareSendInput.parse(sendBody)).not.toThrow();
+    expect(() =>
+      ShareInput.parse({
+        question: sendBody!.question,
+        source: sendBody!.source,
+        folderId: sendBody!.folderId,
+      }),
+    ).not.toThrow();
+
+    // Verify LoopClient.sharePreview and LoopClient.shareSend wire payloads
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const path = new URL(url).pathname;
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      if (path === "/api/share/preview") {
+        ShareInput.parse(body);
+        return new Response(
+          JSON.stringify({
+            mode: "queue",
+            agent: {
+              id: "agent-1",
+              name: "willow",
+              provider: "anthropic",
+              model: "claude-sonnet-4",
+              effort: null,
+            },
+            source: body.source,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      ShareSendInput.parse(body);
+      return new Response(
+        JSON.stringify({ id: "run-share-1", conversation_id: "conv-share-1" }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new LoopClient({
+      origin: "https://loop.example",
+      cookie: "loop_session=abc",
+      csrf: "csrf-token",
+      deviceName: "Test iPhone",
+      pairedAt: Date.now(),
+    });
+    const preview = await client.sharePreview({
+      question: "@willow summarize this",
+      source: sendBody!.source,
+    });
+    expect(preview.mode).toBe("queue");
+    expect(preview.agent?.name).toBe("willow");
+    const sent = await client.shareSend(sendBody!);
+    expect(sent).toEqual({
+      id: "run-share-1",
+      conversation_id: "conv-share-1",
+    });
+
+    // File share normalization routes through ShareSendInput with attachmentIds
+    const fileShare = normalizeIncomingSharePayloads([
+      {
+        shareType: "image",
+        value: "file:///cache/photo.png",
+        contentUri: "file:///cache/photo.png",
+        contentMimeType: "image/png",
+        originalName: "diagram.png",
+        contentSize: 2048,
+      },
+      { shareType: "text", value: "What changed here?" },
+    ]);
+    expect(fileShare?.files).toEqual([
+      {
+        uri: "file:///cache/photo.png",
+        name: "diagram.png",
+        mimeType: "image/png",
+        size: 2048,
+      },
+    ]);
+    const fileSendBody = buildShareSendPayload({
+      question: "@willow inspect this screenshot",
+      share: fileShare!,
+      agentId: "agent-1",
+      attachmentIds: ["11111111-2222-4333-8444-555555555555"],
+      idempotencyKey: "share-file-idem-123456",
+    });
+    expect(fileSendBody).not.toBeNull();
+    expect(() => ShareSendInput.parse(fileSendBody)).not.toThrow();
+    expect(extractLeadingShareHandle("@Willow, check this")).toBe("willow");
+    expect(extractLeadingShareHandle("Summarize this")).toBeNull();
+
+    // Share fingerprint is case-sensitive and delimiter-safe (no pipe-concatenation collisions)
+    const upperShare = normalizeIncomingSharePayloads([
+      { shareType: "text", value: "Review README" },
+    ]);
+    const lowerShare = normalizeIncomingSharePayloads([
+      { shareType: "text", value: "review readme" },
+    ]);
+    expect(upperShare?.fingerprint).not.toBe(lowerShare?.fingerprint);
+
+    const pipeA = normalizeIncomingSharePayloads([
+      { shareType: "url", value: "https://example.com/a|b" },
+      { shareType: "text", value: "c" },
+    ]);
+    const pipeB = normalizeIncomingSharePayloads([
+      { shareType: "url", value: "https://example.com/a" },
+      { shareType: "text", value: "b|c" },
+    ]);
+    expect(pipeA?.fingerprint).not.toBe(pipeB?.fingerprint);
+
+    // Re-sharing the same file across different OS temp cache URIs produces the same fingerprint
+    const fileShareSecondUri = normalizeIncomingSharePayloads([
+      {
+        shareType: "image",
+        value: "file:///cache/run-2/photo.png",
+        contentUri: "file:///cache/run-2/photo.png",
+        contentMimeType: "image/png",
+        originalName: "diagram.png",
+        contentSize: 2048,
+      },
+      { shareType: "text", value: "What changed here?" },
+    ]);
+    expect(fileShareSecondUri?.fingerprint).toBe(fileShare?.fingerprint);
+
+    // Local-only file URI validation blocks remote URLs, path traversal, and internal Loop cache files
+    expect(isSafeLocalShareFileUri("file:///cache/doc.pdf")).toBe(true);
+    expect(isSafeLocalShareFileUri("content://media/external/images/1")).toBe(
+      true,
+    );
+    expect(isSafeLocalShareFileUri("https://evil.example/payload.bin")).toBe(
+      false,
+    );
+    expect(isSafeLocalShareFileUri("file:///cache/../secrets.json")).toBe(
+      false,
+    );
+    expect(
+      isSafeLocalShareFileUri("file:///cache/loop-cache-ws_1234.json"),
+    ).toBe(false);
+    expect(
+      normalizeIncomingSharePayloads([
+        { shareType: "file", value: "https://evil.example/payload.bin" },
+      ]),
+    ).toBeNull();
+
+    // Retry failure classification never clears/rotates on uncertain outcomes, idempotency 409s,
+    // or rejected retries of an earlier uncertain send, while clearing fresh definite rejections
+    expect(
+      classifyShareSendFailure({
+        wasRetry: false,
+        isUncertain: false,
+        status: 409,
+        message: "This agent is retired.",
+      }),
+    ).toBe("clear-and-rotate");
+    expect(
+      classifyShareSendFailure({
+        wasRetry: false,
+        isUncertain: false,
+        status: 409,
+        message: "This request key belongs to different work",
+      }),
+    ).toBe("keep-lock-conflict");
+    expect(
+      classifyShareSendFailure({
+        wasRetry: true,
+        isUncertain: false,
+        status: 409,
+        message: "This agent is retired.",
+      }),
+    ).toBe("keep-lock-retry-rejected");
+    expect(
+      classifyShareSendFailure({
+        wasRetry: true,
+        isUncertain: false,
+        status: 404,
+        message: "That @handle is unknown",
+      }),
+    ).toBe("keep-lock-retry-rejected");
+    expect(
+      classifyShareSendFailure({
+        wasRetry: false,
+        isUncertain: true,
+        status: 504,
+      }),
+    ).toBe("keep-lock-uncertain");
+
+    // Durable pendingShare metadata (key, agentId, folderId, attachmentIds) survives serialization
+    // and is protected ahead of the 80-draft cap for uncertain retry recovery
+    const shareScope = draftScopeForShare(upperShare!.fingerprint);
+    const now = 1_780_000_000_000;
+    let draftMap = setDraftInStore(
+      createEmptyDraftMap(),
+      shareScope,
+      "Inspect README",
+      now,
+      {
+        share: {
+          key: "share-retry-key-123456",
+          agentId: "agent-1",
+          folderId: "folder-9",
+          attachmentIds: ["11111111-2222-4333-8444-555555555555"],
+        },
+      },
+    );
+    for (let i = 0; i < MAX_DRAFTS_PER_WORKSPACE + 5; i += 1) {
+      draftMap = setDraftInStore(
+        draftMap,
+        draftScopeForThread(`conv-${i}`),
+        `ordinary draft ${i}`,
+        now + 1000 + i,
+      );
+    }
+    const restored = parseDraftStore(
+      serializeDraftStore(draftMap, now + DRAFT_TTL_MS * 3),
+      now + DRAFT_TTL_MS * 3,
+    );
+    expect(
+      readDraftEntryFromStore(restored, shareScope, now + DRAFT_TTL_MS * 3)
+        ?.pendingShare,
+    ).toEqual({
+      key: "share-retry-key-123456",
+      agentId: "agent-1",
+      folderId: "folder-9",
+      attachmentIds: ["11111111-2222-4333-8444-555555555555"],
+    });
+  });
+});
+
+describe("mobile offline workspace cache codec", () => {
+  it("round-trips allowlisted display state, strips sensitive/host fields, and enforces TTL and caps", () => {
+    const now = 1_780_000_000_000;
+    const rawJson = serializeWorkspaceCache(
+      {
+        environmentName: "Studio Mac",
+        cards: [
+          {
+            id: "c-1",
+            conversationId: "conv-1",
+            tab: "done",
+            agentId: "a-1",
+            agentName: "willow",
+            projectName: "Loop",
+            model: "claude-sonnet-4",
+            prompt: "Review PR",
+            fallbackTitle: "PR Review",
+            body: "x".repeat(MAX_CACHED_CARD_BODY_CHARS + 500),
+            createdAt: now - 5000,
+            saved: true,
+            unread: false,
+            // Extra unexpected field simulating accidental secret attachment
+            ...({ cookie: "secret-cookie", csrf: "secret-csrf" } as Record<
+              string,
+              unknown
+            >),
+          },
+        ],
+        agents: [
+          {
+            id: "a-1",
+            name: "willow",
+            provider: "anthropic",
+            connection_id: "conn-1",
+            model: "claude-sonnet-4",
+            instructions: "PRIVATE SYSTEM PROMPT SHOULD NOT BE CACHED",
+          },
+        ],
+        folders: [
+          {
+            id: "f-1",
+            name: "Loop",
+            parent_id: null,
+            kind: "project",
+            path: "/Users/owner/private/loop",
+          },
+        ],
+        summary: {
+          needs: 1,
+          working: 0,
+          queued: 2,
+          later_due: 0,
+          done_unread: 3,
+        },
+      },
+      now,
+    );
+
+    // Serialized payload must never contain cookies, CSRF, instructions, or host paths
+    expect(rawJson).not.toContain("secret-cookie");
+    expect(rawJson).not.toContain("secret-csrf");
+    expect(rawJson).not.toContain("PRIVATE SYSTEM PROMPT");
+    expect(rawJson).not.toContain("/Users/owner/private");
+
+    const hydrated = parseWorkspaceCache(rawJson, now + 60_000);
+    expect(hydrated).not.toBeNull();
+    expect(hydrated?.environmentName).toBe("Studio Mac");
+    expect(hydrated?.cards).toHaveLength(1);
+    expect(hydrated?.cards[0].body).toHaveLength(MAX_CACHED_CARD_BODY_CHARS);
+    expect(hydrated?.cards[0].bodyTruncated).toBe(true);
+    expect(hydrated?.agents[0].instructions).toBe("");
+    expect(hydrated?.folders[0].path).toBeUndefined();
+    expect(hydrated?.summary?.done_unread).toBe(3);
+
+    // Expired cache (> 24h TTL) or far-future clock skew returns null
+    expect(
+      parseWorkspaceCache(rawJson, now + OFFLINE_CACHE_TTL_MS + 1),
+    ).toBeNull();
+    expect(parseWorkspaceCache(rawJson, now - 120_000)).toBeNull();
+
+    // Card and agent counts are capped
+    const manyCards = Array.from({ length: MAX_CACHED_CARDS + 15 }, (_, i) => ({
+      id: `c-${i}`,
+      conversationId: `conv-${i}`,
+      tab: "done" as const,
+      agentName: "willow",
+      projectName: "Loop",
+      model: "claude",
+      prompt: "p",
+      fallbackTitle: "t",
+      body: "b",
+      createdAt: now,
+      saved: false,
+      unread: false,
+    }));
+    const manyAgents = Array.from(
+      { length: MAX_CACHED_AGENTS + 10 },
+      (_, i) => ({
+        id: `a-${i}`,
+        name: `agent-${i}`,
+        provider: "anthropic",
+        connection_id: null,
+        model: "claude",
+        instructions: "",
+      }),
+    );
+    const capped = parseWorkspaceCache(
+      serializeWorkspaceCache(
+        {
+          environmentName: "Big",
+          cards: manyCards,
+          agents: manyAgents,
+          folders: [],
+          summary: null,
+        },
+        now,
+      ),
+      now,
+    );
+    expect(capped?.cards).toHaveLength(MAX_CACHED_CARDS);
+    expect(capped?.agents).toHaveLength(MAX_CACHED_AGENTS);
   });
 });

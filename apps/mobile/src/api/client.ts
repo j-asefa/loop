@@ -25,6 +25,7 @@ import type {
   ApiSavedEntry,
   ApiScheduledSend,
   ApiSearchResponse,
+  ApiSharePreview,
   ApiSnippet,
   ApiSocialStory,
   PairedSession,
@@ -903,6 +904,32 @@ export class LoopClient {
 
   socialDismiss(ids: string[]): Promise<{ unread: number }> {
     return this.request("POST", "/api/social/dismiss", { ids });
+  }
+
+  sharePreview(input: {
+    question: string;
+    source?: { url: string; title: string; excerpt: string };
+    sharedText?: string;
+    folderId?: string;
+  }): Promise<ApiSharePreview> {
+    return this.request<ApiSharePreview>("POST", "/api/share/preview", input);
+  }
+
+  shareSend(input: {
+    question: string;
+    source?: { url: string; title: string; excerpt: string };
+    sharedText?: string;
+    folderId?: string;
+    newAgentId?: string;
+    attachmentIds?: string[];
+    idempotencyKey: string;
+  }): Promise<{ id: string; conversation_id?: string }> {
+    return this.request<{ id: string; conversation_id?: string }>(
+      "POST",
+      "/api/share/send",
+      input,
+      RUN_REQUEST_TIMEOUT_MS,
+    );
   }
 
   async signOut(): Promise<void> {

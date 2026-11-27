@@ -15,10 +15,12 @@ import {
 export {
   draftScopeForCarousel,
   draftScopeForCompose,
+  draftScopeForShare,
   draftScopeForThread,
   type DraftEntry,
   type DraftPendingMeta,
   type PendingScheduleDraft,
+  type PendingShareDraft,
 } from "./drafts-codec";
 
 const WRITE_DEBOUNCE_MS = 350;
@@ -119,14 +121,17 @@ async function ensureBucketLoaded(bucket: string): Promise<DraftMap> {
     let dirty = false;
     if (ops) {
       for (const scope of ops.deletes) {
-        if (merged[scope]?.pendingSchedule) continue;
+        if (merged[scope]?.pendingSchedule || merged[scope]?.pendingShare) {
+          continue;
+        }
         merged = deleteDraftFromStore(merged, scope);
         dirty = true;
       }
       for (const [scope, op] of ops.saves) {
         // Never allow an ordinary typing save queued during initial disk load
-        // to overwrite a persisted pendingSchedule lock on disk.
+        // to overwrite a persisted pendingSchedule or pendingShare lock on disk.
         if (merged[scope]?.pendingSchedule && !op.pending?.schedule) continue;
+        if (merged[scope]?.pendingShare && !op.pending?.share) continue;
         merged = setDraftInStore(
           merged,
           scope,
@@ -191,7 +196,7 @@ export function saveDraft(
   const current = memoryBuckets.get(bucket) ?? createEmptyDraftMap();
   const next = setDraftInStore(current, scope, text, Date.now(), pending);
   memoryBuckets.set(bucket, next);
-  if (pending?.key || pending?.schedule) {
+  if (pending?.key || pending?.schedule || pending?.share) {
     flushBucketNow(bucket);
   } else {
     scheduleBucketFlush(bucket);
@@ -215,6 +220,16 @@ export async function saveDraftAndFlush(
   ) {
     throw new Error(
       "A pending scheduled send already exists for this draft — check Profile → Scheduled before scheduling again.",
+    );
+  }
+  const existingShare = current[scope]?.pendingShare;
+  if (
+    existingShare &&
+    pending?.share &&
+    existingShare.key !== pending.share.key
+  ) {
+    throw new Error(
+      "A pending share send already exists for this item — check your Feed before sending again.",
     );
   }
   const next = setDraftInStore(current, scope, text, Date.now(), pending);

@@ -62,6 +62,8 @@ type FeedScreenProps = {
   isLive: boolean;
   environmentName?: string;
   socketStatus: SocketStatus;
+  showingCached?: boolean;
+  cachedAt?: number | null;
   refreshing: boolean;
   hasMore?: boolean;
   loadingMore?: boolean;
@@ -101,6 +103,8 @@ export function FeedScreen({
   isLive,
   environmentName,
   socketStatus,
+  showingCached = false,
+  cachedAt = null,
   refreshing,
   hasMore = false,
   loadingMore = false,
@@ -263,6 +267,46 @@ export function FeedScreen({
           </Pressable>
         </View>
       </View>
+
+      {/* Offline Cached Snapshot Indicator */}
+      {isLive && showingCached && socketStatus === "offline" && (
+        <View
+          style={[
+            styles.cachedBanner,
+            {
+              backgroundColor: theme.attention,
+              borderBottomColor: theme.attentionLine,
+            },
+          ]}
+        >
+          <Text
+            style={[styles.cachedBannerText, { color: theme.brassText }]}
+            numberOfLines={1}
+          >
+            Offline · showing cached feed
+            {cachedAt ? ` · ${relativeTime(cachedAt)}` : ""}
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Retry live connection"
+            onPress={() => {
+              haptics.light();
+              onRefresh();
+            }}
+            style={[
+              styles.cachedRetryBtn,
+              {
+                backgroundColor: theme.surface,
+                borderColor: theme.attentionLine,
+              },
+            ]}
+          >
+            <Text style={[styles.cachedRetryText, { color: theme.text }]}>
+              Retry
+            </Text>
+          </Pressable>
+        </View>
+      )}
 
       {/* Feed List */}
       <ScrollView
@@ -1460,5 +1504,29 @@ const styles = StyleSheet.create({
   loadMoreText: {
     fontSize: 14,
     fontWeight: "600",
+  },
+  cachedBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    gap: 10,
+  },
+  cachedBannerText: {
+    fontSize: 12.5,
+    fontWeight: "600",
+    flex: 1,
+  },
+  cachedRetryBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  cachedRetryText: {
+    fontSize: 12,
+    fontWeight: "700",
   },
 });

@@ -26,6 +26,7 @@
     "plugins": [
       "expo-secure-store",
       "expo-sharing",
+      "expo-notifications",
       [
         "expo-audio",
         {

@@ -69,10 +69,11 @@ routes.on(workspaceApi.shareSend, (req, res) => {
       submit(res.locals.owner, {
         agentId: agent.id,
         personal: true,
-        // The question is the owner's; the shared text is not.
-        shared: !!(d.source || d.sharedText),
+        // The question is the owner's; shared links, text, and files are untrusted.
+        shared: !!(d.source || d.sharedText || d.attachmentIds.length),
         input,
         folderId: d.folderId,
+        attachmentIds: d.attachmentIds,
         idempotencyKey: d.idempotencyKey,
         source: d.source,
       }),
