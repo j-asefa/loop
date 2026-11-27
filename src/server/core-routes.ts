@@ -727,6 +727,16 @@ routes.on(workspaceApi.resultUpdate, (req, res) => {
     });
   res.json({ ok: true });
 });
+function publishedReplyBody(
+  owner: string,
+  message: { id: string; content: string },
+) {
+  const sealed = resultsQueries.canonicalByMessage(db, owner, message.id);
+  return sealed?.kind === "steering_reply"
+    ? sealed.outcome.body
+    : message.content;
+}
+
 routes.on(
   workspaceApi.conversation,
   (req, res) => {
@@ -795,6 +805,18 @@ routes.on(
       // The run a reply would steer now; null means a reply queues.
       steerable_run_id: active?.liveInput ? active.run.id : null,
       ...page,
+      ...(req.query.view === "carousel"
+        ? {
+            messages: page.messages.map((message) =>
+              message.role === "assistant"
+                ? {
+                    ...message,
+                    content: publishedReplyBody(res.locals.owner, message),
+                  }
+                : message,
+            ),
+          }
+        : {}),
       ...returned,
       resumed,
       latest_agent_message: latestAgentMessage(res.locals.owner, req.params.id),
@@ -815,17 +837,11 @@ routes.on(workspaceApi.messageDetail, (req, res) => {
   const message = ownedMessage(req.params.id, res.locals.owner);
   // A published reply is read from its sealed Result, so the opened reply
   // matches the feed preview even after the transcript message changes.
-  const sealed = resultsQueries.canonicalByMessage(
-    db,
-    res.locals.owner,
-    message.id,
-  );
   res.json(
-    messageResponse(
-      sealed?.kind === "steering_reply"
-        ? { ...message, content: sealed.outcome.body }
-        : message,
-    ),
+    messageResponse({
+      ...message,
+      content: publishedReplyBody(res.locals.owner, message),
+    }),
   );
 });
 routes.on(workspaceApi.messageSearch, (req, res) => {

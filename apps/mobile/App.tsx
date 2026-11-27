@@ -333,6 +333,7 @@ function LoopShell() {
       clearWorkspaceCache(expiredSession.origin);
       clearWorkspaceNotificationPrefs(expiredSession.origin);
       void clearPairedSession();
+      setComposeTarget(null);
       setSession(null);
       setSocketStatus("offline");
       setPairingOpen(true);
@@ -2043,6 +2044,11 @@ function LoopShell() {
       {/* New Task / Compose Sheet */}
       {composeTarget && (
         <ComposeSheet
+          key={JSON.stringify([
+            session?.origin,
+            session?.deviceId,
+            session?.pairedAt,
+          ])}
           theme={theme}
           client={client}
           connections={connections}

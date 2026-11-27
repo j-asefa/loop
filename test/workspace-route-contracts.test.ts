@@ -935,3 +935,70 @@ it("updates an agent's model and advertised effort through the workspace route",
     (await request(path, { ...selection, effort: null }, "PATCH")).data.effort,
   ).toBeNull();
 });
+
+it("uses the sealed text of a published steering reply in carousel history", async () => {
+  const { run } = fixture();
+  const conversationId = run.conversation_id!;
+  const runSteering = await import("../src/server/sql/run-steering.js");
+  const steeringReplies = await import("../src/server/sql/steering-replies.js");
+  const messages = await import("../src/server/sql/messages.js");
+  const { publishSteeringReplyResult } =
+    await import("../src/server/result-publication.js");
+  const userMessage = id();
+  const steeringId = id();
+  const reply = id();
+  seedMessage(db, {
+    id: userMessage,
+    owner_id: owner,
+    run_id: run.id,
+    conversation_id: conversationId,
+    role: "user",
+    content: "Which option?",
+    metadata: JSON.stringify({ steeringId }),
+    created_at: now(),
+  });
+  runSteering.insert(
+    db,
+    steeringId,
+    owner,
+    run.id,
+    userMessage,
+    id(),
+    "{}",
+    now(),
+  );
+  const metadata = JSON.stringify({
+    progress: true,
+    reply: { to: userMessage, published: true },
+  });
+  seedMessage(db, {
+    id: reply,
+    owner_id: owner,
+    run_id: run.id,
+    conversation_id: conversationId,
+    role: "assistant",
+    content: "The sealed reply",
+    metadata,
+    created_at: now() + 1,
+  });
+  steeringReplies.insert(db, reply, owner, steeringId, now());
+  publishSteeringReplyResult(
+    { ownerId: owner, messageId: reply, steeringId },
+    db,
+  );
+  messages.updateContentAndMetadata(db, "Edited transcript", metadata, reply);
+
+  const path = `/conversations/${conversationId}`;
+  const regular = workspaceApi.conversation.response.parse(
+    (await request(path)).data,
+  );
+  const carousel = workspaceApi.conversation.response.parse(
+    (await request(`${path}?view=carousel`)).data,
+  );
+  expect(regular.messages.find(({ id }) => id === reply)?.content).toBe(
+    "Edited transcript",
+  );
+  expect(carousel.messages.find(({ id }) => id === reply)?.content).toBe(
+    "The sealed reply",
+  );
+});

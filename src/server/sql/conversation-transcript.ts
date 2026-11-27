@@ -21,6 +21,14 @@ export const transcriptPageSql = `WITH page AS MATERIALIZED (
   ORDER BY position DESC,phase DESC,ordinal DESC LIMIT ?
 ) ${projectPageSql}`;
 
+// Published steering replies are stored as progress but are also user-facing cards.
+const carouselAnswer = `(${answerPredicate("m")} OR (
+  m.role='assistant' AND EXISTS (
+    SELECT 1 FROM steering_replies reply
+    WHERE reply.owner_id=m.owner_id AND reply.message_id=m.id
+  )
+))`;
+
 // Read one extra assistant position for the cursor. Join full message bodies
 // only for the selected cards and the immediately preceding applicable prompts.
 const carouselPageStatement = statement(`WITH candidates AS MATERIALIZED (
@@ -28,7 +36,7 @@ const carouselPageStatement = statement(`WITH candidates AS MATERIALIZED (
   FROM conversation_transcript t
   JOIN messages m ON m.id=t.message_id AND m.owner_id=t.owner_id
   WHERE t.owner_id=? AND t.conversation_id=? AND (t.position,t.phase,t.ordinal)<(?,?,?)
-    AND ${answerPredicate("m")}
+    AND ${carouselAnswer}
   ORDER BY t.position DESC,t.phase DESC,t.ordinal DESC LIMIT ${CAROUSEL_PAGE_CARDS + 1}
 ), cards AS (
   SELECT * FROM candidates ORDER BY position DESC,phase DESC,ordinal DESC LIMIT ${CAROUSEL_PAGE_CARDS}
@@ -41,7 +49,7 @@ const carouselPageStatement = statement(`WITH candidates AS MATERIALIZED (
     JOIN messages m ON m.id=t.message_id AND m.owner_id=t.owner_id
     WHERE t.owner_id=c.owner_id AND t.conversation_id=c.conversation_id
       AND (t.position,t.phase,t.ordinal)<(c.position,c.phase,c.ordinal)
-      AND (m.role='user' OR (${answerPredicate("m")}))
+      AND (m.role='user' OR (${carouselAnswer}))
     ORDER BY t.position DESC,t.phase DESC,t.ordinal DESC LIMIT 1
   )
   JOIN messages prompt ON prompt.id=p.message_id AND prompt.owner_id=p.owner_id AND prompt.role='user'

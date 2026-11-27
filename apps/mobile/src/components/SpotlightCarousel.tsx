@@ -73,7 +73,7 @@ import {
 } from "../api/client";
 import type { LoopFileTarget, PublishedFileItem } from "../api/files";
 import type { LiveStreamOverlay } from "../api/socket";
-import type { ApiSnippet } from "../api/types";
+import type { ApiConversationPage, ApiSnippet } from "../api/types";
 import type { AgentRunSummary } from "./AgentProfileSheet";
 import { PublishedFilesStrip } from "./FilePreviewModal";
 import {
@@ -155,7 +155,7 @@ type SpotlightCarouselProps = {
 };
 
 function parseConversationPageToSlides(
-  page: import("../api/types").ApiConversationPage,
+  page: ApiConversationPage,
   base: NativeResultCard | undefined,
 ): {
   promptMap: Map<string, string>;
@@ -285,6 +285,8 @@ export function SpotlightCarousel({
   const [historyUnavailable, setHistoryUnavailable] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(Boolean(initialHistory));
   const [historyRetry, setHistoryRetry] = useState(0);
+  const [fetchedHistory, setFetchedHistory] = useState<ApiConversationPage>();
+  const appliedHistoryRef = useRef<ApiConversationPage | undefined>(undefined);
   const hasLoadedOlderHistoryRef = useRef(false);
   const loadingOlderRef = useRef(false);
   const autoLoadedCursorRef = useRef<string | null>(null);
@@ -310,30 +312,7 @@ export function SpotlightCarousel({
       )
       .then((page) => {
         if (cancelled) return;
-        setHistoryUnavailable(false);
-        setHistoryLoaded(true);
-        const {
-          promptMap,
-          bodyMap,
-          runIdMap,
-          slides: extra,
-        } = parseConversationPageToSlides(page, baseCardRef.current);
-        const keepOlder =
-          loadingOlderRef.current || hasLoadedOlderHistoryRef.current;
-        setHistoryPrompts((prev) =>
-          keepOlder ? new Map([...prev, ...promptMap]) : promptMap,
-        );
-        setHistoryRunIds((prev) =>
-          keepOlder ? new Map([...prev, ...runIdMap]) : runIdMap,
-        );
-        setFullBodies((prev) => new Map([...prev, ...bodyMap]));
-        setHistory((prev) =>
-          mergeCarouselHistoryPage(
-            prev,
-            { cards: extra, next: page.next ?? null },
-            keepOlder ? "refresh" : "replace",
-          ),
-        );
+        setFetchedHistory(page);
         setSteerableRunId(page.steerable_run_id ?? null);
       })
       .catch(() => {
@@ -508,6 +487,7 @@ export function SpotlightCarousel({
   const [actionSheetCard, setActionSheetCard] =
     useState<NativeResultCard | null>(null);
   const [draft, setDraft] = useState("");
+  const [draftLoaded, setDraftLoaded] = useState(false);
   const draftScope = conversationId
     ? draftScopeForCarousel(conversationId)
     : "";
@@ -533,7 +513,9 @@ export function SpotlightCarousel({
     let cancelled = false;
     draftTouchedRef.current = false;
     void loadDraftEntry(client?.origin, draftScope).then((entry) => {
-      if (cancelled || !entry?.text) return;
+      if (cancelled) return;
+      setDraftLoaded(true);
+      if (!entry?.text) return;
       if (entry.pendingSchedule) {
         const restored = {
           idempotencyKey: entry.pendingSchedule.key,
@@ -614,6 +596,44 @@ export function SpotlightCarousel({
   const replyAttachments = useAttachments(client, {
     agentId: activeCard?.agentId,
   });
+
+  const hasReplyDraft = Boolean(
+    draft.trim() ||
+    replyAttachments.attachments.length ||
+    recordingAudio ||
+    sending,
+  );
+  const holdHistoryUpdates = !draftLoaded || keyboardVisible || hasReplyDraft;
+  useEffect(() => {
+    const page = fetchedHistory;
+    if (!page || appliedHistoryRef.current === page || holdHistoryUpdates)
+      return;
+    appliedHistoryRef.current = page;
+    setHistoryUnavailable(false);
+    setHistoryLoaded(true);
+    const {
+      promptMap,
+      bodyMap,
+      runIdMap,
+      slides: extra,
+    } = parseConversationPageToSlides(page, baseCardRef.current);
+    const keepOlder =
+      loadingOlderRef.current || hasLoadedOlderHistoryRef.current;
+    setHistoryPrompts((prev) =>
+      keepOlder ? new Map([...prev, ...promptMap]) : promptMap,
+    );
+    setHistoryRunIds((prev) =>
+      keepOlder ? new Map([...prev, ...runIdMap]) : runIdMap,
+    );
+    setFullBodies((prev) => new Map([...prev, ...bodyMap]));
+    setHistory((prev) =>
+      mergeCarouselHistoryPage(
+        prev,
+        { cards: extra, next: page.next ?? null },
+        keepOlder ? "refresh" : "replace",
+      ),
+    );
+  }, [fetchedHistory, holdHistoryUpdates]);
 
   // Authoritative server capability: only show Steer/Queue toggle when the server reports
   // `steerable_run_id` matching the active run (harnesses with `midTurn: "steer"` / active live input).
@@ -1248,11 +1268,10 @@ export function SpotlightCarousel({
     openSearch();
   }, [openSearch]);
 
-  // Hold the move while the reply keyboard is open, so a reply being typed
-  // keeps its card; it runs as soon as the keyboard closes.
+  // A draft stays on its card until the composer is cleared.
   useEffect(() => {
     const top = recentCards[0]?.id;
-    if (keyboardVisible || !top || lastTopCardRef.current === top) return;
+    if (holdHistoryUpdates || !top || lastTopCardRef.current === top) return;
     lastTopCardRef.current = top;
     if (pinnedIds.includes(top)) return;
     haptics.light();
@@ -1262,7 +1281,7 @@ export function SpotlightCarousel({
     requestAnimationFrame(() => scrollToSlide(0, true));
   }, [
     cards,
-    keyboardVisible,
+    holdHistoryUpdates,
     openingCard,
     pinnedIds,
     recentCards,
