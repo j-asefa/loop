@@ -20,12 +20,13 @@ import {
   Link2,
   LogOut,
   Moon,
+  RotateCcw,
   Rss,
   Sun,
   Trash2,
 } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { LoopClient } from "../api/client";
+import { isUncertainOutcomeError, type LoopClient } from "../api/client";
 import {
   formatFileBytes,
   isPreviewableImageMime,
@@ -42,6 +43,7 @@ import type {
 } from "../api/types";
 import { relativeTime, type NativeResultCard } from "../fixtures";
 import { haptics } from "../haptics";
+import { formatScheduledTime } from "../schedule-utils";
 import type { LoopTheme } from "../theme";
 import { AgentAvatar, ProfileCoverBanner } from "./RichContent";
 
@@ -89,6 +91,10 @@ export function ProfileScreen({
   const [saved, setSaved] = useState<ApiSavedEntry[]>([]);
   const [reminders, setReminders] = useState<ApiLaterItem[]>([]);
   const [scheduled, setScheduled] = useState<ApiScheduledSend[]>([]);
+  const [busyScheduledIds, setBusyScheduledIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [scheduledNotice, setScheduledNotice] = useState("");
   const [files, setFiles] = useState<PublishedFileItem[]>([]);
   const [filesNextCursor, setFilesNextCursor] = useState<number | null>(null);
   const [loadingMoreFiles, setLoadingMoreFiles] = useState(false);
@@ -107,6 +113,8 @@ export function ProfileScreen({
     setSaved([]);
     setReminders([]);
     setScheduled([]);
+    setBusyScheduledIds(new Set());
+    setScheduledNotice("");
     setFiles([]);
     setFilesNextCursor(null);
     setLoadingMoreFiles(false);
@@ -558,43 +566,235 @@ export function ProfileScreen({
               No scheduled messages.
             </Text>
           ) : (
-            scheduled.map((s) => (
-              <View
-                key={s.id}
-                style={[
-                  styles.card,
-                  { backgroundColor: theme.surface, borderColor: theme.line },
-                ]}
-              >
-                <View style={styles.cardTop}>
-                  <View style={styles.rowLeft}>
-                    <CalendarClock size={14} color={theme.brassText} />
-                    <Text style={[styles.metaText, { color: theme.brassText }]}>
-                      {new Date(s.send_at).toLocaleString()}
-                    </Text>
-                  </View>
-                  {client && (
-                    <Pressable
-                      onPress={async () => {
-                        haptics.warning();
-                        await client.cancelScheduled(s.id);
-                        setScheduled((prev) =>
-                          prev.filter((x) => x.id !== s.id),
-                        );
-                      }}
-                    >
-                      <Trash2 size={15} color={theme.orange} />
-                    </Pressable>
-                  )}
-                </View>
-                <Text
-                  style={[styles.cardTitle, { color: theme.text }]}
-                  numberOfLines={3}
-                >
-                  {s.input}
+            <>
+              {scheduledNotice ? (
+                <Text style={[styles.noticeText, { color: theme.orange }]}>
+                  {scheduledNotice}
                 </Text>
-              </View>
-            ))
+              ) : null}
+              {scheduled.map((s) => {
+                const isFailed = s.state === "failed";
+                const isBusy = busyScheduledIds.has(s.id);
+                return (
+                  <View
+                    key={s.id}
+                    style={[
+                      styles.card,
+                      {
+                        backgroundColor: theme.surface,
+                        borderColor: isFailed ? theme.orange : theme.line,
+                      },
+                    ]}
+                  >
+                    <View style={styles.cardTop}>
+                      <View style={[styles.rowLeft, { flex: 1 }]}>
+                        <CalendarClock
+                          size={14}
+                          color={isFailed ? theme.orange : theme.brassText}
+                        />
+                        <Text
+                          style={[
+                            styles.metaText,
+                            {
+                              color: isFailed ? theme.orange : theme.brassText,
+                            },
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {s.agent_name ? `@${s.agent_name} · ` : ""}
+                          {formatScheduledTime(s.send_at)}
+                        </Text>
+                        <View
+                          style={[
+                            styles.stateBadge,
+                            {
+                              backgroundColor: isFailed
+                                ? theme.orangeSoft
+                                : theme.attention,
+                              borderColor: isFailed
+                                ? theme.orange
+                                : theme.attentionLine,
+                            },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.stateBadgeText,
+                              {
+                                color: isFailed
+                                  ? theme.orange
+                                  : theme.brassText,
+                              },
+                            ]}
+                          >
+                            {isFailed ? "Failed" : "Scheduled"}
+                          </Text>
+                        </View>
+                      </View>
+                      {client && (
+                        <View style={styles.rowLeft}>
+                          {isFailed && (
+                            <Pressable
+                              accessibilityRole="button"
+                              accessibilityLabel="Retry scheduled message"
+                              disabled={isBusy}
+                              onPress={async () => {
+                                if (isBusy) return;
+                                const gen = loadGenRef.current;
+                                haptics.medium();
+                                setScheduledNotice("");
+                                setBusyScheduledIds((prev) => {
+                                  const next = new Set(prev);
+                                  next.add(s.id);
+                                  return next;
+                                });
+                                try {
+                                  const res = await client.retryScheduledSend(
+                                    s.id,
+                                  );
+                                  if (gen !== loadGenRef.current) return;
+                                  if (res.run) {
+                                    haptics.success();
+                                    setScheduled((prev) =>
+                                      prev.filter((x) => x.id !== s.id),
+                                    );
+                                  } else {
+                                    haptics.warning();
+                                    setScheduled((prev) =>
+                                      prev.map((x) =>
+                                        x.id === s.id ? res.row : x,
+                                      ),
+                                    );
+                                    setScheduledNotice(
+                                      res.row.error ||
+                                        "Could not send scheduled message.",
+                                    );
+                                  }
+                                } catch (err) {
+                                  if (gen !== loadGenRef.current) return;
+                                  haptics.warning();
+                                  if (isUncertainOutcomeError(err)) {
+                                    setScheduledNotice(
+                                      "Retry status uncertain — refreshing…",
+                                    );
+                                    void loadSection();
+                                  } else {
+                                    setScheduledNotice(
+                                      err instanceof Error
+                                        ? err.message
+                                        : "Could not retry scheduled message.",
+                                    );
+                                  }
+                                } finally {
+                                  if (gen === loadGenRef.current) {
+                                    setBusyScheduledIds((prev) => {
+                                      const next = new Set(prev);
+                                      next.delete(s.id);
+                                      return next;
+                                    });
+                                  }
+                                }
+                              }}
+                              style={[
+                                styles.retryChip,
+                                {
+                                  backgroundColor: theme.attention,
+                                  borderColor: theme.attentionLine,
+                                  opacity: isBusy ? 0.55 : 1,
+                                },
+                              ]}
+                            >
+                              {isBusy ? (
+                                <ActivityIndicator
+                                  size="small"
+                                  color={theme.brassText}
+                                />
+                              ) : (
+                                <>
+                                  <RotateCcw
+                                    size={12}
+                                    color={theme.brassText}
+                                  />
+                                  <Text
+                                    style={[
+                                      styles.retryChipText,
+                                      { color: theme.brassText },
+                                    ]}
+                                  >
+                                    Retry
+                                  </Text>
+                                </>
+                              )}
+                            </Pressable>
+                          )}
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel="Cancel scheduled message"
+                            disabled={isBusy}
+                            hitSlop={8}
+                            onPress={async () => {
+                              if (isBusy) return;
+                              const gen = loadGenRef.current;
+                              haptics.warning();
+                              setScheduledNotice("");
+                              setBusyScheduledIds((prev) => {
+                                const next = new Set(prev);
+                                next.add(s.id);
+                                return next;
+                              });
+                              try {
+                                await client.cancelScheduled(s.id);
+                                if (gen === loadGenRef.current) {
+                                  setScheduled((prev) =>
+                                    prev.filter((x) => x.id !== s.id),
+                                  );
+                                }
+                              } catch (err) {
+                                if (gen === loadGenRef.current) {
+                                  setScheduledNotice(
+                                    err instanceof Error
+                                      ? err.message
+                                      : "Could not cancel scheduled message.",
+                                  );
+                                  if (isUncertainOutcomeError(err)) {
+                                    void loadSection();
+                                  }
+                                }
+                              } finally {
+                                if (gen === loadGenRef.current) {
+                                  setBusyScheduledIds((prev) => {
+                                    const next = new Set(prev);
+                                    next.delete(s.id);
+                                    return next;
+                                  });
+                                }
+                              }
+                            }}
+                            style={isBusy ? { opacity: 0.45 } : undefined}
+                          >
+                            <Trash2 size={15} color={theme.orange} />
+                          </Pressable>
+                        </View>
+                      )}
+                    </View>
+                    <Text
+                      style={[styles.cardTitle, { color: theme.text }]}
+                      numberOfLines={3}
+                    >
+                      {s.input}
+                    </Text>
+                    {isFailed && s.error ? (
+                      <Text
+                        style={[styles.failedReason, { color: theme.orange }]}
+                        numberOfLines={3}
+                      >
+                        {s.error}
+                      </Text>
+                    ) : null}
+                  </View>
+                );
+              })}
+            </>
           ))}
 
         {section === "files" &&
@@ -947,5 +1147,37 @@ const styles = StyleSheet.create({
   loadMoreText: {
     fontSize: 13.5,
     fontWeight: "600",
+  },
+  noticeText: {
+    fontSize: 12.5,
+    fontWeight: "600",
+    paddingHorizontal: 2,
+  },
+  stateBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  stateBadgeText: {
+    fontSize: 10.5,
+    fontWeight: "700",
+  },
+  retryChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  retryChipText: {
+    fontSize: 11.5,
+    fontWeight: "700",
+  },
+  failedReason: {
+    fontSize: 12.5,
+    lineHeight: 17,
   },
 });

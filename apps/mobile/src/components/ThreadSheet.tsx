@@ -18,6 +18,7 @@ import {
   Bookmark,
   BookmarkCheck,
   Check,
+  Clock,
   Copy,
   Paperclip,
   Pause,
@@ -53,6 +54,8 @@ import {
 } from "./AttachmentTray";
 import { PublishedFilesStrip } from "./FilePreviewModal";
 import { AgentAvatar, RichContent } from "./RichContent";
+import { ScheduleSendSheet } from "./ScheduleSendSheet";
+import { VoiceRecorderButton } from "./VoiceRecorder";
 
 export function ThreadSheet({
   conversationId,
@@ -71,6 +74,7 @@ export function ThreadSheet({
   onOpenFile,
   onOpenFileTarget,
   onSendLiveReply,
+  onScheduleReply,
   onToggleSaved,
 }: {
   conversationId: string;
@@ -100,6 +104,15 @@ export function ThreadSheet({
     attachmentIds?: string[];
     idempotencyKey?: string;
     queue?: boolean;
+  }) => Promise<void>;
+  onScheduleReply?: (input: {
+    conversationId: string;
+    agentId: string;
+    agentName: string;
+    text: string;
+    attachmentIds?: string[];
+    idempotencyKey: string;
+    sendAt: number;
   }) => Promise<void>;
   onToggleSaved: (messageId: string, currentlySaved: boolean) => Promise<void>;
 }) {
@@ -135,6 +148,13 @@ export function ThreadSheet({
   } | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleBusy, setScheduleBusy] = useState(false);
+  const [scheduleError, setScheduleError] = useState("");
+  const [pendingSchedule, setPendingSchedule] = useState<{
+    idempotencyKey: string;
+    sendAt: number;
+  } | null>(null);
   const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
   const pendingSendRef = useRef<{
     idempotencyKey: string;
@@ -186,6 +206,8 @@ export function ThreadSheet({
 
   const attSig = replyAttachments.readyIds.join(",");
   useEffect(() => {
+    setPendingSchedule(null);
+    setScheduleError("");
     if (restoredPendingRef.current) {
       pendingSendRef.current = restoredPendingRef.current;
       restoredPendingRef.current = null;
@@ -357,7 +379,14 @@ export function ThreadSheet({
     const trimmed = draft.trim();
     const { readyIds, readyNames, uploading, clearAttachments } =
       replyAttachments;
-    if ((!trimmed && readyIds.length === 0) || uploading || sending) return;
+    if (
+      (!trimmed && readyIds.length === 0) ||
+      uploading ||
+      sending ||
+      scheduleBusy ||
+      pendingSchedule
+    )
+      return;
     const finalText =
       trimmed ||
       (readyNames.length === 1
@@ -406,6 +435,54 @@ export function ThreadSheet({
       setError(err instanceof Error ? err.message : "Could not send reply.");
     } finally {
       setSending(false);
+    }
+  }
+
+  async function handleSchedule(sendAt: number) {
+    if (!onScheduleReply || scheduleBusy || sending) return;
+    const trimmed = draft.trim();
+    const { readyIds, readyNames, uploading, clearAttachments } =
+      replyAttachments;
+    if ((!trimmed && readyIds.length === 0) || uploading) return;
+    const finalText =
+      trimmed ||
+      (readyNames.length === 1
+        ? `Attached ${readyNames[0]}`
+        : `Attached ${readyNames.length} files`);
+    const nextPending = pendingSchedule ?? {
+      idempotencyKey: randomUuid(),
+      sendAt,
+    };
+    setPendingSchedule(nextPending);
+    setScheduleBusy(true);
+    setScheduleError("");
+    try {
+      await onScheduleReply({
+        conversationId,
+        agentId: resolvedAgentId || "",
+        agentName,
+        text: finalText,
+        attachmentIds: readyIds,
+        idempotencyKey: nextPending.idempotencyKey,
+        sendAt: nextPending.sendAt,
+      });
+      setPendingSchedule(null);
+      setScheduleOpen(false);
+      pendingSendRef.current = null;
+      setRetryModeLocked(false);
+      clearDraft(client?.origin, draftScope);
+      setDraft("");
+      clearAttachments();
+    } catch (err) {
+      if (!isUncertainOutcomeError(err)) {
+        setPendingSchedule(null);
+      }
+      haptics.warning();
+      setScheduleError(
+        err instanceof Error ? err.message : "Could not schedule message.",
+      );
+    } finally {
+      setScheduleBusy(false);
     }
   }
 
@@ -960,7 +1037,7 @@ export function ThreadSheet({
           >
             <Pressable
               accessibilityLabel="Attach photo or file"
-              disabled={!replyAttachments.canAddMore}
+              disabled={!replyAttachments.canAddMore || sending || scheduleBusy}
               onPress={() => {
                 haptics.light();
                 Keyboard.dismiss();
@@ -968,7 +1045,9 @@ export function ThreadSheet({
               }}
               style={[
                 styles.attachBtn,
-                !replyAttachments.canAddMore && { opacity: 0.4 },
+                (!replyAttachments.canAddMore || sending || scheduleBusy) && {
+                  opacity: 0.4,
+                },
               ]}
             >
               <Paperclip
@@ -980,9 +1059,18 @@ export function ThreadSheet({
                 }
               />
             </Pressable>
+            <VoiceRecorderButton
+              theme={theme}
+              disabled={!replyAttachments.canAddMore || sending || scheduleBusy}
+              onRecorded={(file) => {
+                setError("");
+                void replyAttachments.addFiles([file]);
+              }}
+              onError={(msg) => setError(msg)}
+            />
             <TextInput
               value={draft}
-              editable={!sending}
+              editable={!sending && !scheduleBusy}
               onChangeText={(next) => {
                 draftTouchedRef.current = true;
                 pendingSendRef.current = null;
@@ -994,11 +1082,44 @@ export function ThreadSheet({
               style={[styles.composerInput, { color: theme.text }]}
               multiline
             />
+            {client && onScheduleReply && (
+              <Pressable
+                accessibilityLabel="Schedule reply"
+                disabled={
+                  (!draft.trim() && replyAttachments.readyIds.length === 0) ||
+                  replyAttachments.uploading ||
+                  sending ||
+                  scheduleBusy ||
+                  retryModeLocked
+                }
+                onPress={() => {
+                  haptics.light();
+                  Keyboard.dismiss();
+                  setScheduleError("");
+                  setScheduleOpen(true);
+                }}
+                style={[
+                  styles.attachBtn,
+                  ((!draft.trim() && replyAttachments.readyIds.length === 0) ||
+                    replyAttachments.uploading ||
+                    sending ||
+                    scheduleBusy ||
+                    retryModeLocked) && { opacity: 0.35 },
+                ]}
+              >
+                <Clock
+                  size={16}
+                  color={pendingSchedule ? theme.brassText : theme.muted}
+                />
+              </Pressable>
+            )}
             <Pressable
               disabled={
                 (!draft.trim() && replyAttachments.readyIds.length === 0) ||
                 replyAttachments.uploading ||
-                sending
+                sending ||
+                scheduleBusy ||
+                Boolean(pendingSchedule)
               }
               onPress={() => void handleSend()}
               style={[
@@ -1008,7 +1129,9 @@ export function ThreadSheet({
                   opacity:
                     (!draft.trim() && replyAttachments.readyIds.length === 0) ||
                     replyAttachments.uploading ||
-                    sending
+                    sending ||
+                    scheduleBusy ||
+                    Boolean(pendingSchedule)
                       ? 0.36
                       : 1,
                 },
@@ -1027,6 +1150,19 @@ export function ThreadSheet({
         onPickPhotos={() => void replyAttachments.pickFromPhotos()}
         onTakePhoto={() => void replyAttachments.takePhoto()}
         onPickFile={() => void replyAttachments.pickDocument()}
+      />
+
+      <ScheduleSendSheet
+        visible={scheduleOpen}
+        theme={theme}
+        agentName={agentName}
+        previewText={draft}
+        attachmentCount={replyAttachments.readyIds.length}
+        busy={scheduleBusy}
+        error={scheduleError}
+        lockedSendAt={pendingSchedule?.sendAt ?? null}
+        onClose={() => setScheduleOpen(false)}
+        onConfirm={(sendAt) => void handleSchedule(sendAt)}
       />
     </View>
   );

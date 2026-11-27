@@ -697,6 +697,55 @@ export class LoopClient {
     ];
   }
 
+  createScheduledSend(input: {
+    agentId: string;
+    conversationId?: string;
+    folderId?: string | null;
+    input: string;
+    attachmentIds?: string[];
+    replyToMessageId?: string;
+    replyExcerpt?: string;
+    idempotencyKey: string;
+    sendAt: number;
+  }): Promise<ApiScheduledSend> {
+    return this.request<ApiScheduledSend>(
+      "POST",
+      "/api/scheduled-sends",
+      {
+        agentId: input.agentId,
+        ...(input.conversationId
+          ? { conversationId: input.conversationId }
+          : {}),
+        ...(input.folderId !== undefined ? { folderId: input.folderId } : {}),
+        input: input.input,
+        attachmentIds: input.attachmentIds ?? [],
+        ...(input.replyToMessageId
+          ? { replyToMessageId: input.replyToMessageId }
+          : {}),
+        ...(input.replyExcerpt ? { replyExcerpt: input.replyExcerpt } : {}),
+        idempotencyKey: input.idempotencyKey,
+        sendAt: input.sendAt,
+      },
+      RUN_REQUEST_TIMEOUT_MS,
+    );
+  }
+
+  retryScheduledSend(id: string): Promise<{
+    run: {
+      id: string;
+      conversation_id?: string | null;
+      state?: string;
+    } | null;
+    row: ApiScheduledSend;
+  }> {
+    return this.request(
+      "POST",
+      `/api/scheduled-sends/${encodeURIComponent(id)}/retry`,
+      {},
+      RUN_REQUEST_TIMEOUT_MS,
+    );
+  }
+
   cancelScheduled(id: string): Promise<{ ok: boolean }> {
     return this.request(
       "DELETE",

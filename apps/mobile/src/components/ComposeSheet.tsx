@@ -12,7 +12,7 @@ import {
   View,
 } from "react-native";
 import { BlurView } from "expo-blur";
-import { ArrowUp, Paperclip, X } from "lucide-react-native";
+import { ArrowUp, Clock, Paperclip, X } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   isUncertainOutcomeError,
@@ -39,6 +39,8 @@ import {
   AttachmentSourceSheet,
   useAttachments,
 } from "./AttachmentTray";
+import { ScheduleSendSheet } from "./ScheduleSendSheet";
+import { VoiceRecorderButton } from "./VoiceRecorder";
 
 /** Where a compose sheet sends: a message to one agent (opened from that
  * agent's profile) or the first task of a new agent (opened from the feed or
@@ -60,6 +62,7 @@ export function ComposeSheet({
   target,
   onClose,
   onMessage,
+  onSchedule,
   onCreate,
 }: {
   theme: LoopTheme;
@@ -68,6 +71,10 @@ export function ComposeSheet({
   target: ComposeTarget;
   onClose: () => void;
   onMessage: (agent: ApiAgent, input: ComposeSubmit) => Promise<void>;
+  onSchedule?: (
+    agent: ApiAgent,
+    input: ComposeSubmit & { sendAt: number },
+  ) => Promise<void>;
   onCreate: (
     input: ComposeSubmit & {
       name: string;
@@ -97,6 +104,13 @@ export function ComposeSheet({
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleBusy, setScheduleBusy] = useState(false);
+  const [scheduleError, setScheduleError] = useState("");
+  const [pendingSchedule, setPendingSchedule] = useState<{
+    idempotencyKey: string;
+    sendAt: number;
+  } | null>(null);
   const draftScope = useMemo(
     () => draftScopeForCompose(agent?.id, folderId),
     [agent?.id, folderId],
@@ -142,6 +156,8 @@ export function ComposeSheet({
 
   const attSig = composeAttachments.readyIds.join(",");
   useEffect(() => {
+    setPendingSchedule(null);
+    setScheduleError("");
     if (restoredPendingKeyRef.current) {
       sendKeyRef.current = restoredPendingKeyRef.current;
       restoredPendingKeyRef.current = null;
@@ -159,7 +175,64 @@ export function ComposeSheet({
     (!text.trim() && composeAttachments.readyIds.length === 0) ||
     composeAttachments.uploading ||
     !ready ||
-    busy;
+    busy ||
+    scheduleBusy ||
+    Boolean(pendingSchedule);
+  const canSchedule = Boolean(
+    agent &&
+    client &&
+    onSchedule &&
+    (Boolean(text.trim()) || composeAttachments.readyIds.length > 0) &&
+    !composeAttachments.uploading &&
+    ready &&
+    !busy &&
+    !scheduleBusy &&
+    !sendKeyRef.current,
+  );
+
+  async function handleSchedule(sendAt: number) {
+    if (!agent || !onSchedule || scheduleBusy || busy) return;
+    const trimmed = text.trim();
+    const { readyIds, readyNames, uploading, clearAttachments } =
+      composeAttachments;
+    if ((!trimmed && readyIds.length === 0) || uploading) return;
+    const finalText =
+      trimmed ||
+      (readyNames.length === 1
+        ? `Attached ${readyNames[0]}`
+        : `Attached ${readyNames.length} files`);
+    const nextPending = pendingSchedule ?? {
+      idempotencyKey: randomUuid(),
+      sendAt,
+    };
+    setPendingSchedule(nextPending);
+    setScheduleBusy(true);
+    setScheduleError("");
+    try {
+      await onSchedule(agent, {
+        text: finalText,
+        attachmentIds: readyIds,
+        idempotencyKey: nextPending.idempotencyKey,
+        sendAt: nextPending.sendAt,
+      });
+      setPendingSchedule(null);
+      setScheduleOpen(false);
+      sendKeyRef.current = null;
+      clearDraft(client?.origin, draftScope);
+      clearAttachments();
+      onClose();
+    } catch (err) {
+      if (!isUncertainOutcomeError(err)) {
+        setPendingSchedule(null);
+      }
+      haptics.warning();
+      setScheduleError(
+        err instanceof Error ? err.message : "Could not schedule message.",
+      );
+    } finally {
+      setScheduleBusy(false);
+    }
+  }
 
   async function handleSend() {
     const trimmed = text.trim();
@@ -229,7 +302,7 @@ export function ComposeSheet({
       <Pressable
         style={StyleSheet.absoluteFill}
         onPress={() => {
-          if (!busy) onClose();
+          if (!busy && !scheduleBusy) onClose();
         }}
       >
         <BlurView
@@ -346,7 +419,9 @@ export function ComposeSheet({
             >
               <Pressable
                 accessibilityLabel="Attach photo or file"
-                disabled={!composeAttachments.canAddMore}
+                disabled={
+                  !composeAttachments.canAddMore || busy || scheduleBusy
+                }
                 onPress={() => {
                   haptics.light();
                   Keyboard.dismiss();
@@ -354,7 +429,9 @@ export function ComposeSheet({
                 }}
                 style={[
                   styles.attachBtn,
-                  !composeAttachments.canAddMore && { opacity: 0.4 },
+                  (!composeAttachments.canAddMore || busy || scheduleBusy) && {
+                    opacity: 0.4,
+                  },
                 ]}
               >
                 <Paperclip
@@ -366,9 +443,20 @@ export function ComposeSheet({
                   }
                 />
               </Pressable>
+              <VoiceRecorderButton
+                theme={theme}
+                disabled={
+                  !composeAttachments.canAddMore || busy || scheduleBusy
+                }
+                onRecorded={(file) => {
+                  setError("");
+                  void composeAttachments.addFiles([file]);
+                }}
+                onError={(msg) => setError(msg)}
+              />
               <TextInput
                 value={text}
-                editable={!busy}
+                editable={!busy && !scheduleBusy}
                 onChangeText={(next) => {
                   draftTouchedRef.current = true;
                   sendKeyRef.current = null;
@@ -383,6 +471,24 @@ export function ComposeSheet({
                 multiline
                 autoFocus
               />
+              {agent && client && onSchedule && (
+                <Pressable
+                  accessibilityLabel="Schedule message"
+                  disabled={!canSchedule}
+                  onPress={() => {
+                    haptics.light();
+                    Keyboard.dismiss();
+                    setScheduleError("");
+                    setScheduleOpen(true);
+                  }}
+                  style={[styles.attachBtn, !canSchedule && { opacity: 0.35 }]}
+                >
+                  <Clock
+                    size={17}
+                    color={pendingSchedule ? theme.brassText : theme.muted}
+                  />
+                </Pressable>
+              )}
               <Pressable
                 accessibilityLabel={agent ? "Send" : "Start agent"}
                 disabled={cannotSend}
@@ -420,6 +526,21 @@ export function ComposeSheet({
         onTakePhoto={() => void composeAttachments.takePhoto()}
         onPickFile={() => void composeAttachments.pickDocument()}
       />
+
+      {agent && (
+        <ScheduleSendSheet
+          visible={scheduleOpen}
+          theme={theme}
+          agentName={agent.name}
+          previewText={text}
+          attachmentCount={composeAttachments.readyIds.length}
+          busy={scheduleBusy}
+          error={scheduleError}
+          lockedSendAt={pendingSchedule?.sendAt ?? null}
+          onClose={() => setScheduleOpen(false)}
+          onConfirm={(sendAt) => void handleSchedule(sendAt)}
+        />
+      )}
     </View>
   );
 }

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ScheduleInput } from "../src/shared/mobile-contract-schemas.js";
 import {
   isUncertainOutcomeError,
   LoopApiError,
@@ -61,6 +62,16 @@ import {
   serializeDraftStore,
   setDraftInStore,
 } from "../apps/mobile/src/drafts-codec.js";
+import {
+  buildSchedulePresets,
+  buildVoiceRecordingFilename,
+  computeCustomSendAt,
+  formatScheduledTime,
+  formatVoiceDuration,
+  MAX_SCHEDULE_WINDOW_MS,
+  MIN_SCHEDULE_LEAD_MS,
+  validateSendAt,
+} from "../apps/mobile/src/schedule-utils.js";
 import {
   avatarColors,
   DARK_THEME,
@@ -2199,5 +2210,182 @@ describe("mobile persistent drafts and pagination cursors", () => {
     expect(fetchSpy.mock.calls[3][0]).toBe(
       "https://loop.example.com/api/conversations/conv-1?before=msg-cur-1",
     );
+  });
+});
+
+describe("mobile voice recording and scheduled send helpers", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("builds valid future schedule presets and validates bounds matching the server window", () => {
+    // 10:00 AM local time should include "Later today" (6:00 PM)
+    const morning = new Date(2026, 4, 13, 10, 0, 0, 0).getTime();
+    const morningPresets = buildSchedulePresets(morning);
+    expect(morningPresets.map((p) => p.id)).toEqual([
+      "30m",
+      "1h",
+      "evening",
+      "tomorrow",
+      "monday",
+    ]);
+    for (const preset of morningPresets) {
+      expect(validateSendAt(preset.sendAt, morning)).toEqual({ ok: true });
+    }
+
+    // 7:00 PM local time should omit "Later today" so presets are never in the past
+    const evening = new Date(2026, 4, 13, 19, 0, 0, 0).getTime();
+    const eveningPresets = buildSchedulePresets(evening);
+    expect(eveningPresets.map((p) => p.id)).toEqual([
+      "30m",
+      "1h",
+      "tomorrow",
+      "monday",
+    ]);
+    for (const preset of eveningPresets) {
+      expect(validateSendAt(preset.sendAt, evening)).toEqual({ ok: true });
+    }
+
+    // Boundary validation
+    expect(validateSendAt(morning + MIN_SCHEDULE_LEAD_MS, morning).ok).toBe(
+      false,
+    );
+    expect(validateSendAt(morning + MIN_SCHEDULE_LEAD_MS + 1, morning)).toEqual(
+      { ok: true },
+    );
+    expect(validateSendAt(morning + MAX_SCHEDULE_WINDOW_MS, morning)).toEqual({
+      ok: true,
+    });
+    expect(
+      validateSendAt(morning + MAX_SCHEDULE_WINDOW_MS + 1, morning).ok,
+    ).toBe(false);
+    expect(validateSendAt(Number.NaN, morning).ok).toBe(false);
+    expect(validateSendAt(morning + 120_000.5, morning).ok).toBe(false);
+
+    // Custom offsets clamp minimum lead time above server threshold
+    expect(validateSendAt(computeCustomSendAt(0, morning), morning)).toEqual({
+      ok: true,
+    });
+    expect(formatScheduledTime(morning + 60 * 60_000, morning)).toMatch(
+      /^Today · 11:00 AM$/,
+    );
+  });
+
+  it("formats voice recording duration and deterministic m4a filenames", () => {
+    expect(formatVoiceDuration(0)).toBe("0:00");
+    expect(formatVoiceDuration(-5)).toBe("0:00");
+    expect(formatVoiceDuration(Number.NaN)).toBe("0:00");
+    expect(formatVoiceDuration(7.9)).toBe("0:07");
+    expect(formatVoiceDuration(65)).toBe("1:05");
+    expect(formatVoiceDuration(125.4)).toBe("2:05");
+
+    const ts = Date.UTC(2026, 10, 27, 8, 5, 9);
+    expect(buildVoiceRecordingFilename(ts)).toBe("voice-20261127-080509.m4a");
+  });
+
+  it("sends schema-compliant POST /api/scheduled-sends and handles retry outcomes", async () => {
+    const sendAt = Date.now() + 3_600_000;
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        redirected: false,
+        url: "https://loop.example.com/api/scheduled-sends",
+        text: async () =>
+          JSON.stringify({
+            id: "sched-1",
+            agent_id: "agent-1",
+            conversation_id: "conv-1",
+            input: "Check deployment health",
+            send_at: sendAt,
+            state: "scheduled",
+            error: null,
+          }),
+      } as unknown as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        redirected: false,
+        url: "https://loop.example.com/api/scheduled-sends/sched-failed/retry",
+        text: async () =>
+          JSON.stringify({
+            run: null,
+            row: {
+              id: "sched-failed",
+              agent_id: "agent-1",
+              conversation_id: null,
+              input: "Retry me",
+              send_at: sendAt - 7_200_000,
+              state: "failed",
+              error: "Connect a provider to this agent first",
+            },
+          }),
+      } as unknown as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        redirected: false,
+        url: "https://loop.example.com/api/scheduled-sends/sched-failed/retry",
+        text: async () =>
+          JSON.stringify({
+            run: { id: "run-99", conversation_id: "conv-1", state: "queued" },
+            row: {
+              id: "sched-failed",
+              agent_id: "agent-1",
+              conversation_id: "conv-1",
+              input: "Retry me",
+              send_at: sendAt - 7_200_000,
+              state: "submitted",
+              error: null,
+            },
+          }),
+      } as unknown as Response);
+
+    const client = new LoopClient({
+      origin: "https://loop.example.com",
+      cookie: "__Host-loop=tok",
+      csrf: "csrf-sched",
+      deviceName: "Test iPhone",
+      pairedAt: 1,
+    });
+
+    const voiceAttachmentId = "11111111-2222-4333-8444-555555555555";
+    const created = await client.createScheduledSend({
+      agentId: "agent-1",
+      conversationId: "conv-1",
+      folderId: "folder-1",
+      input: "Check deployment health",
+      attachmentIds: [voiceAttachmentId],
+      replyToMessageId: "msg-1",
+      idempotencyKey: "idem-sched-123456",
+      sendAt,
+    });
+    expect(created.id).toBe("sched-1");
+    expect(fetchSpy.mock.calls[0][0]).toBe(
+      "https://loop.example.com/api/scheduled-sends",
+    );
+    const reqInit = fetchSpy.mock.calls[0][1] as RequestInit;
+    expect(reqInit.method).toBe("POST");
+    const sentBody = JSON.parse(String(reqInit.body));
+    // Prove wire body passes the exact server Zod schema
+    expect(ScheduleInput.parse(sentBody)).toEqual({
+      agentId: "agent-1",
+      conversationId: "conv-1",
+      folderId: "folder-1",
+      input: "Check deployment health",
+      attachmentIds: [voiceAttachmentId],
+      replyToMessageId: "msg-1",
+      idempotencyKey: "idem-sched-123456",
+      sendAt,
+    });
+
+    const refused = await client.retryScheduledSend("sched-failed");
+    expect(refused.run).toBeNull();
+    expect(refused.row.error).toBe("Connect a provider to this agent first");
+
+    const retried = await client.retryScheduledSend("sched-failed");
+    expect(retried.run?.id).toBe("run-99");
+    expect(retried.row.state).toBe("submitted");
   });
 });

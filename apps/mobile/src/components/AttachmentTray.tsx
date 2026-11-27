@@ -17,6 +17,7 @@ import {
   FileText,
   FolderOpen,
   Image as ImageIcon,
+  Mic,
   X,
 } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -39,7 +40,7 @@ export type PendingAttachment = {
   error?: string;
 };
 
-type PickedFile = {
+export type PickedFile = {
   uri: string;
   name: string;
   mime: string;
@@ -266,6 +267,7 @@ export function useAttachments(
     readyIds,
     readyNames,
     canAddMore: attachments.length < MAX_ATTACHMENTS,
+    addFiles: enqueueFiles,
     pickFromPhotos,
     takePhoto,
     pickDocument,
@@ -317,6 +319,8 @@ export function AttachmentChipStrip({
             >
               {att.status === "error" ? (
                 <AlertCircle size={15} color={theme.orange} />
+              ) : att.mime.startsWith("audio/") ? (
+                <Mic size={15} color={theme.brassText} />
               ) : (
                 <FileText size={15} color={theme.brassText} />
               )}
