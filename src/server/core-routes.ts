@@ -809,7 +809,7 @@ routes.on(
                 ? {
                     ...message,
                     content: sealed.outcome.body,
-                    carousel_prompt: sealed.stimulus.text,
+                    carousel_prompt: sealed.stimulus.text ?? undefined,
                   }
                 : message;
             }),

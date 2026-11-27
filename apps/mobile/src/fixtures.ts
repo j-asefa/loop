@@ -206,6 +206,25 @@ export function mergeCarouselCards(
   });
 }
 
+export function carouselCardKey(card: NativeResultCard): string {
+  return card.messageId || card.id;
+}
+
+export function resolveCarouselSelection(
+  cards: NativeResultCard[],
+  selection: { index: number; key?: string },
+): number {
+  const current = cards[selection.index];
+  if (current && carouselCardKey(current) === selection.key)
+    return selection.index;
+  const matching = cards.findIndex(
+    (card) => carouselCardKey(card) === selection.key,
+  );
+  return matching >= 0
+    ? matching
+    : Math.max(0, Math.min(selection.index, cards.length - 1));
+}
+
 export function openingCarouselCardIds(
   cards: NativeResultCard[],
   recentCards: NativeResultCard[],
@@ -246,8 +265,8 @@ export function mergeCarouselHistoryPage(
     mode === "refresh"
       ? [incoming.cards, current.cards]
       : [current.cards, incoming.cards];
-  const seen = new Set(first.map((card) => card.messageId || card.id));
-  const distinct = rest.filter((card) => !seen.has(card.messageId || card.id));
+  const seen = new Set(first.map(carouselCardKey));
+  const distinct = rest.filter((card) => !seen.has(carouselCardKey(card)));
   // With no overlap there is no proof that the old cursor covers the
   // gap. Restart from the incoming cursor so every intervening card is reachable.
   if (mode === "refresh" && distinct.length === rest.length) return incoming;

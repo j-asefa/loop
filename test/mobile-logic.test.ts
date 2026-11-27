@@ -75,6 +75,7 @@ import {
   mergeCarouselCards,
   mergeCarouselHistoryPage,
   openingCarouselCardIds,
+  resolveCarouselSelection,
   mergeUnifiedFeedCards,
   type NativeResultCard,
 } from "../apps/mobile/src/fixtures.js";
@@ -4011,4 +4012,12 @@ it("uses the new cursor if the refreshed cards no longer overlap and ignores a l
       before: "before-E",
     }).cards.map(({ id }) => id),
   ).toEqual(["G", "F", "E", "D", "C", "B"]);
+});
+
+it("keeps the selected message when refreshed cards are inserted before it", () => {
+  const cards = ["D", "C", "B", "A"].map(
+    (messageId) => ({ id: "feed:" + messageId, messageId }) as NativeResultCard,
+  );
+  expect(resolveCarouselSelection(cards, { index: 1, key: "B" })).toBe(2);
+  expect(resolveCarouselSelection(cards, { index: 1, key: "deleted" })).toBe(1);
 });

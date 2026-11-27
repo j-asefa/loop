@@ -1,6 +1,7 @@
 import React, {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -77,8 +78,10 @@ import type { ApiConversationPage, ApiSnippet } from "../api/types";
 import type { AgentRunSummary } from "./AgentProfileSheet";
 import { PublishedFilesStrip } from "./FilePreviewModal";
 import {
+  carouselCardKey,
   mergeCarouselHistoryPage,
   openingCarouselCardIds,
+  resolveCarouselSelection,
   QUICK_REPLIES,
   type CarouselHistoryPage,
   relativeTime,
@@ -377,6 +380,9 @@ export function SpotlightCarousel({
     }
   }, [client, conversationId, historyNextCursor]);
 
+  const [savedEdits, setSavedEdits] = useState(
+    new Map<string, { saved: boolean }>(),
+  );
   const slides = useMemo(() => {
     const ordered: NativeResultCard[] = [];
     const seenMsgs = new Set<string>();
@@ -416,7 +422,7 @@ export function SpotlightCarousel({
         const feedCard = hist.messageId
           ? cardsByMessageId.get(hist.messageId)
           : undefined;
-        ordered.push(feedCard ? hydrate(feedCard) : hist);
+        ordered.push(hydrate(feedCard ?? hist));
       }
     }
     if (historyUnavailable || (historyLoaded && !historyNextCursor)) {
@@ -430,9 +436,13 @@ export function SpotlightCarousel({
         }
       }
     }
-    return ordered;
+    return ordered.map((card) => {
+      const edited = savedEdits.get(carouselCardKey(card));
+      return edited ? { ...card, saved: edited.saved } : card;
+    });
   }, [
     pinnedIds,
+    savedEdits,
     cards,
     historyUnavailable,
     historyLoaded,
@@ -449,11 +459,10 @@ export function SpotlightCarousel({
     liveStream?.truncated,
   ]);
 
-  const [activeIndex, setActiveIndex] = useState(0);
-  const safeIndex = Math.max(
-    0,
-    Math.min(activeIndex, Math.max(0, slides.length - 1)),
-  );
+  const [selection, setSelection] = useState<{ index: number; key?: string }>({
+    index: 0,
+  });
+  const safeIndex = resolveCarouselSelection(slides, selection);
   const activeCard = slides[safeIndex];
 
   useEffect(() => {
@@ -599,7 +608,11 @@ export function SpotlightCarousel({
   });
 
   const holdHistoryUpdates =
-    !draftLoaded || keyboardVisible || recordingAudio || sending;
+    !draftLoaded ||
+    keyboardVisible ||
+    recordingAudio ||
+    sending ||
+    safeIndex > 0;
   useEffect(() => {
     const page = fetchedHistory;
     if (
@@ -676,14 +689,14 @@ export function SpotlightCarousel({
   useEffect(() => {
     const firstPinned = pinnedIds[0];
     if (
-      activeIndex === 0 &&
+      safeIndex === 0 &&
       firstPinned?.startsWith("working:") &&
       !cardsById.has(firstPinned) &&
       recentCards.length > 0
     ) {
       setPinnedIds(recentCards.map((c) => c.id));
     }
-  }, [activeIndex, recentCards, cardsById, pinnedIds]);
+  }, [safeIndex, recentCards, cardsById, pinnedIds]);
 
   const scrollRef = useRef<Animated.ScrollView>(null);
   // A table or code block being swiped holds the carousel still.
@@ -816,10 +829,18 @@ export function SpotlightCarousel({
     });
   }, [onClose]);
 
+  const selectSlideAt = useCallback(
+    (index: number) => {
+      const card = slides[index];
+      setSelection({ index, key: card && carouselCardKey(card) });
+    },
+    [slides],
+  );
+
   const scrollToSlide = useCallback(
     (index: number, animated = true) => {
       const clamped = Math.max(0, Math.min(index, slides.length - 1));
-      setActiveIndex(clamped);
+      selectSlideAt(clamped);
       lastCenteredIdx.value = clamped;
       scrollRef.current?.scrollTo({
         x: clamped * snapInterval,
@@ -827,13 +848,24 @@ export function SpotlightCarousel({
         animated,
       });
     },
-    [slides.length, snapInterval],
+    [lastCenteredIdx, selectSlideAt, slides.length, snapInterval],
   );
 
-  const handleCenteredChange = useCallback((nextIdx: number) => {
-    haptics.selection();
-    setActiveIndex(nextIdx);
-  }, []);
+  // Keep the displayed position and the reply target on the same card
+  // when a background response changes the order of the deck.
+  useLayoutEffect(() => {
+    if (selection.index !== safeIndex) scrollToSlide(safeIndex, false);
+    else if (activeCard && selection.key !== carouselCardKey(activeCard))
+      selectSlideAt(safeIndex);
+  }, [activeCard, safeIndex, scrollToSlide, selectSlideAt, selection]);
+
+  const handleCenteredChange = useCallback(
+    (nextIdx: number) => {
+      haptics.selection();
+      selectSlideAt(nextIdx);
+    },
+    [selectSlideAt],
+  );
 
   const scrollHandler = useAnimatedScrollHandler({
     onScroll: (event) => {
@@ -1016,22 +1048,17 @@ export function SpotlightCarousel({
 
   const handleSlideToggleSaved = useCallback(
     (target: NativeResultCard) => {
-      const nextSaved = !target.saved;
-      const matches = (c: NativeResultCard) =>
-        c.id === target.id ||
-        Boolean(target.messageId && c.messageId === target.messageId);
-      const updateSaved = (saved: boolean) =>
-        setHistory((prev) => ({
-          ...prev,
-          cards: prev.cards.map((card) =>
-            matches(card) ? { ...card, saved } : card,
-          ),
-        }));
-      updateSaved(nextSaved);
+      const key = carouselCardKey(target);
+      const optimistic = { saved: !target.saved };
+      setSavedEdits((prev) => new Map(prev).set(key, optimistic));
       void Promise.resolve(onToggleSaved(target)).catch((err) => {
-        // Preserve optimistic state on uncertain timeout/disconnect; only revert on definite rejection
+        // A stale failure cannot undo a later tap or an uncertain save.
         if (isUncertainOutcomeError(err)) return;
-        updateSaved(!nextSaved);
+        setSavedEdits((prev) =>
+          prev.get(key) === optimistic
+            ? new Map(prev).set(key, { saved: target.saved })
+            : prev,
+        );
       });
     },
     [onToggleSaved],
