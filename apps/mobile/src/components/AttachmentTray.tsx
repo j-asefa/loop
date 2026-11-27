@@ -30,6 +30,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { LoopClient } from "../api/client";
 import { haptics } from "../haptics";
+import { fileBytes } from "../file-bytes";
 import type { LoopTheme } from "../theme";
 
 export const MAX_ATTACHMENTS = 8;
@@ -159,6 +160,7 @@ export function useAttachments(
                 uri: src.uri,
                 name: src.name,
                 mimeType: src.mime,
+                bytes: fileBytes(src.uri),
               },
               {
                 ...(opts?.agentId ? { agentId: opts.agentId } : {}),
@@ -301,6 +303,7 @@ export function useAttachments(
             uri: target.uri,
             name: target.name,
             mimeType: target.mime,
+            bytes: fileBytes(target.uri),
           },
           {
             ...(opts?.agentId ? { agentId: opts.agentId } : {}),

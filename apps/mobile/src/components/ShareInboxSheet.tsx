@@ -44,6 +44,7 @@ import {
   type PendingShareDraft,
 } from "../drafts";
 import { haptics } from "../haptics";
+import { fileBytes } from "../file-bytes";
 import {
   buildShareSendPayload,
   classifyShareSendFailure,
@@ -381,7 +382,12 @@ export function ShareInboxSheet({
           }
           try {
             const uploaded = await activeClient.uploadFile(
-              { uri: f.uri, name: f.name, mimeType: f.mimeType },
+              {
+                uri: f.uri,
+                name: f.name,
+                mimeType: f.mimeType,
+                bytes: fileBytes(f.uri),
+              },
               {
                 agentId: targetAgentId || undefined,
                 folderId: effectiveFolderId ?? null,
