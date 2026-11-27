@@ -754,11 +754,13 @@ function parseMarkdownBlocks(content: string): ContentBlock[] {
     }
     if (trimmed === "$$" || trimmed === "\\[") {
       const closeDelim = trimmed === "$$" ? "$$" : "\\]";
+      const maxLookahead = Math.min(lines.length, i + 64);
       let closeIdx = -1;
-      for (let j = i + 1; j < lines.length; j += 1) {
-        // Stop lookahead at a code fence so an unmatched $$ never swallows a code block.
-        if (isFenceStart(lines[j])) break;
-        if (lines[j].trim() === closeDelim) {
+      for (let j = i + 1; j < maxLookahead; j += 1) {
+        // Bound lookahead and stop on blank lines or code fences so unmatched delimiters stay O(1).
+        const candidate = lines[j].trim();
+        if (!candidate || isFenceStart(lines[j])) break;
+        if (candidate === closeDelim) {
           closeIdx = j;
           break;
         }

@@ -504,7 +504,7 @@ export function formatLatexInline(rawExpr: string, depth = 0): string {
         const nStr = formatLatexInline(num.content, depth + 1).trim();
         const dStr = formatLatexInline(den.content, depth + 1).trim();
         const wrapN = /[\s+\-/]/.test(nStr) ? `(${nStr})` : nStr;
-        const wrapD = /[\s+\-/]/.test(dStr) ? `(${dStr})` : dStr;
+        const wrapD = /^(?:[0-9.]+|[A-Za-z])$/.test(dStr) ? dStr : `(${dStr})`;
         out += `${wrapN}/${wrapD}`;
         continue;
       }

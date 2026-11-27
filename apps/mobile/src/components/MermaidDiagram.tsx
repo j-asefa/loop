@@ -216,6 +216,7 @@ function FlowchartSvg({
 
       {/* Edges */}
       {layout.edges.map((edge, idx) => {
+        if (edge.style === "invisible") return null;
         const from = nodeMap.get(edge.from);
         const to = nodeMap.get(edge.to);
         if (!from || !to) return null;

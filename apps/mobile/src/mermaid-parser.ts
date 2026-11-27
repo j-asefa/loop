@@ -35,7 +35,7 @@ export type MermaidFlowEdge = {
   from: string;
   to: string;
   label?: string;
-  style: "solid" | "dashed" | "thick";
+  style: "solid" | "dashed" | "thick" | "invisible";
   arrowEnd: boolean;
   arrowStart: boolean;
   markerStart?: MermaidMarkerKind;
@@ -293,7 +293,7 @@ function parseNodeSpec(
 type ParsedConnector = {
   index: number;
   length: number;
-  style: "solid" | "dashed" | "thick";
+  style: "solid" | "dashed" | "thick" | "invisible";
   arrowEnd: boolean;
   arrowStart: boolean;
   markerStart?: MermaidMarkerKind;
@@ -439,8 +439,11 @@ function findNextConnector(
       );
     if (arrowMatch) {
       const sym = arrowMatch[1];
-      const style: "solid" | "dashed" | "thick" =
-        sym.includes(".") || sym.startsWith("~")
+      const style: "solid" | "dashed" | "thick" | "invisible" = sym.startsWith(
+        "~",
+      )
+        ? "invisible"
+        : sym.includes(".")
           ? "dashed"
           : sym.includes("=")
             ? "thick"
@@ -923,7 +926,7 @@ function parseSequence(lines: string[]): MermaidSequenceLayout | null {
     }
 
     const msgMatch =
-      /^([^\s:-]+)\s*(-->>|->>|-->|->|--x|-x|--\)|-\))\s*[+-]?([^\s:]+)\s*:\s*(.*)$/.exec(
+      /^([^\s:]+?)\s*(-->>|->>|-->|->|--x|-x|--\)|-\))\s*[+-]?([^\s:]+)\s*:\s*(.*)$/.exec(
         line,
       );
     if (msgMatch && rawSteps.length < MAX_MERMAID_SEQUENCE_STEPS) {
@@ -1142,14 +1145,17 @@ function parseClassDiagram(lines: string[]): MermaidFlowLayout | null {
     }
 
     const relMatch =
-      /^([A-Za-z0-9_.-]+)(?:\s+"[^"]*")?\s*(<\|\.\.|<\|--|--\|>|\*--|o--|--\*|--o|-->|<--|\.\.>|\.\.\|>|--|\.\.)\s*(?:"[^"]*"\s+)?([A-Za-z0-9_.-]+)(?:\s*:\s*(.+))?$/.exec(
+      /^([A-Za-z0-9_.-]+)(?:\s+"([^"]*)")?\s*(<\|\.\.|<\|--|--\|>|\*--|o--|--\*|--o|-->|<--|\.\.>|\.\.\|>|--|\.\.)\s*(?:"([^"]*)"\s+)?([A-Za-z0-9_.-]+)(?:\s*:\s*(.+))?$/.exec(
         line,
       );
     if (relMatch) {
       const left = ensureClass(relMatch[1]);
-      const right = ensureClass(relMatch[3]);
+      const right = ensureClass(relMatch[5]);
       if (left && right && edges.length < MAX_MERMAID_EDGES) {
-        const op = relMatch[2];
+        const op = relMatch[3];
+        const cardParts = [relMatch[2], relMatch[4]].filter(Boolean).join("..");
+        const baseLabel = relMatch[6] ? cleanLabel(relMatch[6]) : "";
+        const combinedLabel = [baseLabel, cardParts].filter(Boolean).join(" ");
         const markerStart: MermaidMarkerKind = op.startsWith("<|")
           ? "triangle"
           : op.startsWith("<")
@@ -1171,7 +1177,7 @@ function parseClassDiagram(lines: string[]): MermaidFlowLayout | null {
         edges.push({
           from: left.id,
           to: right.id,
-          ...(relMatch[4] ? { label: cleanLabel(relMatch[4]) } : {}),
+          ...(combinedLabel ? { label: combinedLabel } : {}),
           style: op.includes("..") ? "dashed" : "solid",
           arrowStart: markerStart !== "none",
           arrowEnd: markerEnd !== "none",

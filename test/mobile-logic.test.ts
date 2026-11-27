@@ -2594,8 +2594,8 @@ describe("mobile native Mermaid diagram parser and layout", () => {
     ).toBeNull();
     const optParticipant = parseMermaidDiagram(`
       sequenceDiagram
-        Option->>API: Select
-        API-xOption: Timeout
+        web-app->>API: Select
+        API-xweb-app: Timeout
         Option->API: Open
     `);
     expect(optParticipant?.kind).toBe("sequence");
@@ -2603,6 +2603,11 @@ describe("mobile native Mermaid diagram parser and layout", () => {
       expect(
         optParticipant.steps.map((s) => (s.kind === "message" ? s.head : "")),
       ).toEqual(["arrow", "cross", "none"]);
+      expect(optParticipant.participants.map((p) => p.id)).toEqual([
+        "web-app",
+        "API",
+        "Option",
+      ]);
     }
 
     // Apostrophes inside labels, --x connectors, class composition/cardinality, and composite state fallback
@@ -2691,6 +2696,7 @@ describe("mobile native LaTeX math parser and currency safety", () => {
     );
     expect(formatLatexInline("\\sqrt[3]{x + 1}")).toBe("³√(x + 1)");
     expect(formatLatexInline("\\frac{a + b}{c}")).toBe("(a + b)/c");
+    expect(formatLatexInline("\\frac{1}{2x}")).toBe("1/(2x)");
     expect(formatLatexInline("\\frac{a}{\\frac{b}{c}}")).toBe("a/(b/c)");
 
     // Prototype keys as environment names must never crash
