@@ -604,6 +604,7 @@ export class Host {
         return this.json(res, 200, {
           csrf: device.csrf,
           device: cleanDevice(device),
+          workspaceIdentity: this.trust.localDataIdentity(),
         });
       }
       if (path === "/api/capabilities" && req.method === "GET") {

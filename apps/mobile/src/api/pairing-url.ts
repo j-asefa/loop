@@ -36,13 +36,14 @@ export function assignPairingStorage(
   previous: PairedSession | null,
   next: PairedSession,
   nonce: string,
+  recoveredScope?: string,
 ): PairedSession {
   if (isSamePairedDevice(previous, next))
     return preserveProbedCredentials(previous, next);
-  return {
-    ...next,
-    localDataScope: `${next.origin}/paired-device/${encodeURIComponent(next.deviceId || nonce)}`,
-  };
+  const scope = next.workspaceIdentity
+    ? (recoveredScope ?? `loop-workspace:${next.workspaceIdentity}`)
+    : `${next.origin}/paired-device/${encodeURIComponent(next.deviceId || nonce)}`;
+  return { ...next, localDataScope: scope };
 }
 
 export type ParsedPairingLink = {

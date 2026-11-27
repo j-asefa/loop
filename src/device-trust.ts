@@ -11,6 +11,7 @@ export type TrustedDevice = {
 /** Every gateway uses its workspace transaction store. Preview processes have
  * an independent database and cookie namespace. */
 export interface DeviceTrust {
+  localDataIdentity(): string;
   /** Stored administrative inventory, including credentials awaiting retirement.
    * Call device/authenticate to establish current authentication eligibility. */
   devices(): TrustedDevice[];

@@ -234,8 +234,14 @@ export class LoopClient {
     return parsed as T;
   }
 
-  async refreshSession(): Promise<{ csrf: string }> {
-    const data = await this.request<{ csrf: string }>("GET", "/session");
+  async refreshSession(): Promise<{
+    csrf: string;
+    workspaceIdentity?: string;
+  }> {
+    const data = await this.request<{
+      csrf: string;
+      workspaceIdentity?: string;
+    }>("GET", "/session");
     if (data.csrf) {
       this.session = { ...this.session, csrf: data.csrf };
     }

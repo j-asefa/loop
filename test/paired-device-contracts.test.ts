@@ -47,6 +47,24 @@ async function pair(host: Host, name: string) {
   }).then((r) => r.json());
   return { cookie, "x-loop-csrf": session.csrf as string };
 }
+it("authenticates the same recovery identity for separately paired devices", async () => {
+  const first = await start("recovery");
+  const isolated = await start("other-recovery");
+  const sessionIdentity = async (host: Host, name: string) => {
+    const auth = await pair(host, name);
+    const session = await fetch(host.origin + "/session", {
+      headers: { cookie: auth.cookie },
+    }).then((r) => r.json());
+    return session.workspaceIdentity;
+  };
+  const original = await sessionIdentity(first, "First device");
+  expect(original).toMatch(/^[a-f0-9]{64}$/);
+  expect(await sessionIdentity(first, "Replacement device")).toBe(original);
+  expect(await sessionIdentity(isolated, "Different workspace")).not.toBe(
+    original,
+  );
+});
+
 function send(
   host: Host,
   path: string,

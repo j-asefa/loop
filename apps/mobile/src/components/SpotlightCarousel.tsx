@@ -407,6 +407,22 @@ export function SpotlightCarousel({
     }
   }, [client, conversationId, historyNextCursor]);
 
+  const displayedCardSaved = useCallback(
+    (card: NativeResultCard) => {
+      const edited = savedEdits.get(carouselCardKey(card));
+      const feedCard =
+        (card.messageId && cardsByMessageId.get(card.messageId)) ||
+        cardsById.get(card.id);
+      if (edited && (!feedCard || edited.pending || edited.uncertain))
+        return edited.saved;
+      if (feedCard) return feedCard.saved;
+      return card.messageId && serverSavedIds
+        ? serverSavedIds.has(card.messageId)
+        : card.saved;
+    },
+    [cardsById, cardsByMessageId, savedEdits, serverSavedIds],
+  );
+
   const slides = useMemo(() => {
     const ordered: NativeResultCard[] = [];
     const seenMsgs = new Set<string>();
@@ -461,18 +477,12 @@ export function SpotlightCarousel({
       }
     }
     return ordered.map((card) => {
-      const edited = savedEdits.get(carouselCardKey(card));
-      const saved =
-        edited?.saved ??
-        (card.messageId && serverSavedIds
-          ? serverSavedIds.has(card.messageId)
-          : card.saved);
+      const saved = displayedCardSaved(card);
       return saved === card.saved ? card : { ...card, saved };
     });
   }, [
     pinnedIds,
-    savedEdits,
-    serverSavedIds,
+    displayedCardSaved,
     cards,
     historyUnavailable,
     historyLoaded,
@@ -1371,11 +1381,7 @@ export function SpotlightCarousel({
 
   const actionSavedEdit =
     actionSheetCard && savedEdits.get(carouselCardKey(actionSheetCard));
-  const actionSaved =
-    actionSavedEdit?.saved ??
-    (actionSheetCard?.messageId && serverSavedIds
-      ? serverSavedIds.has(actionSheetCard.messageId)
-      : actionSheetCard?.saved);
+  const actionSaved = actionSheetCard && displayedCardSaved(actionSheetCard);
   const actionSavePending = Boolean(
     actionSavedEdit?.pending || actionSavedEdit?.uncertain,
   );

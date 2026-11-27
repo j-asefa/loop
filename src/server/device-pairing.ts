@@ -1,4 +1,5 @@
 import { tryWithoutBusyWait } from "./busy-wait.js";
+import * as watermarkQueries from "./sql/change-watermark.js";
 import * as deviceStoreQueries from "./sql/device-store.js";
 import * as pairingCeremoniesQueries from "./sql/pairing-ceremonies.js";
 import * as pairingClockQueries from "./sql/pairing-clock.js";
@@ -61,6 +62,11 @@ export class DevicePairing implements DeviceTrust {
     string,
     { check: DeviceExpiryCheck; now: number }
   >();
+  localDataIdentity(): string {
+    const { epoch } = watermarkQueries.snapshot(this.db, this.owner);
+    return hash(`loop-paired-data:${this.owner}:${epoch}`);
+  }
+
   constructor(
     protected readonly db: Database.Database,
     protected readonly owner: string,

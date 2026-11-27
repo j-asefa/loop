@@ -42,6 +42,8 @@ import {
 import {
   clearPairedSession,
   loadPairedSession,
+  loadRecoveryScope,
+  rememberRecoveryScope,
   savePairedSession,
 } from "./src/api/pairing";
 import { assignPairingStorage, localDataScope } from "./src/api/pairing-url";
@@ -379,7 +381,15 @@ function LoopShell() {
       const gen = loadCoordRef.current.currentGeneration;
       await loadCoordRef.current.run(options ?? { silent: true }, {
         setRefreshing,
-        refreshSession: () => client.refreshSession(),
+        refreshSession: async () => {
+          const refreshed = await client.refreshSession();
+          if (gen === workspaceGenRef.current) {
+            await rememberRecoveryScope(
+              refreshed.workspaceIdentity,
+              client.localDataScope,
+            );
+          }
+        },
         fetchAll: async () => {
           const fetchStartedAt = Date.now();
           const [
@@ -1097,7 +1107,7 @@ function LoopShell() {
     async (input: PendingAgentCreate) => {
       if (client) {
         if (activeSessionRef.current !== session) {
-          throw new LoopApiError(401, "Workspace changed.");
+          throw new Error("Workspace changed before the request was sent.");
         }
         const gen = workspaceGenRef.current;
         const created = await client.createAgent({
@@ -2149,6 +2159,7 @@ function LoopShell() {
                 previous,
                 nextSession,
                 randomUuid(),
+                await loadRecoveryScope(nextSession.workspaceIdentity),
               );
               // A failed SecureStore write leaves the existing session and all
               // of its recovery data untouched.

@@ -6,6 +6,7 @@ export type PairedSession = {
   deviceName: string;
   pairedAt: number;
   localDataScope?: string;
+  workspaceIdentity?: string;
 };
 
 export type ApiAgent = {

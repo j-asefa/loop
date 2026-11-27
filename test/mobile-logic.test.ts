@@ -4128,3 +4128,38 @@ it("preserves a re-probed paired device and treats a different device on the sam
   );
   expect(localDataScope(replacementScope)).not.toBe(current.origin);
 });
+
+it("recovers an expired pairing's scope only with the authenticated workspace identity", () => {
+  const base = {
+    origin: "https://loop.example.com",
+    cookie: "session-a",
+    csrf: "csrf",
+    deviceId: "device-a",
+    pairedAt: 1,
+    deviceName: "iPhone",
+  };
+  const workspaceIdentity = "a".repeat(64);
+  const renewed = {
+    ...base,
+    workspaceIdentity,
+    cookie: "session-b",
+    deviceId: "device-b",
+    pairedAt: 2,
+  };
+  expect(
+    localDataScope(assignPairingStorage(null, renewed, "nonce", base.origin)),
+  ).toBe(base.origin);
+  const fresh = assignPairingStorage(null, renewed, "nonce");
+  expect(localDataScope(fresh)).toContain(workspaceIdentity);
+  expect(
+    localDataScope(
+      assignPairingStorage(null, { ...renewed, deviceId: "device-c" }, "nonce"),
+    ),
+  ).toBe(localDataScope(fresh));
+  const other = assignPairingStorage(
+    null,
+    { ...renewed, workspaceIdentity: "b".repeat(64) },
+    "nonce",
+  );
+  expect(localDataScope(other)).not.toBe(localDataScope(fresh));
+});
