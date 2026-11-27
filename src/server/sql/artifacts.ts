@@ -297,9 +297,7 @@ const snippetsStatement = statement(
    SELECT id, title, content, created_at, use_count, last_used_at
    FROM selected
    WHERE keep_rank <= 100
-   ORDER BY use_count DESC,
-            last_used_at DESC,
-            created_at DESC,
+   ORDER BY created_at DESC,
             row DESC`,
 );
 const snippetsRow = QueryRecords.artifacts

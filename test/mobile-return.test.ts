@@ -16,6 +16,10 @@ import {
   PERSONAL_DECISION_RESPONSE_LIMIT,
   PERSONAL_DECISIONS_PAGE_LIMIT,
 } from "../src/shared/personal-decisions";
+import {
+  createEmptySnippetUsageMap,
+  sortSnippetsByUsage,
+} from "../apps/mobile/src/snippet-usage-codec.js";
 const trace = vi.hoisted(() => ({
   observe: undefined as ((sql: string) => void) | undefined,
 }));
@@ -3434,7 +3438,7 @@ it("lists snippets, searches personal prompts and summarizes projects", async ()
   });
 });
 
-it("orders snippets by usage count then recency while isolating owners", async () => {
+it("computes isolated per-owner snippet usage counts while preserving newest-first server order for web picker", async () => {
   const w = workspaceFor(),
     a = w.agent(),
     cid = conversation(w.owner, a.id),
@@ -3458,7 +3462,7 @@ it("orders snippets by usage count then recency while isolating owners", async (
     metadata: { snippet: true },
   });
 
-  // Intruder sends "Summarize thread" many times; owner's order must stay isolated.
+  // Intruder sends "Summarize thread" many times; owner's counts must stay isolated.
   for (let i = 0; i < 4; i++) {
     await api(intruder.owner, "/runs", "POST", {
       agentId: intruderAgent.id,
@@ -3484,9 +3488,24 @@ it("orders snippets by usage count then recency while isolating owners", async (
     });
   }
 
+  // Server keeps newest-first order so newly saved snippets stay first in the web '/' picker.
   const ordered = (await api(w.owner, "/snippets")).data.items;
   expect(
     ordered.map((s: any) => ({ content: s.content, use_count: s.use_count })),
+  ).toEqual([
+    { content: "Summarize thread", use_count: 0 },
+    { content: "Check CI status", use_count: 1 },
+    { content: "Review this PR", use_count: 2 },
+  ]);
+
+  // Mobile client sorts the returned items by usage count then last_used_at.
+  expect(
+    sortSnippetsByUsage(ordered, createEmptySnippetUsageMap()).map(
+      (s: any) => ({
+        content: s.content,
+        use_count: s.use_count,
+      }),
+    ),
   ).toEqual([
     { content: "Review this PR", use_count: 2 },
     { content: "Check CI status", use_count: 1 },
@@ -3549,18 +3568,21 @@ it("orders snippets by usage count then recency while isolating owners", async (
     JSON.stringify({ personal: false }),
     now(),
   );
+  const afterExcluded = (await api(w.owner, "/snippets")).data.items;
   expect(
-    (await api(w.owner, "/snippets")).data.items.map((s: any) => ({
-      content: s.content,
-      use_count: s.use_count,
-    })),
+    sortSnippetsByUsage(afterExcluded, createEmptySnippetUsageMap()).map(
+      (s: any) => ({
+        content: s.content,
+        use_count: s.use_count,
+      }),
+    ),
   ).toEqual([
     { content: "Review this PR", use_count: 2 },
     { content: "Check CI status", use_count: 1 },
     { content: "Summarize thread", use_count: 0 },
   ]);
 
-  // Tie-breaking: when Check CI status gets a second use later than Review this PR, it moves first.
+  // Tie-breaking on mobile: when Check CI status gets a second use later than Review this PR, it moves first.
   await api(w.owner, "/runs", "POST", {
     agentId: a.id,
     conversationId: cid,
@@ -3568,8 +3590,11 @@ it("orders snippets by usage count then recency while isolating owners", async (
     idempotencyKey: "tie-" + randomBytes(6).toString("hex"),
     queue: true,
   });
+  const afterTie = (await api(w.owner, "/snippets")).data.items;
   expect(
-    (await api(w.owner, "/snippets")).data.items.map((s: any) => s.content),
+    sortSnippetsByUsage(afterTie, createEmptySnippetUsageMap()).map(
+      (s: any) => s.content,
+    ),
   ).toEqual(["Check CI status", "Review this PR", "Summarize thread"]);
 });
 

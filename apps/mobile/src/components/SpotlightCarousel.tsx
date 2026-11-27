@@ -1021,6 +1021,14 @@ export function SpotlightCarousel({
       replyToMessageId === activeCard.messageId
         ? activeCard
         : { ...activeCard, messageId: replyToMessageId };
+    const pickedBeforeSend = activeSnippetRef.current;
+    const attributed = resolveSentSnippetAttribution(
+      finalPrompt,
+      pickedBeforeSend?.content,
+      snippets,
+      pickedBeforeSend,
+    );
+    activeSnippetRef.current = null;
     haptics.medium();
     setSending(true);
     setReplyError("");
@@ -1028,13 +1036,6 @@ export function SpotlightCarousel({
       await Promise.resolve(
         onSendReply(targetCard, finalPrompt, readyIds, idempotencyKey, queue),
       );
-      const attributed = resolveSentSnippetAttribution(
-        finalPrompt,
-        activeSnippetRef.current?.content,
-        snippets,
-        activeSnippetRef.current,
-      );
-      activeSnippetRef.current = null;
       if (attributed) {
         onUseSnippet?.(
           attributed.snippet,
@@ -1050,6 +1051,9 @@ export function SpotlightCarousel({
       clearAttachments();
       Keyboard.dismiss();
     } catch (err) {
+      if (!activeSnippetRef.current && pickedBeforeSend) {
+        activeSnippetRef.current = pickedBeforeSend;
+      }
       if (!isUncertainOutcomeError(err)) {
         pendingReplyRef.current = null;
         setRetryModeLocked(false);
@@ -1119,6 +1123,13 @@ export function SpotlightCarousel({
         ...(nextPending.agentId ? { agentId: nextPending.agentId } : {}),
         messageId: nextPending.replyToMessageId,
       };
+      const pickedBeforeSend = activeSnippetRef.current;
+      const attributed = resolveSentSnippetAttribution(
+        nextPending.input,
+        pickedBeforeSend?.content,
+        snippets,
+        pickedBeforeSend,
+      );
       setScheduleBusy(true);
       setScheduleError("");
       if (draftScope) {
@@ -1154,6 +1165,7 @@ export function SpotlightCarousel({
           return;
         }
       }
+      activeSnippetRef.current = null;
       setPendingSchedule(nextPending);
       try {
         await onScheduleReply(
@@ -1163,13 +1175,6 @@ export function SpotlightCarousel({
           nextPending.idempotencyKey,
           nextPending.sendAt,
         );
-        const attributed = resolveSentSnippetAttribution(
-          nextPending.input,
-          activeSnippetRef.current?.content,
-          snippets,
-          activeSnippetRef.current,
-        );
-        activeSnippetRef.current = null;
         if (attributed) {
           onUseSnippet?.(attributed.snippet, {
             persistPending: attributed.persistPending,
@@ -1184,6 +1189,9 @@ export function SpotlightCarousel({
         clearAttachments();
         Keyboard.dismiss();
       } catch (err) {
+        if (!activeSnippetRef.current && pickedBeforeSend) {
+          activeSnippetRef.current = pickedBeforeSend;
+        }
         if (err instanceof LoopApiError && err.status === 401) {
           setPendingSchedule(null);
           setScheduleBusy(false);

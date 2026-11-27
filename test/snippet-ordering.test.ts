@@ -3,6 +3,10 @@ import { afterAll, expect, it } from "vitest";
 import { productionApp } from "./helpers/app.js";
 import { seedConnection, seedConversation } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
+import {
+  createEmptySnippetUsageMap,
+  sortSnippetsByUsage,
+} from "../apps/mobile/src/snippet-usage-codec.js";
 
 testDirectory();
 
@@ -168,7 +172,9 @@ it("keeps personal snippet usage accurate past 2,000 excluded messages and retai
 
   const items = (await api(owner, "/snippets")).data.items;
   expect(items).toHaveLength(100);
-  expect(items.some((s: any) => s.content === "Brand new unused snippet")).toBe(
-    true,
-  );
+  // Newest snippet stays at index 0 for web's '/' picker, while mobile usage sort still bubbles top-used snippets above it.
+  expect(items[0].content).toBe("Brand new unused snippet");
+  expect(items.some((s: any) => s.content === "Older real snippet")).toBe(true);
+  const mobileSorted = sortSnippetsByUsage(items, createEmptySnippetUsageMap());
+  expect(mobileSorted[0].use_count).toBeGreaterThanOrEqual(1);
 });
