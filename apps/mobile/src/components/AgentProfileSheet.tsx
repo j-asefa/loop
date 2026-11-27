@@ -27,6 +27,7 @@ import {
   Terminal,
 } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { agentStatusLine } from "../../../../src/shared/agent-status-line";
 import type { LoopClient } from "../api/client";
 import type { ApiAgent, ApiConnection, ApiFolder } from "../api/types";
 import { agentModelLabel, harnessLabel } from "../models";
@@ -409,6 +410,10 @@ export function AgentProfileSheet({
                 </Text>
               </View>
             </View>
+
+            <Text style={[styles.tagline, { color: theme.muted }]}>
+              {agentStatusLine(agent.id)}
+            </Text>
 
             <View style={styles.metaChips}>
               {cleanModel ? (
@@ -816,6 +821,10 @@ const styles = StyleSheet.create({
   statusPillText: {
     fontSize: 11.5,
     fontWeight: "700",
+  },
+  tagline: {
+    fontSize: 14,
+    lineHeight: 20,
   },
   metaChips: {
     flexDirection: "row",

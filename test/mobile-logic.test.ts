@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { agentStatusLine } from "../src/shared/agent-status-line.js";
 import { ScheduleInput } from "../src/shared/mobile-contract-schemas.js";
 import {
   CopySessionTracker,
@@ -3761,6 +3762,25 @@ describe("mobile text selection helpers", () => {
     expect(thread).toContain("new CopySessionTracker()");
     // FilePreviewModal offers in-place selectable text toggle without nested Modal
     expect(preview).toContain("selectTextMode");
+  });
+});
+
+describe("mobile agent profile taglines", () => {
+  it("uses the shared tagline selected by the profile agent's stable ID", () => {
+    const profile = readFileSync(
+      "apps/mobile/src/components/AgentProfileSheet.tsx",
+      "utf8",
+    );
+    expect(profile).toContain(
+      'from "../../../../src/shared/agent-status-line"',
+    );
+    expect(profile).toMatch(/\{agentStatusLine\(agent\.id\)\}\s*<\/Text>/);
+    expect(agentStatusLine("agent-willow")).toBe(
+      "The plot thickens. The functions get smaller.",
+    );
+    expect(agentStatusLine("agent-cedar")).toBe(
+      "Every garden needs a little dead code removal.",
+    );
   });
 });
 
