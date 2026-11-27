@@ -2544,6 +2544,31 @@ describe("mobile native Mermaid diagram parser and layout", () => {
     expect(parseMermaidDiagram("gantt\n  title Roadmap")).toBeNull();
     expect(parseMermaidDiagram("")).toBeNull();
 
+    // Quoted & and %% inside node labels must not split nodes or truncate comments
+    const quoted = parseMermaidDiagram(`
+      flowchart LR
+        A["Research & Development (100%%)"] --> B[Done]
+    `);
+    expect(quoted?.kind).toBe("flowchart");
+    if (quoted?.kind === "flowchart") {
+      expect(quoted.nodes.map((n) => n.id)).toEqual(["A", "B"]);
+      expect(quoted.nodes[0].label).toBe("Research & Development (100%%)");
+      expect(quoted.edges).toHaveLength(1);
+    }
+
+    // Sequence diagrams with alt/else branching fall back to source instead of flattening branches
+    expect(
+      parseMermaidDiagram(`
+        sequenceDiagram
+          A->>B: Request
+          alt ok
+            B-->>A: 200
+          else fail
+            B-->>A: 500
+          end
+      `),
+    ).toBeNull();
+
     // Node cap bounds large graphs safely
     const hugeLines = ["graph LR"];
     for (let i = 0; i < MAX_MERMAID_NODES + 25; i += 1) {
@@ -2563,6 +2588,9 @@ describe("mobile native LaTeX math parser and currency safety", () => {
     expect(findInlineMathAt("Price $100/mo to $200/mo.", 6)).toBeNull();
     expect(findInlineMathAt("Bad $ x + 1 $ spacing", 4)).toBeNull();
     expect(findInlineMathAt("Escaped \\$x$ text", 9)).toBeNull();
+    expect(
+      findInlineMathAt("Set $NAME first, then run `X=$VALUE`", 4),
+    ).toBeNull();
 
     expect(findInlineMathAt("Given $x^2 + y^2 = r^2$, we have", 6)).toEqual({
       raw: "x^2 + y^2 = r^2",
@@ -2574,13 +2602,26 @@ describe("mobile native LaTeX math parser and currency safety", () => {
     });
   });
 
-  it("formats inline LaTeX typography and parses display fractions and matrices", () => {
+  it("formats inline LaTeX typography and parses display fractions, matrices, and prototype-safe envs", () => {
     expect(formatLatexInline("x^2 + y_1 \\le \\infty")).toBe("x² + y₁ ≤ ∞");
     expect(formatLatexInline("\\alpha \\to \\beta \\in \\mathbb{R}")).toBe(
       "α → β ∈ ℝ",
     );
     expect(formatLatexInline("\\sqrt[3]{x + 1}")).toBe("³√(x + 1)");
     expect(formatLatexInline("\\frac{a + b}{c}")).toBe("(a + b)/c");
+
+    // Prototype keys as environment names must never crash
+    expect(formatLatexInline("\\begin{constructor}x\\end{constructor}")).toBe(
+      "x",
+    );
+    expect(
+      parseLatexDisplayRows("\\begin{toString}1 & 2\\end{toString}"),
+    ).toEqual([[{ kind: "matrix", left: "", right: "", rows: [["1", "2"]] }]]);
+
+    // Fractions nested inside braces stay attached to their exponent instead of splitting out
+    expect(parseLatexDisplayRows("x^{\\frac{1}{2}} + 1")).toEqual([
+      [{ kind: "text", text: "x^(1/2) + 1" }],
+    ]);
 
     const fracRows = parseLatexDisplayRows(
       "E = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}",

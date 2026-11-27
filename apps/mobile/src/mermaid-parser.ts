@@ -140,6 +140,71 @@ function measureTextLines(label: string, maxCharsPerLine = 22): string[] {
   return out.length > 0 ? out.slice(0, 5) : [""];
 }
 
+function stripLineComment(rawLine: string): string {
+  let inQuote: string | null = null;
+  for (let i = 0; i < rawLine.length - 1; i += 1) {
+    const ch = rawLine[i];
+    if (inQuote) {
+      if (ch === "\\" && i + 1 < rawLine.length) {
+        i += 1;
+        continue;
+      }
+      if (ch === inQuote) inQuote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      inQuote = ch;
+      continue;
+    }
+    if (ch === "%" && rawLine[i + 1] === "%") {
+      return rawLine.slice(0, i).trim();
+    }
+  }
+  return rawLine.trim();
+}
+
+function splitTopLevelAmpersands(segment: string): string[] {
+  const parts: string[] = [];
+  let bracketDepth = 0;
+  let parenDepth = 0;
+  let braceDepth = 0;
+  let inQuote: string | null = null;
+  let start = 0;
+
+  for (let i = 0; i < segment.length; i += 1) {
+    const ch = segment[i];
+    if (inQuote) {
+      if (ch === "\\" && i + 1 < segment.length) {
+        i += 1;
+        continue;
+      }
+      if (ch === inQuote) inQuote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      inQuote = ch;
+      continue;
+    }
+    if (ch === "[") bracketDepth += 1;
+    else if (ch === "]") bracketDepth = Math.max(0, bracketDepth - 1);
+    else if (ch === "(") parenDepth += 1;
+    else if (ch === ")") parenDepth = Math.max(0, parenDepth - 1);
+    else if (ch === "{") braceDepth += 1;
+    else if (ch === "}") braceDepth = Math.max(0, braceDepth - 1);
+    else if (
+      ch === "&" &&
+      bracketDepth === 0 &&
+      parenDepth === 0 &&
+      braceDepth === 0
+    ) {
+      parts.push(segment.slice(start, i));
+      start = i + 1;
+    }
+  }
+  parts.push(segment.slice(start));
+  return parts;
+}
+
 function preprocessLines(source: string): string[] {
   const capped =
     source.length > MAX_MERMAID_SOURCE_CHARS
@@ -149,10 +214,7 @@ function preprocessLines(source: string): string[] {
   const withoutDirectives = capped.replace(/%%\{[\s\S]*?\}%%/g, "");
   const out: string[] = [];
   for (const rawLine of withoutDirectives.replace(/\r\n/g, "\n").split("\n")) {
-    const commentIdx = rawLine.indexOf("%%");
-    const stripped = (
-      commentIdx >= 0 ? rawLine.slice(0, commentIdx) : rawLine
-    ).trim();
+    const stripped = stripLineComment(rawLine);
     if (stripped) out.push(stripped);
   }
   return out;
@@ -627,7 +689,7 @@ function parseFlowchart(lines: string[]): MermaidFlowLayout | null {
       ).trim();
 
       const groupIds: string[] = [];
-      for (const part of segment.split("&")) {
+      for (const part of splitTopLevelAmpersands(segment)) {
         const parsed = parseNodeSpec(part);
         if (parsed) {
           const id = ensureNode(parsed);
@@ -711,11 +773,12 @@ function parseSequence(lines: string[]): MermaidSequenceLayout | null {
 
   for (let i = 1; i < lines.length; i += 1) {
     const line = lines[i];
-    if (
-      /^(?:autonumber|loop|alt|else|opt|par|and|critical|option|break|rect|end|activate|deactivate)\b/i.test(
-        line,
-      )
-    ) {
+    // Fall back to Mermaid source when branching blocks appear so mutually
+    // exclusive replies are never flattened into misleading sequential arrows.
+    if (/^(?:alt|else|opt|par|and|critical|option|break)\b/i.test(line)) {
+      return null;
+    }
+    if (/^(?:autonumber|loop|rect|end|activate|deactivate)\b/i.test(line)) {
       continue;
     }
     const decl = /^(participant|actor)\s+([^\s:]+)(?:\s+as\s+(.+))?$/i.exec(

@@ -1,5 +1,19 @@
 export const MAX_MATH_EXPR_CHARS = 8_000;
 const MAX_PARSE_DEPTH = 16;
+const MAX_INLINE_MATH_SCAN = 1_024;
+
+const MATRIX_DELIMITERS = new Map<string, [string, string]>([
+  ["bmatrix", ["[", "]"]],
+  ["pmatrix", ["(", ")"]],
+  ["Bmatrix", ["{", "}"]],
+  ["vmatrix", ["|", "|"]],
+  ["Vmatrix", ["‖", "‖"]],
+  ["cases", ["{", ""]],
+  ["matrix", ["", ""]],
+  ["aligned", ["", ""]],
+  ["align", ["", ""]],
+  ["align*", ["", ""]],
+]);
 
 const GREEK_AND_SYMBOLS: Record<string, string> = {
   // Lowercase Greek
@@ -356,19 +370,7 @@ function formatMatrixEnv(
   body: string,
   depth: number,
 ): { left: string; right: string; rows: string[][] } {
-  const delimiters: Record<string, [string, string]> = {
-    bmatrix: ["[", "]"],
-    pmatrix: ["(", ")"],
-    Bmatrix: ["{", "}"],
-    vmatrix: ["|", "|"],
-    Vmatrix: ["‖", "‖"],
-    cases: ["{", ""],
-    matrix: ["", ""],
-    aligned: ["", ""],
-    align: ["", ""],
-    "align*": ["", ""],
-  };
-  const [left, right] = delimiters[env] ?? ["", ""];
+  const [left, right] = MATRIX_DELIMITERS.get(env) ?? ["", ""];
   const rows = body
     .split(/\\\\/)
     .map((r) => r.trim())
@@ -627,6 +629,7 @@ export function parseLatexDisplayRows(rawExpr: string): MathDisplaySegment[][] {
   const rows: MathDisplaySegment[][] = [];
   let currentRow: MathDisplaySegment[] = [];
   let textBuf = "";
+  let braceDepth = 0;
   let i = 0;
 
   const flushText = () => {
@@ -638,7 +641,7 @@ export function parseLatexDisplayRows(rawExpr: string): MathDisplaySegment[][] {
   };
 
   while (i < src.length) {
-    if (src.startsWith("\\begin{", i)) {
+    if (braceDepth === 0 && src.startsWith("\\begin{", i)) {
       const endName = src.indexOf("}", i + 7);
       if (endName !== -1) {
         const env = src.slice(i + 7, endName).trim();
@@ -655,9 +658,10 @@ export function parseLatexDisplayRows(rawExpr: string): MathDisplaySegment[][] {
     }
 
     if (
-      src.startsWith("\\frac", i) ||
-      src.startsWith("\\dfrac", i) ||
-      src.startsWith("\\tfrac", i)
+      braceDepth === 0 &&
+      (src.startsWith("\\frac", i) ||
+        src.startsWith("\\dfrac", i) ||
+        src.startsWith("\\tfrac", i))
     ) {
       const cmdLen = src.startsWith("\\frac", i) ? 5 : 6;
       const nextAfter = src[i + cmdLen];
@@ -677,13 +681,22 @@ export function parseLatexDisplayRows(rawExpr: string): MathDisplaySegment[][] {
       }
     }
 
-    if (src[i] === "\\" && src[i + 1] === "\\") {
+    if (braceDepth === 0 && src[i] === "\\" && src[i + 1] === "\\") {
       flushText();
       if (currentRow.length > 0) rows.push(currentRow);
       currentRow = [];
       i += 2;
       continue;
     }
+
+    if (src[i] === "\\" && i + 1 < src.length) {
+      textBuf += src.slice(i, i + 2);
+      i += 2;
+      continue;
+    }
+
+    if (src[i] === "{") braceDepth += 1;
+    else if (src[i] === "}") braceDepth = Math.max(0, braceDepth - 1);
 
     textBuf += src[i];
     i += 1;
@@ -696,17 +709,20 @@ export function parseLatexDisplayRows(rawExpr: string): MathDisplaySegment[][] {
 
 /**
  * Finds inline LaTeX math (`$...$` or `\(...\)`) starting at `start`.
- * Enforces strict currency guards so prose like "$5 and $10" or "$100/mo" is never matched.
+ * Enforces strict currency guards, skips backtick code spans, and bounds scan
+ * length so unclosed delimiters on long lines stay O(1).
  */
 export function findInlineMathAt(
   text: string,
   start: number,
 ): { raw: string; end: number } | null {
+  const limit = Math.min(text.length, start + MAX_INLINE_MATH_SCAN);
+
   // \( ... \) form
   if (text.startsWith("\\(", start)) {
     let i = start + 2;
-    while (i < text.length - 1) {
-      if (text[i] === "\n") return null;
+    while (i < limit - 1) {
+      if (text[i] === "\n" || text[i] === "`") return null;
       if (text[i] === "\\" && text[i + 1] === ")") {
         const inner = text.slice(start + 2, i).trim();
         if (!inner) return null;
@@ -733,9 +749,9 @@ export function findInlineMathAt(
   if (start > 0 && text[start - 1] === "\\") return null;
 
   let i = start + 1;
-  while (i < text.length) {
+  while (i < limit) {
     const ch = text[i];
-    if (ch === "\n") return null;
+    if (ch === "\n" || ch === "`") return null;
     if (ch === "\\") {
       i += 2;
       continue;

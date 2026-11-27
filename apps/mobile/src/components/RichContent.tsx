@@ -718,11 +718,7 @@ function parseMarkdownBlocks(content: string): ContentBlock[] {
         } else {
           blocks.push({ kind: "code", lang: "spec", code: body.trimEnd() });
         }
-      } else if (
-        fence.lang === "math" ||
-        fence.lang === "latex" ||
-        fence.lang === "tex"
-      ) {
+      } else if (fence.lang === "math") {
         const expr = body.trim();
         if (expr) {
           blocks.push({ kind: "math", expr });
@@ -749,20 +745,26 @@ function parseMarkdownBlocks(content: string): ContentBlock[] {
       continue;
     }
     if (trimmed === "$$" || trimmed === "\\[") {
-      flushParagraph();
       const closeDelim = trimmed === "$$" ? "$$" : "\\]";
-      const exprLines: string[] = [];
-      i += 1;
-      while (i < lines.length && lines[i].trim() !== closeDelim) {
-        exprLines.push(lines[i]);
-        i += 1;
+      let closeIdx = -1;
+      for (let j = i + 1; j < lines.length; j += 1) {
+        if (lines[j].trim() === closeDelim) {
+          closeIdx = j;
+          break;
+        }
       }
-      if (i < lines.length) i += 1;
-      const expr = exprLines.join("\n").trim();
-      if (expr) {
-        blocks.push({ kind: "math", expr });
+      if (closeIdx !== -1) {
+        flushParagraph();
+        const expr = lines
+          .slice(i + 1, closeIdx)
+          .join("\n")
+          .trim();
+        if (expr) {
+          blocks.push({ kind: "math", expr });
+        }
+        i = closeIdx + 1;
+        continue;
       }
-      continue;
     }
 
     if (!trimmed) {
