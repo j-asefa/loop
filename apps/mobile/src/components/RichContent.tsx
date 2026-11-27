@@ -591,6 +591,7 @@ export function InlineFormattedText({
   onTextLayout,
   workspaceOrigin,
   onOpenFile,
+  selectable = false,
 }: {
   text: string;
   theme: LoopTheme;
@@ -599,10 +600,12 @@ export function InlineFormattedText({
   onTextLayout?: (e: { nativeEvent: { lines: unknown[] } }) => void;
   workspaceOrigin?: string | null;
   onOpenFile?: (target: LoopFileTarget, label?: string) => void;
+  selectable?: boolean;
 }) {
   const tokens = useMemo(() => tokenizeInline(text), [text]);
   return (
     <Text
+      selectable={selectable}
       style={[{ color: theme.text }, baseStyle]}
       numberOfLines={numberOfLines}
       onTextLayout={onTextLayout}
@@ -900,9 +903,11 @@ const CHART_COLORS = [
 function NativeSpecChart({
   props,
   theme,
+  selectable = false,
 }: {
   props: Record<string, unknown>;
   theme: LoopTheme;
+  selectable?: boolean;
 }) {
   const [showNumbers, setShowNumbers] = useState(false);
   const title = typeof props.title === "string" ? props.title : undefined;
@@ -938,7 +943,10 @@ function NativeSpecChart({
       ]}
     >
       {title && (
-        <Text style={[styles.specCardTitle, { color: theme.text }]}>
+        <Text
+          selectable={selectable}
+          style={[styles.specCardTitle, { color: theme.text }]}
+        >
           {title}
         </Text>
       )}
@@ -1038,6 +1046,7 @@ function NativeSpecChart({
           {categories.slice(0, 6).map((c, idx) => (
             <Text
               key={idx}
+              selectable={selectable}
               style={[styles.chartLabelText, { color: theme.muted }]}
               numberOfLines={1}
             >
@@ -1063,10 +1072,16 @@ function NativeSpecChart({
         <View style={styles.chartNumbers}>
           {categories.map((cat, cIdx) => (
             <View key={cIdx} style={styles.chartNumRow}>
-              <Text style={[styles.chartNumCat, { color: theme.muted }]}>
+              <Text
+                selectable={selectable}
+                style={[styles.chartNumCat, { color: theme.muted }]}
+              >
                 {cat}
               </Text>
-              <Text style={[styles.chartNumVal, { color: theme.text }]}>
+              <Text
+                selectable={selectable}
+                style={[styles.chartNumVal, { color: theme.text }]}
+              >
                 {series.map((s) => s.values[cIdx] ?? 0).join(" / ")}
               </Text>
             </View>
@@ -1084,6 +1099,7 @@ function NativeTable({
   highlightLastColumn = false,
   workspaceOrigin,
   onOpenFile,
+  selectable = false,
 }: {
   columns: string[];
   rows: string[][];
@@ -1091,6 +1107,7 @@ function NativeTable({
   highlightLastColumn?: boolean;
   workspaceOrigin?: string | null;
   onOpenFile?: (target: LoopFileTarget, label?: string) => void;
+  selectable?: boolean;
 }) {
   const colWidths = useMemo(
     () =>
@@ -1132,6 +1149,7 @@ function NativeTable({
               <InlineFormattedText
                 text={col}
                 theme={theme}
+                selectable={selectable}
                 baseStyle={[styles.tableHeaderCell, { color: theme.brassText }]}
                 workspaceOrigin={workspaceOrigin}
                 onOpenFile={onOpenFile}
@@ -1159,6 +1177,7 @@ function NativeTable({
                 <InlineFormattedText
                   text={cell}
                   theme={theme}
+                  selectable={selectable}
                   workspaceOrigin={workspaceOrigin}
                   onOpenFile={onOpenFile}
                   baseStyle={[
@@ -1187,6 +1206,7 @@ function SpecNode({
   onReplyButton,
   workspaceOrigin,
   onOpenFile,
+  selectable = false,
 }: {
   nodeKey: string;
   spec: ParsedSpec;
@@ -1194,6 +1214,7 @@ function SpecNode({
   onReplyButton?: (prompt: string) => void;
   workspaceOrigin?: string | null;
   onOpenFile?: (target: LoopFileTarget, label?: string) => void;
+  selectable?: boolean;
 }) {
   const el = spec.elements[nodeKey];
   if (!el) return null;
@@ -1209,7 +1230,10 @@ function SpecNode({
         ]}
       >
         {title ? (
-          <Text style={[styles.specCardTitle, { color: theme.text }]}>
+          <Text
+            selectable={selectable}
+            style={[styles.specCardTitle, { color: theme.text }]}
+          >
             {title}
           </Text>
         ) : null}
@@ -1223,6 +1247,7 @@ function SpecNode({
               onReplyButton={onReplyButton}
               workspaceOrigin={workspaceOrigin}
               onOpenFile={onOpenFile}
+              selectable={selectable}
             />
           ))}
         </View>
@@ -1236,6 +1261,7 @@ function SpecNode({
       <InlineFormattedText
         text={text}
         theme={theme}
+        selectable={selectable}
         baseStyle={styles.paragraph}
         workspaceOrigin={workspaceOrigin}
         onOpenFile={onOpenFile}
@@ -1267,6 +1293,7 @@ function SpecNode({
             onReplyButton={onReplyButton}
             workspaceOrigin={workspaceOrigin}
             onOpenFile={onOpenFile}
+            selectable={selectable}
           />
         ))}
       </View>
@@ -1284,14 +1311,26 @@ function SpecNode({
           { backgroundColor: theme.raised, borderColor: theme.line },
         ]}
       >
-        <Text style={[styles.fieldLabel, { color: theme.muted }]}>{label}</Text>
-        <Text style={[styles.fieldValue, { color: theme.text }]}>{value}</Text>
+        <Text
+          selectable={selectable}
+          style={[styles.fieldLabel, { color: theme.muted }]}
+        >
+          {label}
+        </Text>
+        <Text
+          selectable={selectable}
+          style={[styles.fieldValue, { color: theme.text }]}
+        >
+          {value}
+        </Text>
       </View>
     );
   }
 
   if (el.type === "Chart") {
-    return <NativeSpecChart props={props} theme={theme} />;
+    return (
+      <NativeSpecChart props={props} theme={theme} selectable={selectable} />
+    );
   }
 
   if (el.type === "Table") {
@@ -1311,6 +1350,7 @@ function SpecNode({
         highlightLastColumn
         workspaceOrigin={workspaceOrigin}
         onOpenFile={onOpenFile}
+        selectable={selectable}
       />
     );
   }
@@ -1327,6 +1367,7 @@ function SpecNode({
             onReplyButton={onReplyButton}
             workspaceOrigin={workspaceOrigin}
             onOpenFile={onOpenFile}
+            selectable={selectable}
           />
         ))}
       </View>
@@ -1410,6 +1451,7 @@ export const RichContent = React.memo(function RichContent({
   workspaceOrigin,
   onOpenFile,
   skipLeadingHeading,
+  selectable = false,
 }: {
   content: string;
   theme: LoopTheme;
@@ -1418,6 +1460,8 @@ export const RichContent = React.memo(function RichContent({
   onOpenFile?: (target: LoopFileTarget, label?: string) => void;
   /** Avoid repeating a Markdown heading that was already promoted as the card title. */
   skipLeadingHeading?: string;
+  /** Enable native text selection on rendered blocks (used in threads and file previews). */
+  selectable?: boolean;
 }) {
   const blocks = useMemo(() => {
     const parsed = parseMarkdownBlocks(content);
@@ -1449,6 +1493,7 @@ export const RichContent = React.memo(function RichContent({
               key={idx}
               text={block.text}
               theme={theme}
+              selectable={selectable}
               workspaceOrigin={workspaceOrigin}
               onOpenFile={onOpenFile}
               baseStyle={[
@@ -1465,6 +1510,7 @@ export const RichContent = React.memo(function RichContent({
               key={idx}
               text={block.text}
               theme={theme}
+              selectable={selectable}
               workspaceOrigin={workspaceOrigin}
               onOpenFile={onOpenFile}
               baseStyle={styles.paragraph}
@@ -1496,6 +1542,7 @@ export const RichContent = React.memo(function RichContent({
                   key={lIdx}
                   text={line}
                   theme={theme}
+                  selectable={selectable}
                   workspaceOrigin={workspaceOrigin}
                   onOpenFile={onOpenFile}
                   baseStyle={[styles.quoteText, { color: theme.muted }]}
@@ -1521,6 +1568,7 @@ export const RichContent = React.memo(function RichContent({
                 <InlineFormattedText
                   text={block.text}
                   theme={theme}
+                  selectable={selectable}
                   workspaceOrigin={workspaceOrigin}
                   onOpenFile={onOpenFile}
                   baseStyle={[
@@ -1548,6 +1596,7 @@ export const RichContent = React.memo(function RichContent({
                 <InlineFormattedText
                   text={block.text}
                   theme={theme}
+                  selectable={selectable}
                   workspaceOrigin={workspaceOrigin}
                   onOpenFile={onOpenFile}
                   baseStyle={styles.listText}
@@ -1569,6 +1618,7 @@ export const RichContent = React.memo(function RichContent({
                 <InlineFormattedText
                   text={block.text}
                   theme={theme}
+                  selectable={selectable}
                   workspaceOrigin={workspaceOrigin}
                   onOpenFile={onOpenFile}
                   baseStyle={styles.listText}
@@ -1586,12 +1636,20 @@ export const RichContent = React.memo(function RichContent({
               theme={theme}
               workspaceOrigin={workspaceOrigin}
               onOpenFile={onOpenFile}
+              selectable={selectable}
             />
           );
         }
         if (block.kind === "code") {
           if (block.lang === "mermaid") {
-            return <MermaidDiagram key={idx} code={block.code} theme={theme} />;
+            return (
+              <MermaidDiagram
+                key={idx}
+                code={block.code}
+                theme={theme}
+                selectable={selectable}
+              />
+            );
           }
           return (
             <CodeBlock
@@ -1599,11 +1657,19 @@ export const RichContent = React.memo(function RichContent({
               lang={block.lang}
               code={block.code}
               theme={theme}
+              selectable={selectable}
             />
           );
         }
         if (block.kind === "math") {
-          return <MathBlock key={idx} expr={block.expr} theme={theme} />;
+          return (
+            <MathBlock
+              key={idx}
+              expr={block.expr}
+              theme={theme}
+              selectable={selectable}
+            />
+          );
         }
         return (
           <SpecNode
@@ -1614,6 +1680,7 @@ export const RichContent = React.memo(function RichContent({
             onReplyButton={onReplyButton}
             workspaceOrigin={workspaceOrigin}
             onOpenFile={onOpenFile}
+            selectable={selectable}
           />
         );
       })}
@@ -1621,7 +1688,15 @@ export const RichContent = React.memo(function RichContent({
   );
 });
 
-function MathBlock({ expr, theme }: { expr: string; theme: LoopTheme }) {
+function MathBlock({
+  expr,
+  theme,
+  selectable = false,
+}: {
+  expr: string;
+  theme: LoopTheme;
+  selectable?: boolean;
+}) {
   const rows = useMemo(() => parseLatexDisplayRows(expr), [expr]);
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1697,6 +1772,7 @@ function MathBlock({ expr, theme }: { expr: string; theme: LoopTheme }) {
                   return (
                     <View key={sIdx} style={styles.mathFraction}>
                       <Text
+                        selectable={selectable}
                         style={[styles.mathFracPart, { color: theme.text }]}
                       >
                         {seg.num}
@@ -1708,6 +1784,7 @@ function MathBlock({ expr, theme }: { expr: string; theme: LoopTheme }) {
                         ]}
                       />
                       <Text
+                        selectable={selectable}
                         style={[styles.mathFracPart, { color: theme.text }]}
                       >
                         {seg.den}
@@ -1734,6 +1811,7 @@ function MathBlock({ expr, theme }: { expr: string; theme: LoopTheme }) {
                             {mRow.map((cell, mcIdx) => (
                               <Text
                                 key={mcIdx}
+                                selectable={selectable}
                                 style={[
                                   styles.mathMatrixCell,
                                   { color: theme.text },
@@ -1761,6 +1839,7 @@ function MathBlock({ expr, theme }: { expr: string; theme: LoopTheme }) {
                 return (
                   <Text
                     key={sIdx}
+                    selectable={selectable}
                     style={[styles.mathText, { color: theme.text }]}
                   >
                     {seg.text}
@@ -1779,10 +1858,12 @@ function CodeBlock({
   lang,
   code,
   theme,
+  selectable = false,
 }: {
   lang: string;
   code: string;
   theme: LoopTheme;
+  selectable?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1850,7 +1931,12 @@ function CodeBlock({
         </Pressable>
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-        <Text style={[styles.codeText, { color: theme.text }]}>{code}</Text>
+        <Text
+          selectable={selectable}
+          style={[styles.codeText, { color: theme.text }]}
+        >
+          {code}
+        </Text>
       </ScrollView>
     </View>
   );
