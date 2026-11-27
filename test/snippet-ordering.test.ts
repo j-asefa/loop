@@ -128,21 +128,13 @@ it("keeps personal snippet usage accurate past 2,000 excluded messages and retai
     use_count: 1,
   });
 
-  // Seed 105 older used snippets, then create one brand-new unused snippet.
+  // Seed 105 older snippets (with oldest i=0..4 heavily used and newer i=7..104 unused),
+  // plus one brand-new unused snippet: the server must keep the exact newest 100 snippets so an
+  // older >100th snippet never pushes an unarchived recent snippet out of web's '/' picker.
   const baseTs = now() - 200_000;
   db.transaction(() => {
     for (let i = 0; i < 105; i++) {
-      const text = `Bulk used snippet ${i}`;
-      const rid = id();
-      insertRun.run(
-        rid,
-        owner,
-        agent.id,
-        cid,
-        "bulk-" + i + "-" + rid,
-        baseTs + i,
-        baseTs + i,
-      );
+      const text = `Bulk snippet ${i}`;
       insertSnippet.run(
         id(),
         owner,
@@ -151,15 +143,29 @@ it("keeps personal snippet usage accurate past 2,000 excluded messages and retai
         baseTs + i,
         baseTs + i,
       );
-      insertMsg.run(
-        id(),
-        owner,
-        cid,
-        rid,
-        text,
-        JSON.stringify({ personal: true }),
-        baseTs + i,
-      );
+      if (i < 5) {
+        for (let k = 0; k < 3; k++) {
+          const rid = id();
+          insertRun.run(
+            rid,
+            owner,
+            agent.id,
+            cid,
+            "bulk-" + i + "-" + k + "-" + rid,
+            baseTs + i + k,
+            baseTs + i + k,
+          );
+          insertMsg.run(
+            id(),
+            owner,
+            cid,
+            rid,
+            text,
+            JSON.stringify({ personal: true }),
+            baseTs + i + k,
+          );
+        }
+      }
     }
   })();
 
@@ -172,9 +178,11 @@ it("keeps personal snippet usage accurate past 2,000 excluded messages and retai
 
   const items = (await api(owner, "/snippets")).data.items;
   expect(items).toHaveLength(100);
-  // Newest snippet stays at index 0 for web's '/' picker, while mobile usage sort still bubbles top-used snippets above it.
+  // Server keeps the exact newest 100 snippets (Bulk snippet 0..6 excluded, Bulk snippet 7..104 + Older real + Brand new).
   expect(items[0].content).toBe("Brand new unused snippet");
+  expect(items.some((s: any) => s.content === "Bulk snippet 7")).toBe(true);
+  expect(items.some((s: any) => s.content === "Bulk snippet 0")).toBe(false);
   expect(items.some((s: any) => s.content === "Older real snippet")).toBe(true);
   const mobileSorted = sortSnippetsByUsage(items, createEmptySnippetUsageMap());
-  expect(mobileSorted[0].use_count).toBeGreaterThanOrEqual(1);
+  expect(mobileSorted[0].content).toBe("Older real snippet");
 });

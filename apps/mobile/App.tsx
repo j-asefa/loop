@@ -1893,10 +1893,12 @@ function LoopShell() {
                       snip.use_count,
                       Date.now(),
                       opts.persistPending,
+                      opts.pendingAfter,
                     );
                     setSnippetUsage(next);
                   } else {
                     const kind = opts.persistPending;
+                    const pendingAfter = opts.pendingAfter;
                     setSnippetUsage((prev) =>
                       recordSnippetUseInStore(
                         prev,
@@ -1904,6 +1906,7 @@ function LoopShell() {
                         snip.use_count,
                         Date.now(),
                         kind,
+                        pendingAfter,
                       ),
                     );
                   }

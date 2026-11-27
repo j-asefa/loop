@@ -121,7 +121,7 @@ type SpotlightCarouselProps = {
   snippets?: ApiSnippet[];
   onUseSnippet?: (
     snippet: ApiSnippet,
-    opts?: { persistPending?: SnippetUseKind },
+    opts?: { persistPending?: SnippetUseKind; pendingAfter?: number },
   ) => void;
   theme: LoopTheme;
   onClose: () => void;
@@ -1178,6 +1178,9 @@ export function SpotlightCarousel({
         if (attributed) {
           onUseSnippet?.(attributed.snippet, {
             persistPending: attributed.persistPending,
+            ...(attributed.persistPending === "exact"
+              ? { pendingAfter: nextPending.sendAt }
+              : {}),
           });
         }
         setPendingSchedule(null);

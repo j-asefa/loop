@@ -4238,4 +4238,63 @@ describe("mobile snippet usage sorting and quick-reply keyboard layout", () => {
       ),
     ).toBeNull();
   });
+
+  it("defers exact pending reconciliation for future scheduled replies past pendingAfter", () => {
+    const now = 20_000;
+    const sendAt = now + 48 * 60 * 60 * 1000; // 48h out (> 24h TTL)
+    const map = recordSnippetUseInStore(
+      createEmptySnippetUsageMap(),
+      "Morning check-in",
+      0,
+      now,
+      "exact",
+      sendAt,
+    );
+    expect(map["Morning check-in"]).toEqual({
+      pending: 1,
+      pendingAfter: sendAt,
+      baseServerCount: 0,
+      lastUsedAt: now,
+    });
+
+    // Unrelated verbatim send from another device before sendAt raises server use_count to 1:
+    // baseline advances to 1 without clearing pending, so total count stays 2 even > 24h after booking.
+    const beforeSendAt = now + 30 * 60 * 60 * 1000;
+    const mid = reconcileSnippetUsageWithServer(
+      map,
+      [{ content: "Morning check-in", use_count: 1 }],
+      beforeSendAt,
+    );
+    expect(mid.map["Morning check-in"]).toEqual({
+      pending: 1,
+      pendingAfter: sendAt,
+      baseServerCount: 1,
+      lastUsedAt: now,
+    });
+    expect(
+      sortSnippetsByUsage(
+        [
+          { id: "a", content: "Other", use_count: 1, last_used_at: now + 9000 },
+          {
+            id: "b",
+            content: "Morning check-in",
+            use_count: 1,
+            last_used_at: now + 1000,
+          },
+        ],
+        mid.map,
+        beforeSendAt,
+      ).map((s) => s.id),
+    ).toEqual(["b", "a"]);
+
+    // Once sendAt arrives and the scheduled send commits on server (use_count -> 2), pending clears cleanly.
+    const afterSendAt = sendAt + 1000;
+    const done = reconcileSnippetUsageWithServer(
+      mid.map,
+      [{ content: "Morning check-in", use_count: 2 }],
+      afterSendAt,
+    );
+    expect(done.changed).toBe(true);
+    expect(done.map["Morning check-in"]).toBeUndefined();
+  });
 });

@@ -9,6 +9,8 @@ export type SnippetUsageEntry = {
   pending: number;
   /** Edited sends that never increment the server's exact-match count; immune to serverDelta. */
   localBonus?: number;
+  /** Earliest timestamp (e.g. scheduled sendAt) when server increases may reconcile `pending`. */
+  pendingAfter?: number;
   baseServerCount: number;
   lastUsedAt: number;
 };
@@ -53,8 +55,13 @@ export function createEmptySnippetUsageMap(): SnippetUsageMap {
   return Object.create(null) as SnippetUsageMap;
 }
 
-function isPendingExpired(lastUsedAt: number, now: number): boolean {
-  return now - lastUsedAt > PENDING_SNIPPET_TAP_TTL_MS;
+function isPendingExpired(
+  lastUsedAt: number,
+  now: number,
+  pendingAfter?: number,
+): boolean {
+  const anchor = Math.max(lastUsedAt, pendingAfter ?? 0);
+  return now - anchor > PENDING_SNIPPET_TAP_TTL_MS;
 }
 
 function totalLocalDelta(entry: SnippetUsageEntry): number {
@@ -67,7 +74,8 @@ function pruneSnippetUsageMap(
 ): SnippetUsageMap {
   const entries = Object.entries(map).filter(
     ([, entry]) =>
-      totalLocalDelta(entry) > 0 && !isPendingExpired(entry.lastUsedAt, now),
+      totalLocalDelta(entry) > 0 &&
+      !isPendingExpired(entry.lastUsedAt, now, entry.pendingAfter),
   );
   if (entries.length <= MAX_TRACKED_SNIPPETS) {
     const copy = createEmptySnippetUsageMap();
@@ -110,6 +118,7 @@ export function parseSnippetUsageStore(
       const entry = value as {
         pending?: unknown;
         localBonus?: unknown;
+        pendingAfter?: unknown;
         baseServerCount?: unknown;
         lastUsedAt?: unknown;
       };
@@ -130,6 +139,12 @@ export function parseSnippetUsageStore(
       if (pending < 0 || localBonus < 0 || pending + localBonus <= 0) {
         continue;
       }
+      const pendingAfter =
+        typeof entry.pendingAfter === "number" &&
+        Number.isFinite(entry.pendingAfter) &&
+        entry.pendingAfter > 0
+          ? entry.pendingAfter
+          : undefined;
       const baseServerCount =
         typeof entry.baseServerCount === "number" &&
         Number.isInteger(entry.baseServerCount) &&
@@ -142,10 +157,11 @@ export function parseSnippetUsageStore(
         entry.lastUsedAt >= 0
           ? entry.lastUsedAt
           : 0;
-      if (isPendingExpired(lastUsedAt, now)) continue;
+      if (isPendingExpired(lastUsedAt, now, pendingAfter)) continue;
       const candidate: SnippetUsageEntry = {
         pending,
         ...(localBonus > 0 ? { localBonus } : {}),
+        ...(pendingAfter !== undefined && pending > 0 ? { pendingAfter } : {}),
         baseServerCount,
         lastUsedAt,
       };
@@ -189,6 +205,7 @@ export function recordSnippetUseInStore(
   serverUseCount = 0,
   now = Date.now(),
   kind: SnippetUseKind = "exact",
+  pendingAfter?: number,
 ): SnippetUsageMap {
   const key = snippetUsageKey(content);
   if (!key) return map;
@@ -200,17 +217,37 @@ export function recordSnippetUseInStore(
       : 0;
   const prev = Object.hasOwn(map, key) ? map[key] : undefined;
   const prevUnexpired =
-    prev && !isPendingExpired(prev.lastUsedAt, now) ? prev : undefined;
+    prev && !isPendingExpired(prev.lastUsedAt, now, prev.pendingAfter)
+      ? prev
+      : undefined;
+  const canReconcilePrev =
+    prevUnexpired &&
+    (!prevUnexpired.pendingAfter || now >= prevUnexpired.pendingAfter);
   const activePending = prevUnexpired
-    ? Math.max(
-        0,
-        prevUnexpired.pending -
-          Math.max(0, baseServer - prevUnexpired.baseServerCount),
-      )
+    ? canReconcilePrev
+      ? Math.max(
+          0,
+          prevUnexpired.pending -
+            Math.max(0, baseServer - prevUnexpired.baseServerCount),
+        )
+      : prevUnexpired.pending
     : 0;
   const activeBonus = prevUnexpired ? (prevUnexpired.localBonus ?? 0) : 0;
   const nextPending = kind === "exact" ? activePending + 1 : activePending;
   const nextBonus = kind === "bonus" ? activeBonus + 1 : activeBonus;
+  const validPendingAfter =
+    typeof pendingAfter === "number" &&
+    Number.isFinite(pendingAfter) &&
+    pendingAfter > 0
+      ? pendingAfter
+      : undefined;
+  const nextPendingAfter =
+    nextPending > 0
+      ? Math.max(
+          activePending > 0 ? (prevUnexpired?.pendingAfter ?? 0) : 0,
+          kind === "exact" ? (validPendingAfter ?? 0) : 0,
+        ) || undefined
+      : undefined;
   const next = createEmptySnippetUsageMap();
   for (const existingKey of Object.keys(map)) {
     next[existingKey] = map[existingKey];
@@ -218,6 +255,9 @@ export function recordSnippetUseInStore(
   next[key] = {
     pending: nextPending,
     ...(nextBonus > 0 ? { localBonus: nextBonus } : {}),
+    ...(nextPendingAfter !== undefined
+      ? { pendingAfter: nextPendingAfter }
+      : {}),
     baseServerCount: baseServer,
     lastUsedAt: Math.max(prev?.lastUsedAt ?? 0, now),
   };
@@ -248,7 +288,7 @@ export function reconcileSnippetUsageWithServer(
     const bonus = entry.localBonus ?? 0;
     if (
       (entry.pending <= 0 && bonus <= 0) ||
-      isPendingExpired(entry.lastUsedAt, now)
+      isPendingExpired(entry.lastUsedAt, now, entry.pendingAfter)
     ) {
       changed = true;
       continue;
@@ -258,21 +298,32 @@ export function reconcileSnippetUsageWithServer(
       next[key] = entry;
       continue;
     }
-    const confirmedIncrease = Math.max(0, serverCount - entry.baseServerCount);
+    const canReconcile = !entry.pendingAfter || now >= entry.pendingAfter;
+    const confirmedIncrease = canReconcile
+      ? Math.max(0, serverCount - entry.baseServerCount)
+      : 0;
     const remainingPending = Math.max(0, entry.pending - confirmedIncrease);
     if (remainingPending === 0 && bonus === 0) {
       changed = true;
       continue;
     }
+    const nextPendingAfter =
+      remainingPending > 0 && entry.pendingAfter && now < entry.pendingAfter
+        ? entry.pendingAfter
+        : undefined;
     if (
       remainingPending !== entry.pending ||
-      serverCount !== entry.baseServerCount
+      serverCount !== entry.baseServerCount ||
+      nextPendingAfter !== entry.pendingAfter
     ) {
       changed = true;
     }
     next[key] = {
       pending: remainingPending,
       ...(bonus > 0 ? { localBonus: bonus } : {}),
+      ...(nextPendingAfter !== undefined
+        ? { pendingAfter: nextPendingAfter }
+        : {}),
       baseServerCount: serverCount,
       lastUsedAt: entry.lastUsedAt,
     };
@@ -301,12 +352,15 @@ export function sortSnippetsByUsage<
           ? item.last_used_at
           : 0;
       const active =
-        local && !isPendingExpired(local.lastUsedAt, now) ? local : undefined;
+        local && !isPendingExpired(local.lastUsedAt, now, local.pendingAfter)
+          ? local
+          : undefined;
+      const confirmedIncrease =
+        active && (!active.pendingAfter || now >= active.pendingAfter)
+          ? Math.max(0, serverCount - active.baseServerCount)
+          : 0;
       const pending = active
-        ? Math.max(
-            0,
-            active.pending - Math.max(0, serverCount - active.baseServerCount),
-          )
+        ? Math.max(0, active.pending - confirmedIncrease)
         : 0;
       const bonus = active ? (active.localBonus ?? 0) : 0;
       const count = serverCount + pending + bonus;
@@ -335,6 +389,7 @@ type PendingUseOp = {
   serverUseCount?: number;
   now: number;
   kind: SnippetUseKind;
+  pendingAfter?: number;
 };
 
 export function createSnippetUsageStore(storage: SnippetUsageStorage) {
@@ -398,6 +453,7 @@ export function createSnippetUsageStore(storage: SnippetUsageStorage) {
             op.serverUseCount,
             op.now,
             op.kind,
+            op.pendingAfter,
           );
         }
         dirty = true;
@@ -441,6 +497,7 @@ export function createSnippetUsageStore(storage: SnippetUsageStorage) {
     serverUseCount?: number,
     now = Date.now(),
     kind: SnippetUseKind = "exact",
+    pendingAfter?: number,
   ): SnippetUsageMap {
     if (!origin) return createEmptySnippetUsageMap();
     const bucket = draftWorkspaceBucket(origin);
@@ -451,11 +508,12 @@ export function createSnippetUsageStore(storage: SnippetUsageStorage) {
       serverUseCount,
       now,
       kind,
+      pendingAfter,
     );
     memoryBuckets.set(bucket, next);
     if (!loadedBuckets.has(bucket)) {
       const queue = pendingOpsByBucket.get(bucket) ?? [];
-      queue.push({ content, serverUseCount, now, kind });
+      queue.push({ content, serverUseCount, now, kind, pendingAfter });
       pendingOpsByBucket.set(bucket, queue);
       void ensureBucketLoaded(bucket);
       return next;
