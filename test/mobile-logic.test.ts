@@ -2389,9 +2389,9 @@ describe("mobile voice recording and scheduled send helpers", () => {
     expect(retried.row.state).toBe("submitted");
   });
 
-  it("persists and clears uncertain pendingSchedule identities in the draft store", () => {
+  it("persists and clears uncertain pendingSchedule identities across the 30-day schedule window", () => {
     const now = 1_770_000_000_000;
-    const sendAt = now + 3_600_000;
+    const sendAt = now + 20 * 24 * 60 * 60 * 1000; // 20 days out (> 7-day ordinary draft TTL)
     const scope = draftScopeForCarousel("conv-sched-1");
     let store = setDraftInStore(
       createEmptyDraftMap(),
@@ -2402,18 +2402,34 @@ describe("mobile voice recording and scheduled send helpers", () => {
         schedule: {
           key: "idem-sched-persist-1",
           sendAt,
+          input: "Follow up tomorrow",
           attachmentIds: ["11111111-2222-4333-8444-555555555555"],
           replyToMessageId: "msg-42",
         },
       },
     );
-    const roundTripped = parseDraftStore(serializeDraftStore(store, now), now);
-    expect(readDraftEntryFromStore(roundTripped, scope, now)).toEqual({
+    // Add 90 ordinary drafts newer than the locked schedule; the locked schedule must not be evicted
+    for (let i = 0; i < MAX_DRAFTS_PER_WORKSPACE + 10; i += 1) {
+      store = setDraftInStore(
+        store,
+        draftScopeForThread(`ordinary-${i}`),
+        `ordinary ${i}`,
+        now + 1000 + i,
+      );
+    }
+    // Check 10 days later (past 7-day ordinary draft TTL, still before sendAt)
+    const day10 = now + 10 * 24 * 60 * 60 * 1000;
+    const roundTripped = parseDraftStore(
+      serializeDraftStore(store, day10),
+      day10,
+    );
+    expect(readDraftEntryFromStore(roundTripped, scope, day10)).toEqual({
       text: "Follow up tomorrow",
       updatedAt: now,
       pendingSchedule: {
         key: "idem-sched-persist-1",
         sendAt,
+        input: "Follow up tomorrow",
         attachmentIds: ["11111111-2222-4333-8444-555555555555"],
         replyToMessageId: "msg-42",
       },
@@ -2424,10 +2440,10 @@ describe("mobile voice recording and scheduled send helpers", () => {
       roundTripped,
       scope,
       "Follow up tomorrow with logs",
-      now + 1000,
+      day10 + 1000,
     );
     expect(
-      readDraftEntryFromStore(store, scope, now + 1000)?.pendingSchedule,
+      readDraftEntryFromStore(store, scope, day10 + 1000)?.pendingSchedule,
     ).toBeUndefined();
   });
 });

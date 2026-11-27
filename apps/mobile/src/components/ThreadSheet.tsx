@@ -41,6 +41,7 @@ import {
   draftScopeForThread,
   loadDraftEntry,
   saveDraft,
+  saveDraftAndFlush,
 } from "../drafts";
 import { relativeTime, type NativeResultCard } from "../fixtures";
 import { ThreadRefreshGate } from "../workspace-runtime";
@@ -149,6 +150,7 @@ export function ThreadSheet({
   const restoredPendingScheduleRef = useRef<{
     idempotencyKey: string;
     sendAt: number;
+    input: string;
     attachmentIds: string[];
     locked: boolean;
   } | null>(null);
@@ -161,6 +163,7 @@ export function ThreadSheet({
   const [pendingSchedule, setPendingSchedule] = useState<{
     idempotencyKey: string;
     sendAt: number;
+    input: string;
     attachmentIds: string[];
     locked: boolean;
   } | null>(null);
@@ -189,6 +192,7 @@ export function ThreadSheet({
           restoredPendingScheduleRef.current = {
             idempotencyKey: entry.pendingSchedule.key,
             sendAt: entry.pendingSchedule.sendAt,
+            input: entry.pendingSchedule.input ?? entry.text,
             attachmentIds: entry.pendingSchedule.attachmentIds ?? [],
             locked: true,
           };
@@ -401,11 +405,12 @@ export function ThreadSheet({
 
   async function handleSend() {
     const trimmed = draft.trim();
-    const { readyIds, readyNames, uploading, clearAttachments } =
+    const { readyIds, readyNames, uploading, hasErrors, clearAttachments } =
       replyAttachments;
     if (
       (!trimmed && readyIds.length === 0) ||
       uploading ||
+      hasErrors ||
       recordingAudio ||
       sending ||
       scheduleBusy ||
@@ -466,28 +471,34 @@ export function ThreadSheet({
   async function handleSchedule(sendAt: number) {
     if (!onScheduleReply || scheduleBusy || sending) return;
     const trimmed = draft.trim();
-    const { readyIds, readyNames, uploading, clearAttachments } =
+    const { readyIds, readyNames, uploading, hasErrors, clearAttachments } =
       replyAttachments;
-    if (!pendingSchedule && ((!trimmed && readyIds.length === 0) || uploading))
+    if (
+      !pendingSchedule &&
+      ((!trimmed && readyIds.length === 0) || uploading || hasErrors)
+    )
       return;
     const finalText =
-      trimmed ||
-      (readyNames.length === 1
-        ? `Attached ${readyNames[0]}`
-        : `Attached ${readyNames.length} files`);
+      pendingSchedule?.input ??
+      (trimmed ||
+        (readyNames.length === 1
+          ? `Attached ${readyNames[0]}`
+          : `Attached ${readyNames.length} files`));
     const nextPending = pendingSchedule ?? {
       idempotencyKey: randomUuid(),
       sendAt,
+      input: finalText,
       attachmentIds: readyIds,
       locked: false,
     };
     setPendingSchedule(nextPending);
     setScheduleBusy(true);
     setScheduleError("");
-    saveDraft(client?.origin, draftScope, trimmed || finalText, {
+    await saveDraftAndFlush(client?.origin, draftScope, trimmed || finalText, {
       schedule: {
         key: nextPending.idempotencyKey,
         sendAt: nextPending.sendAt,
+        input: nextPending.input,
         attachmentIds: nextPending.attachmentIds,
       },
     });
@@ -496,7 +507,7 @@ export function ThreadSheet({
         conversationId,
         agentId: resolvedAgentId || "",
         agentName,
-        text: finalText,
+        text: nextPending.input,
         attachmentIds: nextPending.attachmentIds,
         idempotencyKey: nextPending.idempotencyKey,
         sendAt: nextPending.sendAt,
@@ -1067,6 +1078,7 @@ export function ThreadSheet({
           <AttachmentChipStrip
             attachments={replyAttachments.attachments}
             theme={theme}
+            locked={scheduleLocked}
             onRemove={replyAttachments.removeAttachment}
             onRetry={(id) => void replyAttachments.retryAttachment(id)}
           />
@@ -1145,6 +1157,7 @@ export function ThreadSheet({
                     replyAttachments.readyIds.length === 0 &&
                     !pendingSchedule) ||
                   replyAttachments.uploading ||
+                  (replyAttachments.hasErrors && !pendingSchedule) ||
                   recordingAudio ||
                   sending ||
                   scheduleBusy ||
@@ -1162,6 +1175,7 @@ export function ThreadSheet({
                     replyAttachments.readyIds.length === 0 &&
                     !pendingSchedule) ||
                     replyAttachments.uploading ||
+                    (replyAttachments.hasErrors && !pendingSchedule) ||
                     recordingAudio ||
                     sending ||
                     scheduleBusy ||
@@ -1178,6 +1192,7 @@ export function ThreadSheet({
               disabled={
                 (!draft.trim() && replyAttachments.readyIds.length === 0) ||
                 replyAttachments.uploading ||
+                replyAttachments.hasErrors ||
                 recordingAudio ||
                 sending ||
                 scheduleBusy ||
@@ -1191,6 +1206,7 @@ export function ThreadSheet({
                   opacity:
                     (!draft.trim() && replyAttachments.readyIds.length === 0) ||
                     replyAttachments.uploading ||
+                    replyAttachments.hasErrors ||
                     recordingAudio ||
                     sending ||
                     scheduleBusy ||

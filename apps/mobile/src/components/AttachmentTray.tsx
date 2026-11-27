@@ -1,4 +1,10 @@
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   Image,
@@ -93,12 +99,26 @@ export function useAttachments(
     [],
   );
 
+  useEffect(() => {
+    return () => {
+      for (const att of attachmentsRef.current) {
+        if (att.deleteAfterUpload && att.status !== "ready") {
+          deleteTempUploadFile(att.uri);
+        }
+      }
+    };
+  }, []);
+
   const enqueueFiles = useCallback(
     async (files: PickedFile[]) => {
       if (!files.length) return;
       // Compute remaining slots synchronously against the ref so overlapping picks never exceed MAX_ATTACHMENTS.
       const room = Math.max(0, MAX_ATTACHMENTS - attachmentsRef.current.length);
       const batch = files.slice(0, room);
+      const overflow = files.slice(room);
+      for (const skipped of overflow) {
+        if (skipped.deleteAfterUpload) deleteTempUploadFile(skipped.uri);
+      }
       if (!batch.length) return;
 
       const pending: PendingAttachment[] = batch.map((file, idx) => {
@@ -338,6 +358,11 @@ export function useAttachments(
     [attachments],
   );
 
+  const hasErrors = useMemo(
+    () => attachments.some((a) => a.status === "error"),
+    [attachments],
+  );
+
   const readyIds = useMemo(
     () =>
       attachments
@@ -356,6 +381,7 @@ export function useAttachments(
     pickerOpen,
     setPickerOpen,
     uploading,
+    hasErrors,
     readyIds,
     readyNames,
     canAddMore: attachments.length < MAX_ATTACHMENTS,
@@ -374,11 +400,13 @@ export function AttachmentChipStrip({
   theme,
   onRemove,
   onRetry,
+  locked = false,
 }: {
   attachments: PendingAttachment[];
   theme: LoopTheme;
   onRemove: (localId: string) => void;
   onRetry?: (localId: string) => void;
+  locked?: boolean;
 }) {
   if (!attachments.length) return null;
 
@@ -423,7 +451,7 @@ export function AttachmentChipStrip({
           )}
 
           <Pressable
-            disabled={att.status !== "error" || !onRetry}
+            disabled={locked || att.status !== "error" || !onRetry}
             onPress={() => onRetry?.(att.localId)}
             style={styles.chipMeta}
           >
@@ -454,7 +482,7 @@ export function AttachmentChipStrip({
 
           {att.status === "uploading" ? (
             <ActivityIndicator size="small" color={theme.brassText} />
-          ) : (
+          ) : locked ? null : (
             <Pressable
               accessibilityLabel={`Remove ${att.name}`}
               hitSlop={8}

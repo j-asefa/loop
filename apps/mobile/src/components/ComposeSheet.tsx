@@ -25,6 +25,7 @@ import {
   draftScopeForCompose,
   loadDraftEntry,
   saveDraft,
+  saveDraftAndFlush,
 } from "../drafts";
 import { haptics } from "../haptics";
 import {
@@ -112,6 +113,7 @@ export function ComposeSheet({
   const [pendingSchedule, setPendingSchedule] = useState<{
     idempotencyKey: string;
     sendAt: number;
+    input: string;
     attachmentIds: string[];
     locked: boolean;
   } | null>(null);
@@ -124,6 +126,7 @@ export function ComposeSheet({
   const restoredPendingScheduleRef = useRef<{
     idempotencyKey: string;
     sendAt: number;
+    input: string;
     attachmentIds: string[];
     locked: boolean;
   } | null>(null);
@@ -138,6 +141,7 @@ export function ComposeSheet({
           ? {
               idempotencyKey: entry.pendingSchedule.key,
               sendAt: entry.pendingSchedule.sendAt,
+              input: entry.pendingSchedule.input ?? entry.text,
               attachmentIds: entry.pendingSchedule.attachmentIds ?? [],
               locked: true,
             }
@@ -207,6 +211,7 @@ export function ComposeSheet({
   const cannotSend =
     (!text.trim() && composeAttachments.readyIds.length === 0) ||
     composeAttachments.uploading ||
+    composeAttachments.hasErrors ||
     recordingAudio ||
     !ready ||
     busy ||
@@ -220,6 +225,7 @@ export function ComposeSheet({
       composeAttachments.readyIds.length > 0 ||
       Boolean(pendingSchedule)) &&
     !composeAttachments.uploading &&
+    (!composeAttachments.hasErrors || Boolean(pendingSchedule)) &&
     !recordingAudio &&
     ready &&
     !busy &&
@@ -230,36 +236,42 @@ export function ComposeSheet({
   async function handleSchedule(sendAt: number) {
     if (!agent || !onSchedule || scheduleBusy || busy) return;
     const trimmed = text.trim();
-    const { readyIds, readyNames, uploading, clearAttachments } =
+    const { readyIds, readyNames, uploading, hasErrors, clearAttachments } =
       composeAttachments;
-    if (!pendingSchedule && ((!trimmed && readyIds.length === 0) || uploading))
+    if (
+      !pendingSchedule &&
+      ((!trimmed && readyIds.length === 0) || uploading || hasErrors)
+    )
       return;
     const finalText =
-      trimmed ||
-      (readyNames.length === 1
-        ? `Attached ${readyNames[0]}`
-        : `Attached ${readyNames.length} files`);
+      pendingSchedule?.input ??
+      (trimmed ||
+        (readyNames.length === 1
+          ? `Attached ${readyNames[0]}`
+          : `Attached ${readyNames.length} files`));
     const nextPending = pendingSchedule ?? {
       idempotencyKey: randomUuid(),
       sendAt,
+      input: finalText,
       attachmentIds: readyIds,
       locked: false,
     };
     setPendingSchedule(nextPending);
     setScheduleBusy(true);
     setScheduleError("");
-    // Record durable schedule identity + payload metadata before dispatch so app
-    // kills or uncertain timeouts never replay under a second key or lose attachments.
-    saveDraft(client?.origin, draftScope, trimmed || finalText, {
+    // Persist and flush durable schedule identity + payload before dispatch so
+    // process kills or uncertain timeouts never replay under a second key.
+    await saveDraftAndFlush(client?.origin, draftScope, trimmed || finalText, {
       schedule: {
         key: nextPending.idempotencyKey,
         sendAt: nextPending.sendAt,
+        input: nextPending.input,
         attachmentIds: nextPending.attachmentIds,
       },
     });
     try {
       await onSchedule(agent, {
-        text: finalText,
+        text: nextPending.input,
         attachmentIds: nextPending.attachmentIds,
         idempotencyKey: nextPending.idempotencyKey,
         sendAt: nextPending.sendAt,
@@ -469,6 +481,7 @@ export function ComposeSheet({
             <AttachmentChipStrip
               attachments={composeAttachments.attachments}
               theme={theme}
+              locked={scheduleLocked}
               onRemove={composeAttachments.removeAttachment}
               onRetry={(id) => void composeAttachments.retryAttachment(id)}
             />

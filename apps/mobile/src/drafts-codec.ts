@@ -1,6 +1,7 @@
 export type PendingScheduleDraft = {
   key: string;
   sendAt: number;
+  input?: string;
   attachmentIds?: string[];
   replyToMessageId?: string;
 };
@@ -29,6 +30,7 @@ function sanitizePendingSchedule(
   const item = raw as {
     key?: unknown;
     sendAt?: unknown;
+    input?: unknown;
     attachmentIds?: unknown;
     replyToMessageId?: unknown;
   };
@@ -46,9 +48,16 @@ function sanitizePendingSchedule(
         .filter((id): id is string => typeof id === "string" && id.length > 0)
         .slice(0, 8)
     : undefined;
+  const input =
+    typeof item.input === "string" && item.input.trim().length > 0
+      ? item.input.length > MAX_DRAFT_CHARS
+        ? item.input.slice(0, MAX_DRAFT_CHARS)
+        : item.input
+      : undefined;
   return {
     key: item.key,
     sendAt: item.sendAt,
+    ...(input ? { input } : {}),
     ...(attachmentIds && attachmentIds.length > 0 ? { attachmentIds } : {}),
     ...(typeof item.replyToMessageId === "string" && item.replyToMessageId
       ? { replyToMessageId: item.replyToMessageId }
@@ -61,6 +70,18 @@ export type DraftMap = Record<string, DraftEntry>;
 export const MAX_DRAFT_CHARS = 32_000;
 export const MAX_DRAFTS_PER_WORKSPACE = 80;
 export const DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const SCHEDULE_GRACE_MS = 24 * 60 * 60 * 1000;
+
+function isDraftEntryExpired(entry: DraftEntry, now: number): boolean {
+  if (entry.pendingSchedule) {
+    const scheduleExpiry = Math.max(
+      entry.updatedAt + DRAFT_TTL_MS,
+      entry.pendingSchedule.sendAt + SCHEDULE_GRACE_MS,
+    );
+    return now > scheduleExpiry;
+  }
+  return entry.updatedAt < now - DRAFT_TTL_MS;
+}
 
 export function createEmptyDraftMap(): DraftMap {
   return Object.create(null) as DraftMap;
@@ -102,7 +123,6 @@ export function draftScopeForCompose(
 }
 
 export function pruneDraftStore(input: DraftMap, now = Date.now()): DraftMap {
-  const cutoff = now - DRAFT_TTL_MS;
   const valid: Array<[string, DraftEntry]> = [];
   for (const key of Object.keys(input)) {
     const entry = input[key];
@@ -111,34 +131,41 @@ export function pruneDraftStore(input: DraftMap, now = Date.now()): DraftMap {
       typeof entry.text !== "string" ||
       !entry.text.trim() ||
       typeof entry.updatedAt !== "number" ||
-      !Number.isFinite(entry.updatedAt) ||
-      entry.updatedAt < cutoff
+      !Number.isFinite(entry.updatedAt)
     ) {
       continue;
     }
-    valid.push([
-      key,
-      {
-        text:
-          entry.text.length > MAX_DRAFT_CHARS
-            ? entry.text.slice(0, MAX_DRAFT_CHARS)
-            : entry.text,
-        updatedAt: entry.updatedAt,
-        ...(typeof entry.pendingKey === "string" && entry.pendingKey.length >= 8
-          ? { pendingKey: entry.pendingKey }
-          : {}),
-        ...(typeof entry.pendingQueue === "boolean"
-          ? { pendingQueue: entry.pendingQueue }
-          : {}),
-        ...(sanitizePendingSchedule(entry.pendingSchedule)
-          ? { pendingSchedule: sanitizePendingSchedule(entry.pendingSchedule) }
-          : {}),
-      },
-    ]);
+    const pendingSchedule = sanitizePendingSchedule(entry.pendingSchedule);
+    const normalized: DraftEntry = {
+      text:
+        entry.text.length > MAX_DRAFT_CHARS
+          ? entry.text.slice(0, MAX_DRAFT_CHARS)
+          : entry.text,
+      updatedAt: entry.updatedAt,
+      ...(typeof entry.pendingKey === "string" && entry.pendingKey.length >= 8
+        ? { pendingKey: entry.pendingKey }
+        : {}),
+      ...(typeof entry.pendingQueue === "boolean"
+        ? { pendingQueue: entry.pendingQueue }
+        : {}),
+      ...(pendingSchedule ? { pendingSchedule } : {}),
+    };
+    if (isDraftEntryExpired(normalized, now)) {
+      continue;
+    }
+    valid.push([key, normalized]);
   }
   valid.sort((a, b) => b[1].updatedAt - a[1].updatedAt);
+  // Retain durable pendingSchedule locks ahead of the 80-draft cap so uncertain
+  // scheduled sends cannot be evicted by ordinary draft typing.
+  const locked = valid.filter(([, entry]) => Boolean(entry.pendingSchedule));
+  const unlocked = valid.filter(([, entry]) => !entry.pendingSchedule);
+  const remainingSlots = Math.max(0, MAX_DRAFTS_PER_WORKSPACE - locked.length);
   const out = createEmptyDraftMap();
-  for (const [key, entry] of valid.slice(0, MAX_DRAFTS_PER_WORKSPACE)) {
+  for (const [key, entry] of [
+    ...locked,
+    ...unlocked.slice(0, remainingSlots),
+  ]) {
     out[key] = entry;
   }
   return out;
@@ -234,7 +261,7 @@ export function readDraftEntryFromStore(
 ): DraftEntry | null {
   if (!Object.prototype.hasOwnProperty.call(map, scope)) return null;
   const entry = map[scope];
-  if (!entry || entry.updatedAt < now - DRAFT_TTL_MS) return null;
+  if (!entry || isDraftEntryExpired(entry, now)) return null;
   return entry;
 }
 

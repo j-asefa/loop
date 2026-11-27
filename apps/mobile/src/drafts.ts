@@ -190,6 +190,20 @@ export function saveDraft(
   }
 }
 
+export async function saveDraftAndFlush(
+  origin: string | null | undefined,
+  scope: string,
+  text: string,
+  pending?: DraftPendingMeta,
+): Promise<void> {
+  const bucket = draftWorkspaceBucket(origin);
+  await ensureBucketLoaded(bucket);
+  const current = memoryBuckets.get(bucket) ?? createEmptyDraftMap();
+  const next = setDraftInStore(current, scope, text, Date.now(), pending);
+  memoryBuckets.set(bucket, next);
+  flushBucketNow(bucket);
+}
+
 export function clearDraft(
   origin: string | null | undefined,
   scope: string,

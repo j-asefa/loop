@@ -173,6 +173,7 @@ export function VoiceRecorderButton({
     busyRef.current = true;
     try {
       const perm = await requestRecordingPermissionsAsync();
+      if (!mountedRef.current) return;
       if (!perm.granted) {
         haptics.warning();
         onErrorRef.current?.(

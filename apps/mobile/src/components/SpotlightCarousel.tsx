@@ -83,6 +83,7 @@ import {
   draftScopeForCarousel,
   loadDraftEntry,
   saveDraft,
+  saveDraftAndFlush,
 } from "../drafts";
 import { haptics } from "../haptics";
 import { runModelLabel } from "../models";
@@ -452,6 +453,7 @@ export function SpotlightCarousel({
   const restoredPendingScheduleRef = useRef<{
     idempotencyKey: string;
     sendAt: number;
+    input: string;
     attachmentIds: string[];
     replyToMessageId?: string;
     locked: boolean;
@@ -477,6 +479,7 @@ export function SpotlightCarousel({
           restoredPendingScheduleRef.current = {
             idempotencyKey: entry.pendingSchedule.key,
             sendAt: entry.pendingSchedule.sendAt,
+            input: entry.pendingSchedule.input ?? entry.text,
             attachmentIds: entry.pendingSchedule.attachmentIds ?? [],
             replyToMessageId: entry.pendingSchedule.replyToMessageId,
             locked: true,
@@ -497,6 +500,7 @@ export function SpotlightCarousel({
   const [pendingSchedule, setPendingSchedule] = useState<{
     idempotencyKey: string;
     sendAt: number;
+    input: string;
     attachmentIds: string[];
     replyToMessageId?: string;
     locked: boolean;
@@ -881,11 +885,12 @@ export function SpotlightCarousel({
 
   const submitReply = useCallback(async () => {
     const trimmed = draft.trim();
-    const { readyIds, readyNames, uploading, clearAttachments } =
+    const { readyIds, readyNames, uploading, hasErrors, clearAttachments } =
       replyAttachments;
     if (
       (!trimmed && readyIds.length === 0) ||
       uploading ||
+      hasErrors ||
       recordingAudio ||
       sending ||
       scheduleBusy ||
@@ -965,21 +970,23 @@ export function SpotlightCarousel({
     async (sendAt: number) => {
       if (!onScheduleReply || !activeCard || scheduleBusy || sending) return;
       const trimmed = draft.trim();
-      const { readyIds, readyNames, uploading, clearAttachments } =
+      const { readyIds, readyNames, uploading, hasErrors, clearAttachments } =
         replyAttachments;
       if (
         !pendingSchedule &&
-        ((!trimmed && readyIds.length === 0) || uploading)
+        ((!trimmed && readyIds.length === 0) || uploading || hasErrors)
       )
         return;
       const finalPrompt =
-        trimmed ||
-        (readyNames.length === 1
-          ? `Attached ${readyNames[0]}`
-          : `Attached ${readyNames.length} files`);
+        pendingSchedule?.input ??
+        (trimmed ||
+          (readyNames.length === 1
+            ? `Attached ${readyNames[0]}`
+            : `Attached ${readyNames.length} files`));
       const nextPending = pendingSchedule ?? {
         idempotencyKey: randomUuid(),
         sendAt,
+        input: finalPrompt,
         attachmentIds: readyIds,
         replyToMessageId: activeCard.messageId,
         locked: false,
@@ -992,21 +999,27 @@ export function SpotlightCarousel({
       setScheduleBusy(true);
       setScheduleError("");
       if (draftScope) {
-        saveDraft(client?.origin, draftScope, trimmed || finalPrompt, {
-          schedule: {
-            key: nextPending.idempotencyKey,
-            sendAt: nextPending.sendAt,
-            attachmentIds: nextPending.attachmentIds,
-            ...(nextPending.replyToMessageId
-              ? { replyToMessageId: nextPending.replyToMessageId }
-              : {}),
+        await saveDraftAndFlush(
+          client?.origin,
+          draftScope,
+          trimmed || finalPrompt,
+          {
+            schedule: {
+              key: nextPending.idempotencyKey,
+              sendAt: nextPending.sendAt,
+              input: nextPending.input,
+              attachmentIds: nextPending.attachmentIds,
+              ...(nextPending.replyToMessageId
+                ? { replyToMessageId: nextPending.replyToMessageId }
+                : {}),
+            },
           },
-        });
+        );
       }
       try {
         await onScheduleReply(
           targetCard,
-          finalPrompt,
+          nextPending.input,
           nextPending.attachmentIds,
           nextPending.idempotencyKey,
           nextPending.sendAt,
@@ -1866,6 +1879,7 @@ export function SpotlightCarousel({
             <AttachmentChipStrip
               attachments={replyAttachments.attachments}
               theme={theme}
+              locked={scheduleLocked}
               onRemove={replyAttachments.removeAttachment}
               onRetry={(id) => void replyAttachments.retryAttachment(id)}
             />
@@ -1965,6 +1979,7 @@ export function SpotlightCarousel({
                       replyAttachments.readyIds.length === 0 &&
                       !pendingSchedule) ||
                     replyAttachments.uploading ||
+                    (replyAttachments.hasErrors && !pendingSchedule) ||
                     recordingAudio ||
                     sending ||
                     scheduleBusy ||
@@ -1982,6 +1997,7 @@ export function SpotlightCarousel({
                       replyAttachments.readyIds.length === 0 &&
                       !pendingSchedule) ||
                       replyAttachments.uploading ||
+                      (replyAttachments.hasErrors && !pendingSchedule) ||
                       recordingAudio ||
                       sending ||
                       scheduleBusy ||
@@ -2011,6 +2027,7 @@ export function SpotlightCarousel({
                 disabled={
                   (!draft.trim() && replyAttachments.readyIds.length === 0) ||
                   replyAttachments.uploading ||
+                  replyAttachments.hasErrors ||
                   recordingAudio ||
                   sending ||
                   scheduleBusy ||
@@ -2025,6 +2042,7 @@ export function SpotlightCarousel({
                       (!draft.trim() &&
                         replyAttachments.readyIds.length === 0) ||
                       replyAttachments.uploading ||
+                      replyAttachments.hasErrors ||
                       recordingAudio ||
                       sending ||
                       scheduleBusy ||

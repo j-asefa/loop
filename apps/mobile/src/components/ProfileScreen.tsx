@@ -103,6 +103,8 @@ export function ProfileScreen({
 
   const localCardsRef = useRef(localCards);
   localCardsRef.current = localCards;
+  const sectionRef = useRef<ProfileSection>(section);
+  sectionRef.current = section;
   const loadGenRef = useRef(0);
   const workspaceGenRef = useRef(0);
 
@@ -661,14 +663,25 @@ export function ProfileScreen({
                                     setScheduled((prev) =>
                                       prev.filter((x) => x.id !== s.id),
                                     );
-                                    if (gen !== loadGenRef.current) {
+                                    if (
+                                      gen !== loadGenRef.current &&
+                                      sectionRef.current === "scheduled"
+                                    ) {
                                       void loadSection();
                                     }
                                   } else {
                                     haptics.warning();
                                     setScheduled((prev) =>
                                       prev.map((x) =>
-                                        x.id === s.id ? res.row : x,
+                                        x.id === s.id
+                                          ? {
+                                              ...x,
+                                              ...res.row,
+                                              agent_name:
+                                                res.row.agent_name ??
+                                                x.agent_name,
+                                            }
+                                          : x,
                                       ),
                                     );
                                     setScheduledNotice(
@@ -683,7 +696,9 @@ export function ProfileScreen({
                                     setScheduledNotice(
                                       "Retry status uncertain — refreshing…",
                                     );
-                                    void loadSection();
+                                    if (sectionRef.current === "scheduled") {
+                                      void loadSection();
+                                    }
                                   } else {
                                     setScheduledNotice(
                                       err instanceof Error
@@ -754,7 +769,10 @@ export function ProfileScreen({
                                 setScheduled((prev) =>
                                   prev.filter((x) => x.id !== s.id),
                                 );
-                                if (gen !== loadGenRef.current) {
+                                if (
+                                  gen !== loadGenRef.current &&
+                                  sectionRef.current === "scheduled"
+                                ) {
                                   void loadSection();
                                 }
                               } catch (err) {
@@ -764,7 +782,10 @@ export function ProfileScreen({
                                     ? err.message
                                     : "Could not cancel scheduled message.",
                                 );
-                                if (isUncertainOutcomeError(err)) {
+                                if (
+                                  isUncertainOutcomeError(err) &&
+                                  sectionRef.current === "scheduled"
+                                ) {
                                   void loadSection();
                                 }
                               } finally {
