@@ -1130,9 +1130,11 @@ export function SpotlightCarousel({
       const inFlight = savingCardKeysRef.current;
       if (inFlight.has(key)) return;
       inFlight.add(key);
+      const retry = savedEdits.get(key);
+      const retrying = retry?.uncertain === true;
       const optimistic = {
         revision: ++saveRevisionRef.current,
-        saved: !target.saved,
+        saved: retrying ? retry.saved : !target.saved,
         pending: true,
       };
       setSavedEdits((prev) => new Map(prev).set(key, optimistic));
@@ -1150,15 +1152,16 @@ export function SpotlightCarousel({
         if (uncertain) setHistoryRetry(randomUuid());
       };
       void Promise.resolve()
-        .then(() => onToggleSaved(target))
+        .then(() => onToggleSaved({ ...target, saved: !optimistic.saved }))
         .then((outcome) => settle(optimistic.saved, outcome === "uncertain"))
         .catch((err) => {
-          if (isUncertainOutcomeError(err)) settle(optimistic.saved, true);
+          if (retrying || isUncertainOutcomeError(err))
+            settle(optimistic.saved, true);
           else settle(target.saved);
         })
         .finally(() => inFlight.delete(key));
     },
-    [client, onToggleSaved],
+    [client, onToggleSaved, savedEdits],
   );
 
   const submitReply = useCallback(async () => {
@@ -1506,9 +1509,8 @@ export function SpotlightCarousel({
   const actionSavedEdit =
     actionSheetCard && savedEdits.get(carouselCardKey(actionSheetCard));
   const actionSaved = actionSheetCard && displayedCardSaved(actionSheetCard);
-  const actionSavePending = Boolean(
-    actionSavedEdit?.pending || actionSavedEdit?.uncertain,
-  );
+  const actionSavePending = Boolean(actionSavedEdit?.pending);
+  const actionSaveUncertain = Boolean(actionSavedEdit?.uncertain);
 
   if (!slides.length) return null;
 
@@ -2847,17 +2849,23 @@ export function SpotlightCarousel({
                     style={[styles.quickOptionLabel, { color: theme.text }]}
                   >
                     {actionSavePending
-                      ? "Checking Saved…"
-                      : actionSaved
-                        ? "Remove from Saved"
-                        : "Save card"}
+                      ? "Updating Saved…"
+                      : actionSaveUncertain
+                        ? actionSaved
+                          ? "Retry saving card"
+                          : "Retry removing card"
+                        : actionSaved
+                          ? "Remove from Saved"
+                          : "Save card"}
                   </Text>
                   <Text
                     style={[styles.quickOptionHint, { color: theme.muted }]}
                   >
-                    {actionSaved
-                      ? "Unbookmark this answer"
-                      : "Keep this answer in your Saved library"}
+                    {actionSaveUncertain
+                      ? "The previous update is unconfirmed"
+                      : actionSaved
+                        ? "Unbookmark this answer"
+                        : "Keep this answer in your Saved library"}
                   </Text>
                 </View>
               </Pressable>

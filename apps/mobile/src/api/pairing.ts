@@ -29,7 +29,10 @@ const SESSION_KEY = "loop.paired.session.v1";
  * Checks whether a bare workspace URL is a reachable Loop server and whether
  * this device already holds an active session cookie for it.
  */
-export async function probeWorkspaceUrl(rawUrl: string): Promise<{
+export async function probeWorkspaceUrl(
+  rawUrl: string,
+  signal?: AbortSignal,
+): Promise<{
   origin: string;
   session: PairedSession | null;
 }> {
@@ -38,6 +41,7 @@ export async function probeWorkspaceUrl(rawUrl: string): Promise<{
     method: "GET",
     headers: { Accept: "application/json", Origin: origin },
     redirect: "error",
+    signal,
   });
   assertSameOriginResponse(capRes, origin);
   if (!capRes.ok) {
@@ -51,6 +55,7 @@ export async function probeWorkspaceUrl(rawUrl: string): Promise<{
     headers: { Accept: "application/json", Origin: origin },
     credentials: "include",
     redirect: "error",
+    signal,
   });
   assertSameOriginResponse(sessionRes, origin);
   if (sessionRes.ok) {
@@ -80,6 +85,7 @@ export async function probeWorkspaceUrl(rawUrl: string): Promise<{
 async function redeemPairing(
   parsed: ParsedPairingLink,
   deviceName = Platform.OS === "ios" ? "Loop iPhone" : "Loop Mobile",
+  signal?: AbortSignal,
 ): Promise<PairedSession> {
   const pairRes = await fetch(`${parsed.origin}/pair`, {
     method: "POST",
@@ -88,6 +94,7 @@ async function redeemPairing(
       Origin: parsed.origin,
     },
     redirect: "error",
+    signal,
     body: JSON.stringify({
       secret: parsed.secret,
       name: deviceName,
@@ -121,6 +128,7 @@ async function redeemPairing(
     headers: sessionHeaders,
     credentials: "include",
     redirect: "error",
+    signal,
   });
   assertSameOriginResponse(sessionRes, parsed.origin);
   const sessionJson = (await sessionRes.json().catch(() => ({}))) as {
@@ -152,15 +160,15 @@ async function redeemPairing(
 
 export async function pairWithCompanion(
   rawLink: string,
-  deviceName?: string,
+  signal?: AbortSignal,
 ): Promise<PairedSession> {
-  return redeemPairing(parsePairingLink(rawLink), deviceName);
+  return redeemPairing(parsePairingLink(rawLink), undefined, signal);
 }
 
 export async function pairWithOriginAndToken(
   rawOrigin: string,
   rawToken: string,
-  deviceName?: string,
+  signal?: AbortSignal,
 ): Promise<PairedSession> {
   const expectedUrl = normalizeWorkspaceUrl(rawOrigin);
   const trimmedToken = rawToken.trim();
@@ -172,7 +180,7 @@ export async function pairWithOriginAndToken(
         `That pairing link is for ${parsed.origin}, not ${expectedUrl.origin}.`,
       );
     }
-    return redeemPairing(parsed, deviceName);
+    return redeemPairing(parsed, undefined, signal);
   }
   if (!/^[A-Za-z0-9_-]{32,128}$/.test(trimmedToken)) {
     throw new Error(
@@ -181,7 +189,8 @@ export async function pairWithOriginAndToken(
   }
   return redeemPairing(
     { origin: expectedUrl.origin, secret: trimmedToken },
-    deviceName,
+    undefined,
+    signal,
   );
 }
 

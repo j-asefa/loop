@@ -244,7 +244,10 @@ export function reconcileCarouselSaves(
   for (const [key, edit] of edits) {
     if (edit.pending || edit.revision > requestRevision) continue;
     const serverSaved = saved.has(key);
-    if (!edit.uncertain && edit.saved === serverSaved) continue;
+    // A read can overtake the write that timed out. It confirms an uncertain
+    // change only after it actually observes the requested bookmark state.
+    const observedDesiredState = edit.saved === serverSaved;
+    if (edit.uncertain ? !observedDesiredState : observedDesiredState) continue;
     if (next === edits) next = new Map(edits);
     next.set(key, { ...edit, saved: serverSaved, uncertain: undefined });
   }

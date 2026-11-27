@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -53,49 +53,73 @@ export function PairingModal({
   const [tokenText, setTokenText] = useState("");
   const [verifiedOrigin, setVerifiedOrigin] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [committing, setCommitting] = useState(false);
+  const pendingAttempt = useRef<AbortController | null>(null);
+  const committingRef = useRef(false);
+  const closedRef = useRef(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
     if (initialUrl) setUrlText(initialUrl);
   }, [initialUrl]);
 
+  useEffect(() => {
+    closedRef.current = false;
+    return () => {
+      closedRef.current = true;
+      pendingAttempt.current?.abort();
+    };
+  }, []);
+
   async function connectWithUrl(rawUrl: string, rawToken = tokenText) {
-    if (busy) return;
+    if (closedRef.current || pendingAttempt.current) return;
+    const attempt = new AbortController();
+    pendingAttempt.current = attempt;
+    const { signal } = attempt;
+    const commit = async (session: PairedSession) => {
+      if (signal.aborted || closedRef.current) return;
+      committingRef.current = true;
+      setCommitting(true);
+      await onPaired(session);
+      haptics.success();
+    };
     setBusy(true);
     setError("");
     try {
       const { origin, pairing } = tryParsePairingLink(rawUrl);
       if (pairing) {
-        const session = await pairWithCompanion(rawUrl);
-        await onPaired(session);
-        haptics.success();
+        await commit(await pairWithCompanion(rawUrl, signal));
         return;
       }
 
       if (rawToken.trim()) {
-        const session = await pairWithOriginAndToken(origin, rawToken);
-        await onPaired(session);
-        haptics.success();
+        await commit(await pairWithOriginAndToken(origin, rawToken, signal));
         return;
       }
 
       // Bare workspace URL: check reachability and any existing cookie session
-      const probe = await probeWorkspaceUrl(rawUrl);
+      const probe = await probeWorkspaceUrl(rawUrl, signal);
+      if (signal.aborted) return;
       if (probe.session) {
-        await onPaired(probe.session);
-        haptics.success();
+        await commit(probe.session);
         return;
       }
       setVerifiedOrigin(probe.origin);
       haptics.light();
     } catch (err) {
+      if (signal.aborted) return;
       haptics.warning();
       setError(
         err instanceof Error ? err.message : "Could not connect to workspace.",
       );
       if (mode === "qr") setMode("url");
     } finally {
-      setBusy(false);
+      pendingAttempt.current = null;
+      committingRef.current = false;
+      if (!signal.aborted) {
+        setCommitting(false);
+        setBusy(false);
+      }
     }
   }
 
@@ -117,6 +141,7 @@ export function PairingModal({
   async function pasteFromClipboard() {
     haptics.light();
     const clip = (await Clipboard.getStringAsync()).trim();
+    if (closedRef.current) return;
     if (!clip) {
       setError("Clipboard is empty. Run `loop pair` on your machine first.");
       return;
@@ -176,7 +201,12 @@ export function PairingModal({
               </View>
               {canClose && (
                 <Pressable
+                  accessibilityLabel="Close pairing"
+                  disabled={committing}
                   onPress={() => {
+                    if (committingRef.current) return;
+                    closedRef.current = true;
+                    pendingAttempt.current?.abort();
                     haptics.light();
                     onClose();
                   }}

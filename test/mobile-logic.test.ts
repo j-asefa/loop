@@ -4162,10 +4162,7 @@ it("reconciles an uncertain carousel save only with a read started afterward", (
     ["reply", { saved: true, revision: 4, uncertain: true }],
   ]);
   expect(reconcileCarouselSaves(edits, [], 3)).toBe(edits);
-  expect(reconcileCarouselSaves(edits, [], 4).get("reply")).toEqual({
-    saved: false,
-    revision: 4,
-  });
+  expect(reconcileCarouselSaves(edits, [], 4)).toBe(edits);
   expect(reconcileCarouselSaves(edits, ["reply"], 4).get("reply")).toEqual({
     saved: true,
     revision: 4,
