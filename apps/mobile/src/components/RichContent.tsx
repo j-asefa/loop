@@ -731,7 +731,11 @@ function parseMarkdownBlocks(content: string): ContentBlock[] {
 
     // Display math block: $$...$$ (single or multi-line) or \[...\]
     const singleDollarMath = /^\$\$(.+)\$\$$/.exec(trimmed);
-    if (singleDollarMath && singleDollarMath[1].trim()) {
+    if (
+      singleDollarMath &&
+      singleDollarMath[1].trim() &&
+      !singleDollarMath[1].includes("$$")
+    ) {
       flushParagraph();
       blocks.push({ kind: "math", expr: singleDollarMath[1].trim() });
       i += 1;

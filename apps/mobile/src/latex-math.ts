@@ -365,6 +365,26 @@ export type MathDisplaySegment =
   | { kind: "fraction"; num: string; den: string }
   | { kind: "matrix"; left: string; right: string; rows: string[][] };
 
+function splitMatrixCells(row: string): string[] {
+  const cells: string[] = [];
+  let current = "";
+  for (let i = 0; i < row.length; i += 1) {
+    if (row[i] === "\\" && i + 1 < row.length) {
+      current += row.slice(i, i + 2);
+      i += 1;
+      continue;
+    }
+    if (row[i] === "&") {
+      cells.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += row[i];
+  }
+  cells.push(current.trim());
+  return cells;
+}
+
 function formatMatrixEnv(
   env: string,
   body: string,
@@ -376,7 +396,7 @@ function formatMatrixEnv(
     .map((r) => r.trim())
     .filter(Boolean)
     .map((row) =>
-      row.split("&").map((cell) => formatLatexInline(cell.trim(), depth + 1)),
+      splitMatrixCells(row).map((cell) => formatLatexInline(cell, depth + 1)),
     );
   return { left, right, rows };
 }
@@ -428,7 +448,9 @@ export function formatLatexInline(rawExpr: string, depth = 0): string {
         nextCh === "}" ||
         nextCh === "%" ||
         nextCh === "$" ||
-        nextCh === "_"
+        nextCh === "_" ||
+        nextCh === "&" ||
+        nextCh === "#"
       ) {
         out += nextCh;
         i += 2;
@@ -525,7 +547,7 @@ export function formatLatexInline(rawExpr: string, depth = 0): string {
         i = grp.next;
         out +=
           cmd === "text" || cmd === "textrm"
-            ? grp.content
+            ? grp.content.replace(/\\([&%$#_])/g, "$1")
             : formatLatexInline(grp.content, depth + 1);
         continue;
       }

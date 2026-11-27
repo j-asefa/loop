@@ -28,6 +28,9 @@ export type MermaidFlowNode = {
   members?: string[];
 };
 
+export type MermaidMarkerKind =
+  "none" | "arrow" | "cross" | "triangle" | "diamond" | "openDiamond";
+
 export type MermaidFlowEdge = {
   from: string;
   to: string;
@@ -35,6 +38,8 @@ export type MermaidFlowEdge = {
   style: "solid" | "dashed" | "thick";
   arrowEnd: boolean;
   arrowStart: boolean;
+  markerStart?: MermaidMarkerKind;
+  markerEnd?: MermaidMarkerKind;
 };
 
 export type MermaidSubgraph = {
@@ -73,6 +78,7 @@ export type MermaidSequenceStep =
       label: string;
       dashed: boolean;
       arrow: boolean;
+      head: "arrow" | "cross" | "none";
       y: number;
     }
   | {
@@ -141,19 +147,19 @@ function measureTextLines(label: string, maxCharsPerLine = 22): string[] {
 }
 
 function stripLineComment(rawLine: string): string {
-  let inQuote: string | null = null;
+  let inDoubleQuote = false;
   for (let i = 0; i < rawLine.length - 1; i += 1) {
     const ch = rawLine[i];
-    if (inQuote) {
+    if (inDoubleQuote) {
       if (ch === "\\" && i + 1 < rawLine.length) {
         i += 1;
         continue;
       }
-      if (ch === inQuote) inQuote = null;
+      if (ch === '"') inDoubleQuote = false;
       continue;
     }
-    if (ch === '"' || ch === "'") {
-      inQuote = ch;
+    if (ch === '"') {
+      inDoubleQuote = true;
       continue;
     }
     if (ch === "%" && rawLine[i + 1] === "%") {
@@ -188,21 +194,21 @@ function splitTopLevelDelimiter(segment: string, delim: string): string[] {
   let bracketDepth = 0;
   let parenDepth = 0;
   let braceDepth = 0;
-  let inQuote: string | null = null;
+  let inDoubleQuote = false;
   let start = 0;
 
   for (let i = 0; i < segment.length; i += 1) {
     const ch = segment[i];
-    if (inQuote) {
+    if (inDoubleQuote) {
       if (ch === "\\" && i + 1 < segment.length) {
         i += 1;
         continue;
       }
-      if (ch === inQuote) inQuote = null;
+      if (ch === '"') inDoubleQuote = false;
       continue;
     }
-    if (ch === '"' || ch === "'") {
-      inQuote = ch;
+    if (ch === '"') {
+      inDoubleQuote = true;
       continue;
     }
     if (ch === "[") bracketDepth += 1;
@@ -290,6 +296,8 @@ type ParsedConnector = {
   style: "solid" | "dashed" | "thick";
   arrowEnd: boolean;
   arrowStart: boolean;
+  markerStart?: MermaidMarkerKind;
+  markerEnd?: MermaidMarkerKind;
   label?: string;
 };
 
@@ -377,20 +385,20 @@ function findNextConnector(
   let bracketDepth = 0;
   let parenDepth = 0;
   let braceDepth = 0;
-  let inQuote: string | null = null;
+  let inDoubleQuote = false;
 
   for (let i = startFrom; i < line.length; i += 1) {
     const ch = line[i];
-    if (inQuote) {
+    if (inDoubleQuote) {
       if (ch === "\\" && i + 1 < line.length) {
         i += 1;
         continue;
       }
-      if (ch === inQuote) inQuote = null;
+      if (ch === '"') inDoubleQuote = false;
       continue;
     }
-    if (ch === '"' || ch === "'") {
-      inQuote = ch;
+    if (ch === '"') {
+      inDoubleQuote = true;
       continue;
     }
     if (ch === "[") {
@@ -424,24 +432,41 @@ function findNextConnector(
     if (inlineConn) return inlineConn;
 
     const slice = line.slice(i);
-    // Standard connectors with optional |label|
+    // Standard connectors (including --x, x--x, --o, o--o, ~~~) with optional |label|
     const arrowMatch =
-      /^(<-->|<-\.->|<==>|-\.+->|-\.+-|==+>|===+|--+>|---+)(\s*\|([^|\n]+)\|)?/.exec(
+      /^(<-->|<-\.->|<==>|x--+x|o--+o|-\.+->|-\.+-|==+>|===+|--+>|--+x|--+o|---+|~~~+)(\s*\|([^|\n]+)\|)?/.exec(
         slice,
       );
     if (arrowMatch) {
       const sym = arrowMatch[1];
-      const style: "solid" | "dashed" | "thick" = sym.includes(".")
-        ? "dashed"
-        : sym.includes("=")
-          ? "thick"
-          : "solid";
+      const style: "solid" | "dashed" | "thick" =
+        sym.includes(".") || sym.startsWith("~")
+          ? "dashed"
+          : sym.includes("=")
+            ? "thick"
+            : "solid";
+      const markerStart: MermaidMarkerKind = sym.startsWith("<")
+        ? "arrow"
+        : sym.startsWith("x")
+          ? "cross"
+          : sym.startsWith("o")
+            ? "openDiamond"
+            : "none";
+      const markerEnd: MermaidMarkerKind = sym.endsWith(">")
+        ? "arrow"
+        : sym.endsWith("x")
+          ? "cross"
+          : sym.endsWith("o")
+            ? "openDiamond"
+            : "none";
       return {
         index: i,
         length: arrowMatch[0].length,
         style,
-        arrowStart: sym.startsWith("<"),
-        arrowEnd: sym.endsWith(">"),
+        arrowStart: markerStart === "arrow",
+        arrowEnd: markerEnd === "arrow",
+        markerStart,
+        markerEnd,
         label: arrowMatch[3] ? cleanLabel(arrowMatch[3]) : undefined,
       };
     }
@@ -752,27 +777,36 @@ function parseFlowchart(lines: string[]): MermaidFlowLayout | null {
         ).trim();
 
         const groupIds: string[] = [];
+        const seenInGroup = new Set<string>();
         for (const part of splitTopLevelDelimiter(segment, "&")) {
           const parsed = parseNodeSpec(part);
           if (parsed) {
             const id = ensureNode(parsed);
-            if (id) groupIds.push(id);
+            if (id && !seenInGroup.has(id)) {
+              seenInGroup.add(id);
+              groupIds.push(id);
+            }
           }
         }
 
         if (pendingConn && prevGroup.length > 0 && groupIds.length > 0) {
-          for (const from of prevGroup) {
+          outer: for (const from of prevGroup) {
             for (const to of groupIds) {
-              if (edges.length < MAX_MERMAID_EDGES) {
-                edges.push({
-                  from,
-                  to,
-                  ...(pendingConn.label ? { label: pendingConn.label } : {}),
-                  style: pendingConn.style,
-                  arrowStart: pendingConn.arrowStart,
-                  arrowEnd: pendingConn.arrowEnd,
-                });
-              }
+              if (edges.length >= MAX_MERMAID_EDGES) break outer;
+              edges.push({
+                from,
+                to,
+                ...(pendingConn.label ? { label: pendingConn.label } : {}),
+                style: pendingConn.style,
+                arrowStart: pendingConn.arrowStart,
+                arrowEnd: pendingConn.arrowEnd,
+                ...(pendingConn.markerStart
+                  ? { markerStart: pendingConn.markerStart }
+                  : {}),
+                ...(pendingConn.markerEnd
+                  ? { markerEnd: pendingConn.markerEnd }
+                  : {}),
+              });
             }
           }
         }
@@ -813,6 +847,7 @@ function parseSequence(lines: string[]): MermaidSequenceLayout | null {
         label: string;
         dashed: boolean;
         arrow: boolean;
+        head: "arrow" | "cross" | "none";
       }
     | { kind: "note"; from: string; to: string; text: string }
   > = [];
@@ -898,13 +933,20 @@ function parseSequence(lines: string[]): MermaidSequenceLayout | null {
       const label = cleanLabel(msgMatch[4]);
       ensureParticipant(from);
       ensureParticipant(to);
+      const head: "arrow" | "cross" | "none" =
+        op.endsWith(">>") || op.endsWith(")")
+          ? "arrow"
+          : op.endsWith("x")
+            ? "cross"
+            : "none";
       rawSteps.push({
         kind: "message",
         from,
         to,
         label,
         dashed: op.startsWith("--"),
-        arrow: op.endsWith(">") || op.endsWith(")"),
+        arrow: head === "arrow",
+        head,
       });
     }
   }
@@ -999,7 +1041,12 @@ function parseStateDiagram(lines: string[]): MermaidFlowLayout | null {
       direction = dirMatch[1].toUpperCase() as MermaidDirection;
       continue;
     }
-    if (/^(?:note\b|state\s+\S+\s*\{|\}|end$)/i.test(line)) continue;
+    // Fall back to source for composite states and multi-line state notes so nested
+    // start states and note bodies are never misparsed as top-level states.
+    if (/^(?:state\s+\S+\s*\{|note\s+(?:right|left)\s+of\b)/i.test(line)) {
+      return null;
+    }
+    if (/^(?:\}|end$)/i.test(line)) continue;
 
     const aliasMatch = /^state\s+"([^"]+)"\s+as\s+([A-Za-z0-9_.-]+)$/i.exec(
       line,
@@ -1095,7 +1142,7 @@ function parseClassDiagram(lines: string[]): MermaidFlowLayout | null {
     }
 
     const relMatch =
-      /^([A-Za-z0-9_.-]+)\s*(<\|--|--\|>|\*--|o--|--\*|--o|-->|<--|\.\.>|\.\.\|>|--|\.\.)\s*([A-Za-z0-9_.-]+)(?:\s*:\s*(.+))?$/.exec(
+      /^([A-Za-z0-9_.-]+)(?:\s+"[^"]*")?\s*(<\|\.\.|<\|--|--\|>|\*--|o--|--\*|--o|-->|<--|\.\.>|\.\.\|>|--|\.\.)\s*(?:"[^"]*"\s+)?([A-Za-z0-9_.-]+)(?:\s*:\s*(.+))?$/.exec(
         line,
       );
     if (relMatch) {
@@ -1103,14 +1150,33 @@ function parseClassDiagram(lines: string[]): MermaidFlowLayout | null {
       const right = ensureClass(relMatch[3]);
       if (left && right && edges.length < MAX_MERMAID_EDGES) {
         const op = relMatch[2];
+        const markerStart: MermaidMarkerKind = op.startsWith("<|")
+          ? "triangle"
+          : op.startsWith("<")
+            ? "arrow"
+            : op.startsWith("*")
+              ? "diamond"
+              : op.startsWith("o")
+                ? "openDiamond"
+                : "none";
+        const markerEnd: MermaidMarkerKind = op.endsWith("|>")
+          ? "triangle"
+          : op.endsWith(">")
+            ? "arrow"
+            : op.endsWith("*")
+              ? "diamond"
+              : op.endsWith("o")
+                ? "openDiamond"
+                : "none";
         edges.push({
           from: left.id,
           to: right.id,
           ...(relMatch[4] ? { label: cleanLabel(relMatch[4]) } : {}),
           style: op.includes("..") ? "dashed" : "solid",
-          arrowStart:
-            op.startsWith("<") || op.startsWith("*") || op.startsWith("o"),
-          arrowEnd: op.endsWith(">") || op.endsWith("*") || op.endsWith("o"),
+          arrowStart: markerStart !== "none",
+          arrowEnd: markerEnd !== "none",
+          markerStart,
+          markerEnd,
         });
       }
       continue;

@@ -20,6 +20,7 @@ import {
   parseMermaidDiagram,
   type MermaidFlowLayout,
   type MermaidFlowNode,
+  type MermaidMarkerKind,
   type MermaidSequenceLayout,
 } from "../mermaid-parser";
 import type { LoopTheme } from "../theme";
@@ -78,12 +79,30 @@ function FlowchartSvg({
   layout: MermaidFlowLayout;
   theme: LoopTheme;
 }) {
-  const arrowId = `ma-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
+  const idBase = useId().replace(/[^a-zA-Z0-9_-]/g, "");
+  const arrowId = `ma-${idBase}`;
+  const crossId = `mx-${idBase}`;
+  const triangleId = `mt-${idBase}`;
+  const diamondId = `md-${idBase}`;
+  const openDiamondId = `mo-${idBase}`;
   const nodeMap = useMemo(() => {
     const map = new Map<string, MermaidFlowNode>();
     for (const n of layout.nodes) map.set(n.id, n);
     return map;
   }, [layout.nodes]);
+
+  const markerUrl = (
+    kind: MermaidMarkerKind | undefined,
+    fallbackArrow: boolean,
+  ): string | undefined => {
+    const resolved = kind ?? (fallbackArrow ? "arrow" : "none");
+    if (resolved === "arrow") return `url(#${arrowId})`;
+    if (resolved === "cross") return `url(#${crossId})`;
+    if (resolved === "triangle") return `url(#${triangleId})`;
+    if (resolved === "diamond") return `url(#${diamondId})`;
+    if (resolved === "openDiamond") return `url(#${openDiamondId})`;
+    return undefined;
+  };
 
   const horizontal = layout.direction === "LR" || layout.direction === "RL";
   const strokeColor = theme.brassText;
@@ -107,6 +126,64 @@ function FlowchartSvg({
           orient="auto-start-reverse"
         >
           <Path d="M 0 1 L 10 5 L 0 9 z" fill={strokeColor} />
+        </Marker>
+        <Marker
+          id={crossId}
+          viewBox="0 0 10 10"
+          refX={5}
+          refY={5}
+          markerWidth={7}
+          markerHeight={7}
+          orient="auto"
+        >
+          <Path
+            d="M 2 2 L 8 8 M 8 2 L 2 8"
+            stroke={strokeColor}
+            strokeWidth={1.8}
+          />
+        </Marker>
+        <Marker
+          id={triangleId}
+          viewBox="0 0 10 10"
+          refX={9}
+          refY={5}
+          markerWidth={7}
+          markerHeight={7}
+          orient="auto-start-reverse"
+        >
+          <Path
+            d="M 1 1 L 9 5 L 1 9 z"
+            fill={nodeFill}
+            stroke={strokeColor}
+            strokeWidth={1.4}
+          />
+        </Marker>
+        <Marker
+          id={diamondId}
+          viewBox="0 0 12 10"
+          refX={10}
+          refY={5}
+          markerWidth={8}
+          markerHeight={7}
+          orient="auto-start-reverse"
+        >
+          <Path d="M 1 5 L 6 1 L 11 5 L 6 9 z" fill={strokeColor} />
+        </Marker>
+        <Marker
+          id={openDiamondId}
+          viewBox="0 0 12 10"
+          refX={10}
+          refY={5}
+          markerWidth={8}
+          markerHeight={7}
+          orient="auto-start-reverse"
+        >
+          <Path
+            d="M 1 5 L 6 1 L 11 5 L 6 9 z"
+            fill={nodeFill}
+            stroke={strokeColor}
+            strokeWidth={1.4}
+          />
         </Marker>
       </Defs>
 
@@ -184,8 +261,8 @@ function FlowchartSvg({
               stroke={strokeColor}
               strokeWidth={sw}
               strokeDasharray={edge.style === "dashed" ? "5,4" : undefined}
-              markerEnd={edge.arrowEnd ? `url(#${arrowId})` : undefined}
-              markerStart={edge.arrowStart ? `url(#${arrowId})` : undefined}
+              markerEnd={markerUrl(edge.markerEnd, edge.arrowEnd)}
+              markerStart={markerUrl(edge.markerStart, edge.arrowStart)}
             />
             {edge.label ? (
               <G>
@@ -440,7 +517,9 @@ function SequenceSvg({
   layout: MermaidSequenceLayout;
   theme: LoopTheme;
 }) {
-  const seqArrowId = `sa-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
+  const idBase = useId().replace(/[^a-zA-Z0-9_-]/g, "");
+  const seqArrowId = `sa-${idBase}`;
+  const seqCrossId = `sx-${idBase}`;
   const xById = useMemo(() => {
     const map = new Map<string, number>();
     for (const p of layout.participants) map.set(p.id, p.x);
@@ -467,6 +546,21 @@ function SequenceSvg({
           orient="auto"
         >
           <Path d="M 0 1 L 10 5 L 0 9 z" fill={strokeColor} />
+        </Marker>
+        <Marker
+          id={seqCrossId}
+          viewBox="0 0 10 10"
+          refX={5}
+          refY={5}
+          markerWidth={7}
+          markerHeight={7}
+          orient="auto"
+        >
+          <Path
+            d="M 2 2 L 8 8 M 8 2 L 2 8"
+            stroke={strokeColor}
+            strokeWidth={1.8}
+          />
         </Marker>
       </Defs>
 
@@ -542,6 +636,13 @@ function SequenceSvg({
           );
         }
 
+        const headUrl =
+          step.head === "arrow"
+            ? `url(#${seqArrowId})`
+            : step.head === "cross"
+              ? `url(#${seqCrossId})`
+              : undefined;
+
         if (x1 === x2) {
           const pathD = `M ${x1} ${step.y} H ${x1 + 36} V ${step.y + 20} H ${x1 + 2}`;
           return (
@@ -552,7 +653,7 @@ function SequenceSvg({
                 stroke={strokeColor}
                 strokeWidth={1.5}
                 strokeDasharray={step.dashed ? "5,4" : undefined}
-                markerEnd={step.arrow ? `url(#${seqArrowId})` : undefined}
+                markerEnd={headUrl}
               />
               {step.label ? (
                 <SvgText
@@ -583,7 +684,7 @@ function SequenceSvg({
               stroke={strokeColor}
               strokeWidth={1.5}
               strokeDasharray={step.dashed ? "5,4" : undefined}
-              markerEnd={step.arrow ? `url(#${seqArrowId})` : undefined}
+              markerEnd={headUrl}
             />
             {step.label ? (
               <SvgText

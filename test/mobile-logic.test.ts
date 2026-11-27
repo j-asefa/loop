@@ -2595,15 +2595,58 @@ describe("mobile native Mermaid diagram parser and layout", () => {
     const optParticipant = parseMermaidDiagram(`
       sequenceDiagram
         Option->>API: Select
+        API-xOption: Timeout
+        Option->API: Open
     `);
     expect(optParticipant?.kind).toBe("sequence");
+    if (optParticipant?.kind === "sequence") {
+      expect(
+        optParticipant.steps.map((s) => (s.kind === "message" ? s.head : "")),
+      ).toEqual(["arrow", "cross", "none"]);
+    }
 
-    // Adversarial ReDoS inputs (30k spaces / repeated unclosed %%{) must complete in linear time
+    // Apostrophes inside labels, --x connectors, class composition/cardinality, and composite state fallback
+    const apostrophe = parseMermaidDiagram(
+      "flowchart LR\n  A[Don't panic] --x B[Done]",
+    );
+    expect(apostrophe?.kind).toBe("flowchart");
+    if (apostrophe?.kind === "flowchart") {
+      expect(apostrophe.nodes.map((n) => n.label)).toEqual([
+        "Don't panic",
+        "Done",
+      ]);
+      expect(apostrophe.edges[0].markerEnd).toBe("cross");
+    }
+
+    const uml = parseMermaidDiagram(
+      'classDiagram\n  Owner "1" *-- "*" Part\n  Impl <|.. Iface',
+    );
+    expect(uml?.kind).toBe("class");
+    if (uml?.kind === "class") {
+      expect(uml.edges[0].markerStart).toBe("diamond");
+      expect(uml.edges[1].markerStart).toBe("triangle");
+      expect(uml.edges[1].style).toBe("dashed");
+    }
+
+    expect(
+      parseMermaidDiagram(
+        "stateDiagram-v2\n  state Active {\n    [*] --> Inner\n  }",
+      ),
+    ).toBeNull();
+
+    // Adversarial ReDoS & repeated & fan-out inputs must complete quickly without blowing up
     const t0 = Date.now();
     parseMermaidDiagram(`flowchart TD\n  A -- ${" ".repeat(30_000)} x`);
     parseMermaidDiagram(`sequenceDiagram\n  Note over ${" ".repeat(30_000)} x`);
     parseMermaidDiagram(`${"%%{".repeat(5_000)}flowchart TD\nA-->B`);
-    expect(Date.now() - t0).toBeLessThan(250);
+    const dedupFan = parseMermaidDiagram(
+      `flowchart LR\n  ${Array(500).fill("A").join("&")} --> ${Array(500).fill("B").join("&")}`,
+    );
+    expect(dedupFan?.kind).toBe("flowchart");
+    if (dedupFan?.kind === "flowchart") {
+      expect(dedupFan.edges).toHaveLength(1);
+    }
+    expect(Date.now() - t0).toBeLessThan(2000);
 
     // Node cap bounds large graphs safely
     const hugeLines = ["graph LR"];
@@ -2674,7 +2717,7 @@ describe("mobile native LaTeX math parser and currency safety", () => {
     ]);
 
     const matRows = parseLatexDisplayRows(
-      "A = \\begin{bmatrix} 1 & 2 \\\\ 3 & 4 \\end{bmatrix}",
+      "A = \\begin{bmatrix} \\text{R\\&D} & 2 \\\\ 3 & 4 \\end{bmatrix}",
     );
     expect(matRows).toEqual([
       [
@@ -2684,7 +2727,7 @@ describe("mobile native LaTeX math parser and currency safety", () => {
           left: "[",
           right: "]",
           rows: [
-            ["1", "2"],
+            ["R&D", "2"],
             ["3", "4"],
           ],
         },
