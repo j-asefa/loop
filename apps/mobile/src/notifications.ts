@@ -172,13 +172,18 @@ export function clearWorkspaceNotificationPrefs(
 export async function deliverLocalNotifications(
   origin: string | null | undefined,
   events: NotificationEvent[],
+  shouldContinue?: () => boolean,
 ): Promise<void> {
   if (!origin || events.length === 0) return;
+  if (shouldContinue && !shouldContinue()) return;
   const permission = await getNotificationPermissionStatus();
   if (permission !== "granted") return;
+  if (shouldContinue && !shouldContinue()) return;
   await ensureNotificationChannel();
+  if (shouldContinue && !shouldContinue()) return;
   const originBucket = draftWorkspaceBucket(origin);
   for (const ev of events) {
+    if (shouldContinue && !shouldContinue()) return;
     try {
       await Notifications.scheduleNotificationAsync({
         content: {

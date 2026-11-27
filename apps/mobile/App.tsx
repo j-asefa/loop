@@ -464,7 +464,11 @@ function LoopShell() {
           );
           notificationSnapshotRef.current = nextSnapshot;
           if (events.length > 0 && notificationPrefsLoadedRef.current) {
-            void deliverLocalNotifications(fetchOrigin, events);
+            void deliverLocalNotifications(
+              fetchOrigin,
+              events,
+              () => gen === loadCoordRef.current.currentGeneration,
+            );
           }
         },
         onError: (err) => {
@@ -1357,6 +1361,9 @@ function LoopShell() {
     if (client) await client.signOut();
     // Never wipe a newly paired workspace if the user switched while sign-out was in flight
     if (activeSessionRef.current !== signingOutSession) return;
+    // Invalidate any in-flight workspace loads BEFORE deleting local cache files so
+    // an about-to-finish fetchAll cannot recreate the cache file right after deletion.
+    workspaceGenRef.current = loadCoordRef.current.reset();
     clearWorkspaceDrafts(signingOutSession?.origin);
     clearWorkspaceCache(signingOutSession?.origin);
     clearWorkspaceNotificationPrefs(signingOutSession?.origin);
@@ -2074,6 +2081,10 @@ function LoopShell() {
             setPairingInitialUrl("");
           }}
           onPaired={(nextSession) => {
+            const prevOrigin = activeSessionRef.current?.origin;
+            if (prevOrigin && prevOrigin !== nextSession.origin) {
+              clearWorkspaceCache(prevOrigin);
+            }
             setSession(nextSession);
             setPairingOpen(false);
             setPairingInitialUrl("");

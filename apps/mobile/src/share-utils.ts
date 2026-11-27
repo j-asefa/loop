@@ -76,6 +76,44 @@ export function isSafeHttpUrl(raw: string): boolean {
   }
 }
 
+/** Returns true only for local device file URIs/paths (blocks remote http/https/data file URIs). */
+export function isSafeLocalShareFileUri(raw: string): boolean {
+  const trimmed = raw.trim();
+  if (!trimmed) return false;
+  if (trimmed.startsWith("/")) return true;
+  return /^(?:file|content|ph|assets-library):/i.test(trimmed);
+}
+
+/**
+ * Decides whether a failed `POST /api/share/send` may safely clear the persisted
+ * `pendingShare` lock and rotate its idempotency key.
+ *
+ * - On a RETRY of an earlier uncertain send (`wasRetry === true`), NEVER clear or
+ *   rotate automatically: server pre-checks (e.g. retired agent 409, unknown handle 404)
+ *   run before the idempotency lookup, so a rejection does not prove the earlier send
+ *   failed to commit.
+ * - On a fresh send (`wasRetry === false`), preserve the lock on uncertain outcomes
+ *   and idempotency-key 409 conflicts; clear & rotate only on definite rejections.
+ */
+export function classifyShareSendFailure(input: {
+  wasRetry: boolean;
+  isUncertain: boolean;
+  status?: number;
+  message?: string;
+}):
+  | "keep-lock-uncertain"
+  | "keep-lock-conflict"
+  | "keep-lock-retry-rejected"
+  | "clear-and-rotate" {
+  const isIdempotencyConflict =
+    input.status === 409 &&
+    /request key|idempotency/i.test(input.message || "");
+  if (isIdempotencyConflict) return "keep-lock-conflict";
+  if (input.isUncertain) return "keep-lock-uncertain";
+  if (input.wasRetry) return "keep-lock-retry-rejected";
+  return "clear-and-rotate";
+}
+
 function safeFileNameFromUri(
   uri: string,
   fallbackMime: string,
@@ -152,10 +190,10 @@ export function normalizeIncomingSharePayloads(
       continue;
     }
 
-    // File / image / audio / video share
+    // File / image / audio / video share (local device URIs only)
     if (files.length >= MAX_SHARE_FILES) continue;
     const uri = (item.contentUri || rawValue).trim();
-    if (!uri) continue;
+    if (!uri || !isSafeLocalShareFileUri(uri)) continue;
     const mimeType =
       (item.contentMimeType || item.mimeType || "").trim() ||
       (item.shareType === "image"
@@ -191,11 +229,11 @@ export function normalizeIncomingSharePayloads(
     return null;
   }
 
-  const fingerprintSeed = [
+  const fingerprintSeed = JSON.stringify([
     sourceUrl || "",
     sharedText || "",
-    ...files.map((f) => `${f.name}:${f.mimeType}:${f.size ?? 0}:${f.uri}`),
-  ].join("|");
+    files.map((f) => [f.name, f.mimeType, f.size ?? 0, f.uri]),
+  ]);
   const fingerprint = shareContentFingerprint(fingerprintSeed);
 
   return {

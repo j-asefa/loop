@@ -46,6 +46,7 @@ import {
 import { haptics } from "../haptics";
 import {
   buildShareSendPayload,
+  classifyShareSendFailure,
   extractLeadingShareHandle,
   normalizeIncomingSharePayloads,
   type NormalizedIncomingShare,
@@ -321,10 +322,20 @@ export function ShareInboxSheet({
     share.sourceUrl,
   ]);
 
+  const handleResetPendingLock = useCallback(() => {
+    if (!client || sending) return;
+    clearDraft(client.origin, draftScopeForShare(share.fingerprint));
+    lockedPendingShareRef.current = null;
+    idempotencyKeyRef.current = randomUuid();
+    setUncertainRetryLocked(false);
+    setError("");
+  }, [client, sending, share.fingerprint]);
+
   const handleSend = useCallback(async () => {
     if (!client || sending || !pendingLoaded) return;
     const activeClient = client;
     const locked = lockedPendingShareRef.current;
+    const wasAlreadyUncertainRetry = Boolean(locked);
     const trimmed = question.trim() || "Summarize and analyze this.";
     const leadingHandle = extractLeadingShareHandle(trimmed);
     const routedAgent = leadingHandle
@@ -383,11 +394,22 @@ export function ShareInboxSheet({
         ...(attachmentIds.length > 0 ? { attachmentIds } : {}),
       };
 
-      // Persist durable idempotency key + full send metadata BEFORE POST /api/share/send
-      // so any uncertain timeout or restart retries with 100% identical payload.
-      await saveDraftAndFlush(activeClient.origin, shareScope, trimmed, {
-        share: pendingMeta,
-      });
+      // Persist durable idempotency key + full send metadata BEFORE POST /api/share/send.
+      // Handle local persistence failures separately so they NEVER clear an existing lock.
+      try {
+        await saveDraftAndFlush(activeClient.origin, shareScope, trimmed, {
+          share: pendingMeta,
+        });
+      } catch (persistErr) {
+        if (mountedRef.current && clientRef.current === activeClient) {
+          setError(
+            persistErr instanceof Error
+              ? persistErr.message
+              : "Could not save local recovery state. Please try again.",
+          );
+        }
+        return;
+      }
       if (!mountedRef.current || clientRef.current !== activeClient) return;
       lockedPendingShareRef.current = pendingMeta;
 
@@ -402,10 +424,11 @@ export function ShareInboxSheet({
         idempotencyKey: idempotencyKeyRef.current,
       });
       if (!payload) {
-        clearDraft(activeClient.origin, shareScope);
-        lockedPendingShareRef.current = null;
+        if (!wasAlreadyUncertainRetry) {
+          clearDraft(activeClient.origin, shareScope);
+          lockedPendingShareRef.current = null;
+        }
         setError("Could not prepare shared request.");
-        setSending(false);
         return;
       }
       const runResult = await activeClient.shareSend(payload);
@@ -421,22 +444,28 @@ export function ShareInboxSheet({
         routedAgent?.name ?? leadingHandle ?? agent?.name ?? "agent";
       onSent(`Sent to @${targetName}`, runResult.conversation_id, targetName);
     } catch (err) {
-      const isIdempotencyConflict =
-        err instanceof LoopApiError &&
-        err.status === 409 &&
-        /request key|idempotency/i.test(err.message);
-      if (isUncertainOutcomeError(err) || isIdempotencyConflict) {
+      const outcome = classifyShareSendFailure({
+        wasRetry: wasAlreadyUncertainRetry,
+        isUncertain: isUncertainOutcomeError(err),
+        status: err instanceof LoopApiError ? err.status : undefined,
+        message: err instanceof Error ? err.message : undefined,
+      });
+      if (outcome !== "clear-and-rotate") {
         if (!mountedRef.current || clientRef.current !== activeClient) return;
-        // Preserve persisted pendingShare and NEVER rotate key on uncertain outcome
-        // or idempotency-key conflict — avoids replaying uncertain work as a second run.
+        // Preserve persisted pendingShare and NEVER rotate key automatically on
+        // uncertain outcomes, idempotency conflicts, or retries of uncertain sends.
         setUncertainRetryLocked(true);
+        const serverMsg =
+          err instanceof Error && err.message ? `${err.message} ` : "";
         setError(
-          isIdempotencyConflict
-            ? "This request key is already recorded on the server — check your Feed before sending again."
-            : "Send timed out — tap Retry safely to reuse the exact request ID, or Cancel to check your Feed.",
+          outcome === "keep-lock-conflict"
+            ? "This request key is already recorded on the server — check your Feed, or tap Start fresh to send a new request."
+            : outcome === "keep-lock-retry-rejected"
+              ? `${serverMsg}Check your Feed to verify whether the earlier send completed, or tap Start fresh.`
+              : "Send timed out — tap Retry safely to reuse the exact request ID, or Cancel to check your Feed.",
         );
       } else {
-        // Definite rejection (400/404, retired/unconnected agent 409, etc.):
+        // Definite first-attempt rejection (no prior uncertain send existed):
         // clear persisted lock even if unmounted, and rotate key for a revised send.
         clearDraft(activeClient.origin, shareScope);
         if (!mountedRef.current || clientRef.current !== activeClient) return;
@@ -780,6 +809,32 @@ export function ShareInboxSheet({
                     {error}
                   </Text>
                 ) : null}
+
+                {uncertainRetryLocked ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Clear locked request and start fresh"
+                    disabled={sending}
+                    onPress={() => {
+                      haptics.warning();
+                      handleResetPendingLock();
+                    }}
+                    style={[
+                      styles.startFreshBtn,
+                      {
+                        backgroundColor: theme.surface,
+                        borderColor: theme.line,
+                        opacity: sending ? 0.5 : 1,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[styles.startFreshText, { color: theme.muted }]}
+                    >
+                      Already checked Feed? Start fresh
+                    </Text>
+                  </Pressable>
+                ) : null}
               </>
             )}
           </ScrollView>
@@ -985,6 +1040,18 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     fontWeight: "600",
     marginTop: 4,
+  },
+  startFreshBtn: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginTop: 2,
+  },
+  startFreshText: {
+    fontSize: 12.5,
+    fontWeight: "600",
   },
   footer: {
     flexDirection: "row",

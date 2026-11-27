@@ -27,8 +27,10 @@ import {
 } from "../apps/mobile/src/offline-cache-codec.js";
 import {
   buildShareSendPayload,
+  classifyShareSendFailure,
   extractLeadingShareHandle,
   isSafeHttpUrl,
+  isSafeLocalShareFileUri,
   normalizeIncomingSharePayloads,
 } from "../apps/mobile/src/share-utils.js";
 import {
@@ -3176,7 +3178,7 @@ describe("mobile incoming share normalization and server contract compatibility"
     expect(extractLeadingShareHandle("@Willow, check this")).toBe("willow");
     expect(extractLeadingShareHandle("Summarize this")).toBeNull();
 
-    // Share fingerprint is case-sensitive so shares differing only in case do not collide
+    // Share fingerprint is case-sensitive and delimiter-safe (no pipe-concatenation collisions)
     const upperShare = normalizeIncomingSharePayloads([
       { shareType: "text", value: "Review README" },
     ]);
@@ -3184,6 +3186,72 @@ describe("mobile incoming share normalization and server contract compatibility"
       { shareType: "text", value: "review readme" },
     ]);
     expect(upperShare?.fingerprint).not.toBe(lowerShare?.fingerprint);
+
+    const pipeA = normalizeIncomingSharePayloads([
+      { shareType: "url", value: "https://example.com/a|b" },
+      { shareType: "text", value: "c" },
+    ]);
+    const pipeB = normalizeIncomingSharePayloads([
+      { shareType: "url", value: "https://example.com/a" },
+      { shareType: "text", value: "b|c" },
+    ]);
+    expect(pipeA?.fingerprint).not.toBe(pipeB?.fingerprint);
+
+    // Local-only file URI validation blocks remote URLs masquerading as shared files
+    expect(isSafeLocalShareFileUri("file:///cache/doc.pdf")).toBe(true);
+    expect(isSafeLocalShareFileUri("content://media/external/images/1")).toBe(
+      true,
+    );
+    expect(isSafeLocalShareFileUri("https://evil.example/payload.bin")).toBe(
+      false,
+    );
+    expect(
+      normalizeIncomingSharePayloads([
+        { shareType: "file", value: "https://evil.example/payload.bin" },
+      ]),
+    ).toBeNull();
+
+    // Retry failure classification never clears/rotates on uncertain outcomes, idempotency 409s,
+    // or rejected retries of an earlier uncertain send, while clearing fresh definite rejections
+    expect(
+      classifyShareSendFailure({
+        wasRetry: false,
+        isUncertain: false,
+        status: 409,
+        message: "This agent is retired.",
+      }),
+    ).toBe("clear-and-rotate");
+    expect(
+      classifyShareSendFailure({
+        wasRetry: false,
+        isUncertain: false,
+        status: 409,
+        message: "This request key belongs to different work",
+      }),
+    ).toBe("keep-lock-conflict");
+    expect(
+      classifyShareSendFailure({
+        wasRetry: true,
+        isUncertain: false,
+        status: 409,
+        message: "This agent is retired.",
+      }),
+    ).toBe("keep-lock-retry-rejected");
+    expect(
+      classifyShareSendFailure({
+        wasRetry: true,
+        isUncertain: false,
+        status: 404,
+        message: "That @handle is unknown",
+      }),
+    ).toBe("keep-lock-retry-rejected");
+    expect(
+      classifyShareSendFailure({
+        wasRetry: false,
+        isUncertain: true,
+        status: 504,
+      }),
+    ).toBe("keep-lock-uncertain");
 
     // Durable pendingShare metadata (key, agentId, folderId, attachmentIds) survives serialization
     // and is protected ahead of the 80-draft cap for uncertain retry recovery
