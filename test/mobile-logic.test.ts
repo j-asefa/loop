@@ -65,6 +65,8 @@ import {
 import {
   assertSameOriginResponse,
   extractSessionCookie,
+  isSamePairedDevice,
+  preserveProbedCredentials,
   normalizeWorkspaceUrl,
   tryParsePairingLink,
 } from "../apps/mobile/src/api/pairing-url.js";
@@ -4047,4 +4049,30 @@ it("allows a fresh carousel read to update a settled save while preserving an in
   const refreshed = reconcileCarouselSaves(edits, [], 4);
   expect(refreshed.get("settled")).toEqual({ saved: false, revision: 4 });
   expect(refreshed.get("pending")).toBe(edits.get("pending"));
+});
+
+it("preserves a re-probed paired device and treats a different device on the same URL as a new pairing", () => {
+  const current = {
+    origin: "https://loop.example.com",
+    cookie: "loop=token",
+    csrf: "old",
+    deviceId: "device-a",
+    pairedAt: 1,
+    deviceName: "iPhone",
+  };
+  const probe = { ...current, cookie: "", csrf: "new", pairedAt: 2 };
+  expect(isSamePairedDevice(current, probe)).toBe(true);
+  expect(preserveProbedCredentials(current, probe)).toEqual({
+    ...current,
+    csrf: "new",
+  });
+  const replacement = { ...probe, deviceId: "device-b" };
+  expect(isSamePairedDevice(current, replacement)).toBe(false);
+  expect(preserveProbedCredentials(current, replacement)).toBe(replacement);
+  expect(
+    isSamePairedDevice(current, {
+      ...current,
+      origin: "https://other.example.com",
+    }),
+  ).toBe(false);
 });

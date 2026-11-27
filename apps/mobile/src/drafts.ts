@@ -69,6 +69,7 @@ function writeBucketFile(bucket: string, map: DraftMap): void {
     if (file.exists) file.delete();
     return;
   }
+  // Expo SDK 58 uses an asynchronous write(); recovery must persist before dispatch.
   file.writeSync(serializeDraftStore(map));
   try {
     if (legacy.exists) legacy.delete();
@@ -341,8 +342,25 @@ export function clearDraft(
 }
 
 /** Purge all cached drafts for a workspace on sign-out or session expiry. */
-export function clearWorkspaceDrafts(origin: string | null | undefined): void {
+export function clearWorkspaceDrafts(
+  origin: string | null | undefined,
+  options?: { requireFileRemoval?: boolean },
+): void {
   const bucket = draftWorkspaceBucket(origin);
+  let removalFailed = false;
+  for (const makeFile of [draftFileForBucket, legacyDraftFileForBucket]) {
+    try {
+      const file = makeFile(bucket);
+      if (file.exists) file.delete();
+    } catch {
+      removalFailed = true;
+    }
+  }
+  if (removalFailed && options?.requireFileRemoval) {
+    throw new Error(
+      "Could not clear drafts from the previous pairing. Try pairing again.",
+    );
+  }
   bucketEpoch.set(bucket, (bucketEpoch.get(bucket) ?? 0) + 1);
   pendingOpsByBucket.delete(bucket);
   const timer = flushTimers.get(bucket);
@@ -352,12 +370,4 @@ export function clearWorkspaceDrafts(origin: string | null | undefined): void {
   }
   memoryBuckets.set(bucket, createEmptyDraftMap());
   loadedBuckets.add(bucket);
-  for (const makeFile of [draftFileForBucket, legacyDraftFileForBucket]) {
-    try {
-      const file = makeFile(bucket);
-      if (file.exists) file.delete();
-    } catch {
-      // Best-effort cleanup on sign-out.
-    }
-  }
 }

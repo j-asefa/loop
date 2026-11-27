@@ -5,6 +5,7 @@ import {
   extractSessionCookie,
   normalizeWorkspaceUrl,
   parsePairingLink,
+  preserveProbedCredentials,
   tryParsePairingLink,
   type ParsedPairingLink,
 } from "./pairing-url";
@@ -57,15 +58,14 @@ export async function probeWorkspaceUrl(rawUrl: string): Promise<{
     if (data.csrf) {
       const cookie =
         extractSessionCookie(sessionRes.headers.get("set-cookie")) ?? "";
-      const session: PairedSession = {
+      const session = preserveProbedCredentials(await loadPairedSession(), {
         origin,
         cookie,
         csrf: data.csrf,
         deviceId: data.device?.id,
         deviceName: data.device?.name || "Loop iPhone",
         pairedAt: Date.now(),
-      };
-      await savePairedSession(session);
+      });
       return { origin, session };
     }
   }
@@ -138,7 +138,6 @@ async function redeemPairing(
     deviceName: sessionJson.device?.name || deviceName,
     pairedAt: Date.now(),
   };
-  await savePairedSession(session);
   return session;
 }
 

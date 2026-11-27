@@ -1,3 +1,28 @@
+import type { PairedSession } from "./types";
+
+export function isSamePairedDevice(
+  previous: PairedSession | null,
+  next: PairedSession,
+): boolean {
+  if (!previous || previous.origin !== next.origin) return false;
+  if (previous.deviceId && next.deviceId)
+    return previous.deviceId === next.deviceId;
+  return Boolean(previous.cookie && previous.cookie === next.cookie);
+}
+
+export function preserveProbedCredentials(
+  previous: PairedSession | null,
+  next: PairedSession,
+): PairedSession {
+  if (!previous || !isSamePairedDevice(previous, next)) return next;
+  return {
+    ...next,
+    cookie: next.cookie || previous.cookie,
+    deviceId: next.deviceId || previous.deviceId,
+    pairedAt: previous.pairedAt,
+  };
+}
+
 export type ParsedPairingLink = {
   origin: string;
   secret: string;

@@ -274,7 +274,11 @@ export function SpotlightCarousel({
       ? client?.cachedCarouselPage(conversationId)
       : undefined;
     return page
-      ? { ...parseConversationPageToSlides(page, cards[0]), next: page.next }
+      ? {
+          ...parseConversationPageToSlides(page, cards[0]),
+          next: page.next,
+          saved: page.saved,
+        }
       : undefined;
   });
   // Seed the first render from a cached page, then revalidate in the background.
@@ -293,6 +297,9 @@ export function SpotlightCarousel({
   const [historyUnavailable, setHistoryUnavailable] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(Boolean(initialHistory));
   const [historyRetry, setHistoryRetry] = useState<string>();
+  const [serverSavedIds, setServerSavedIds] = useState<Set<string> | undefined>(
+    () => initialHistory && new Set(initialHistory.saved),
+  );
   const [savedEdits, setSavedEdits] = useState(
     new Map<string, CarouselSaveEdit>(),
   );
@@ -332,6 +339,7 @@ export function SpotlightCarousel({
       .then((page) => {
         if (cancelled) return;
         setHistoryUnavailable(false);
+        setServerSavedIds(new Set(page.saved));
         setSavedEdits((prev) =>
           reconcileCarouselSaves(prev, page.saved, requestRevision),
         );
@@ -454,11 +462,17 @@ export function SpotlightCarousel({
     }
     return ordered.map((card) => {
       const edited = savedEdits.get(carouselCardKey(card));
-      return edited ? { ...card, saved: edited.saved } : card;
+      const saved =
+        edited?.saved ??
+        (card.messageId && serverSavedIds
+          ? serverSavedIds.has(card.messageId)
+          : card.saved);
+      return saved === card.saved ? card : { ...card, saved };
     });
   }, [
     pinnedIds,
     savedEdits,
+    serverSavedIds,
     cards,
     historyUnavailable,
     historyLoaded,

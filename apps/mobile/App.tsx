@@ -38,7 +38,12 @@ import {
   type LoopFileTarget,
   type PublishedFileItem,
 } from "./src/api/files";
-import { clearPairedSession, loadPairedSession } from "./src/api/pairing";
+import {
+  clearPairedSession,
+  loadPairedSession,
+  savePairedSession,
+} from "./src/api/pairing";
+import { isSamePairedDevice } from "./src/api/pairing-url";
 import {
   applyLiveStreamBatch,
   buildAgentQueuedRuns,
@@ -123,8 +128,8 @@ import {
 import { haptics } from "./src/haptics";
 import { DARK_THEME, LIGHT_THEME } from "./src/theme";
 
-function clearPairedWorkspaceData(origin: string) {
-  clearWorkspaceDrafts(origin);
+function clearPairedWorkspaceData(origin: string, requireFileRemoval = false) {
+  clearWorkspaceDrafts(origin, { requireFileRemoval });
   clearWorkspaceCache(origin);
   clearWorkspaceNotificationPrefs(origin);
 }
@@ -2127,14 +2132,22 @@ function LoopShell() {
             setPairingOpen(false);
             setPairingInitialUrl("");
           }}
-          onPaired={(nextSession) => {
-            const prevOrigin = activeSessionRef.current?.origin;
-            if (prevOrigin && prevOrigin !== nextSession.origin) {
-              clearPairedWorkspaceData(prevOrigin);
+          onPaired={async (nextSession) => {
+            const previous = activeSessionRef.current;
+            const newDevice = !isSamePairedDevice(previous, nextSession);
+            // A URL probe can reuse the same device. Clear local data only
+            // when the server's paired device identity changes.
+            if (newDevice) clearPairedWorkspaceData(nextSession.origin, true);
+            // Persist the new credential only after the target's old drafts
+            // are gone, so a restart mid-pairing cannot expose them.
+            await savePairedSession(nextSession);
+            if (
+              newDevice &&
+              previous &&
+              previous.origin !== nextSession.origin
+            ) {
+              clearPairedWorkspaceData(previous.origin);
             }
-            // A QR pairing is a new credential boundary even at the same URL.
-            // Normal startup restores the saved session without clearing its drafts.
-            clearPairedWorkspaceData(nextSession.origin);
             setComposeTarget(null);
             setSession(nextSession);
             setPairingOpen(false);

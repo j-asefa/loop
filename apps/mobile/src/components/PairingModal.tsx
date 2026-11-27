@@ -44,7 +44,7 @@ export function PairingModal({
   canClose: boolean;
   initialUrl?: string;
   onClose: () => void;
-  onPaired: (session: PairedSession) => void;
+  onPaired: (session: PairedSession) => Promise<void>;
 }) {
   const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
@@ -67,23 +67,23 @@ export function PairingModal({
       const { origin, pairing } = tryParsePairingLink(rawUrl);
       if (pairing) {
         const session = await pairWithCompanion(rawUrl);
+        await onPaired(session);
         haptics.success();
-        onPaired(session);
         return;
       }
 
       if (rawToken.trim()) {
         const session = await pairWithOriginAndToken(origin, rawToken);
+        await onPaired(session);
         haptics.success();
-        onPaired(session);
         return;
       }
 
       // Bare workspace URL: check reachability and any existing cookie session
       const probe = await probeWorkspaceUrl(rawUrl);
       if (probe.session) {
+        await onPaired(probe.session);
         haptics.success();
-        onPaired(probe.session);
         return;
       }
       setVerifiedOrigin(probe.origin);
