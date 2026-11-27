@@ -229,7 +229,7 @@ export function ShareInboxSheet({
     setPendingLoaded(false);
     let cancelled = false;
     const scope = draftScopeForShare(share.fingerprint);
-    void loadDraftEntry(client.origin, scope)
+    void loadDraftEntry(client.localDataScope, scope)
       .then((entry) => {
         if (cancelled || !mountedRef.current || clientRef.current !== client) {
           return;
@@ -325,7 +325,7 @@ export function ShareInboxSheet({
 
   const handleResetPendingLock = useCallback(() => {
     if (!client || sending) return;
-    clearDraft(client.origin, draftScopeForShare(share.fingerprint));
+    clearDraft(client.localDataScope, draftScopeForShare(share.fingerprint));
     lockedPendingShareRef.current = null;
     idempotencyKeyRef.current = randomUuid();
     setUncertainRetryLocked(false);
@@ -426,9 +426,14 @@ export function ShareInboxSheet({
       // Persist durable idempotency key + full send metadata BEFORE POST /api/share/send.
       // Handle local persistence failures separately so they NEVER clear an existing lock.
       try {
-        await saveDraftAndFlush(activeClient.origin, shareScope, trimmed, {
-          share: pendingMeta,
-        });
+        await saveDraftAndFlush(
+          activeClient.localDataScope,
+          shareScope,
+          trimmed,
+          {
+            share: pendingMeta,
+          },
+        );
       } catch (persistErr) {
         if (mountedRef.current && clientRef.current === activeClient) {
           setError(
@@ -454,7 +459,7 @@ export function ShareInboxSheet({
       });
       if (!payload) {
         if (!wasAlreadyUncertainRetry) {
-          clearDraft(activeClient.origin, shareScope);
+          clearDraft(activeClient.localDataScope, shareScope);
           lockedPendingShareRef.current = null;
         }
         setError("Could not prepare shared request.");
@@ -465,7 +470,7 @@ export function ShareInboxSheet({
 
       // Always clear persisted pendingShare on confirmed success even if the sheet
       // unmounted or switched workspaces mid-flight, so re-sharing later never stalls.
-      clearDraft(activeClient.origin, shareScope);
+      clearDraft(activeClient.localDataScope, shareScope);
       if (!mountedRef.current || clientRef.current !== activeClient) return;
       lockedPendingShareRef.current = null;
       setUncertainRetryLocked(false);
@@ -507,7 +512,7 @@ export function ShareInboxSheet({
       } else {
         // Definite first-attempt rejection (no prior uncertain send existed):
         // clear persisted lock even if unmounted, and rotate key for a revised send.
-        clearDraft(activeClient.origin, shareScope);
+        clearDraft(activeClient.localDataScope, shareScope);
         if (!mountedRef.current || clientRef.current !== activeClient) return;
         lockedPendingShareRef.current = null;
         setUncertainRetryLocked(false);

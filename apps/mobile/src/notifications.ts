@@ -157,7 +157,6 @@ export function saveNotificationPrefs(
 
 export function clearWorkspaceNotificationPrefs(
   origin: string | null | undefined,
-  options?: { requireFileRemoval?: boolean },
 ): void {
   const bucket = draftWorkspaceBucket(origin);
   prefsEpoch.set(bucket, (prefsEpoch.get(bucket) ?? 0) + 1);
@@ -166,8 +165,7 @@ export function clearWorkspaceNotificationPrefs(
     const file = prefsFileForBucket(bucket);
     if (file.exists) file.delete();
   } catch {
-    if (options?.requireFileRemoval)
-      throw new Error("Could not clear the previous notification preferences.");
+    // Best-effort cleanup for this session.
   }
 }
 

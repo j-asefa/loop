@@ -189,6 +189,9 @@ export async function loadPairedSession(): Promise<PairedSession | null> {
       deviceId: parsed.deviceId,
       deviceName: parsed.deviceName || "Loop iPhone",
       pairedAt: parsed.pairedAt || Date.now(),
+      ...(typeof parsed.localDataScope === "string"
+        ? { localDataScope: parsed.localDataScope }
+        : {}),
     };
   } catch {
     return null;

@@ -135,6 +135,10 @@ export class LoopClient {
     return this.session.origin;
   }
 
+  get localDataScope(): string {
+    return this.session.localDataScope ?? this.session.origin;
+  }
+
   get currentSession(): PairedSession {
     return this.session;
   }

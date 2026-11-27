@@ -20,6 +20,28 @@ export function preserveProbedCredentials(
     cookie: next.cookie || previous.cookie,
     deviceId: next.deviceId || previous.deviceId,
     pairedAt: previous.pairedAt,
+    localDataScope: previous.localDataScope,
+  };
+}
+
+// Sessions saved by earlier builds keep their origin-scoped files. A new
+// device uses a separate namespace, without deleting the previous device's data.
+export function localDataScope(
+  session: PairedSession | null | undefined,
+): string | undefined {
+  return session?.localDataScope ?? session?.origin;
+}
+
+export function assignPairingStorage(
+  previous: PairedSession | null,
+  next: PairedSession,
+  nonce: string,
+): PairedSession {
+  if (isSamePairedDevice(previous, next))
+    return preserveProbedCredentials(previous, next);
+  return {
+    ...next,
+    localDataScope: `${next.origin}/paired-device/${encodeURIComponent(next.deviceId || nonce)}`,
   };
 }
 

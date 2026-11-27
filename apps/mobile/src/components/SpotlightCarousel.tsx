@@ -552,7 +552,7 @@ export function SpotlightCarousel({
     if (!draftScope) return;
     let cancelled = false;
     draftTouchedRef.current = false;
-    void loadDraftEntry(client?.origin, draftScope).then((entry) => {
+    void loadDraftEntry(client?.localDataScope, draftScope).then((entry) => {
       if (cancelled) return;
       setDraftLoaded(true);
       if (!entry?.text) return;
@@ -587,7 +587,7 @@ export function SpotlightCarousel({
     return () => {
       cancelled = true;
     };
-  }, [client?.origin, draftScope]);
+  }, [client?.localDataScope, draftScope]);
   const [replyError, setReplyError] = useState("");
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleBusy, setScheduleBusy] = useState(false);
@@ -1064,11 +1064,11 @@ export function SpotlightCarousel({
       pendingReplyRef.current = null;
       setReplyError("");
       setDraft(prompt);
-      if (draftScope) saveDraft(client?.origin, draftScope, prompt);
+      if (draftScope) saveDraft(client?.localDataScope, draftScope, prompt);
       setQuickReplyOpen(false);
       setTimeout(() => replyInputRef.current?.focus(), 60);
     },
-    [client?.origin, draftScope, scheduleLocked],
+    [client?.localDataScope, draftScope, scheduleLocked],
   );
 
   const handleSlideToggleSaved = useCallback(
@@ -1154,7 +1154,7 @@ export function SpotlightCarousel({
       );
       pendingReplyRef.current = null;
       setRetryModeLocked(false);
-      if (draftScope) clearDraft(client?.origin, draftScope);
+      if (draftScope) clearDraft(client?.localDataScope, draftScope);
       setDraft("");
       clearAttachments();
     } catch (err) {
@@ -1164,7 +1164,7 @@ export function SpotlightCarousel({
       } else {
         setRetryModeLocked(true);
         if (draftScope) {
-          saveDraft(client?.origin, draftScope, draft, {
+          saveDraft(client?.localDataScope, draftScope, draft, {
             key: idempotencyKey,
             queue,
           });
@@ -1228,7 +1228,7 @@ export function SpotlightCarousel({
       if (draftScope) {
         try {
           await saveDraftAndFlush(
-            client?.origin,
+            client?.localDataScope,
             draftScope,
             trimmed || finalPrompt,
             {
@@ -1270,7 +1270,7 @@ export function SpotlightCarousel({
         setScheduleOpen(false);
         pendingReplyRef.current = null;
         setRetryModeLocked(false);
-        if (draftScope) clearDraft(client?.origin, draftScope);
+        if (draftScope) clearDraft(client?.localDataScope, draftScope);
         setDraft("");
         clearAttachments();
         Keyboard.dismiss();
@@ -1296,8 +1296,9 @@ export function SpotlightCarousel({
         } else {
           setPendingSchedule(null);
           if (draftScope) {
-            if (draft.trim()) saveDraft(client?.origin, draftScope, draft);
-            else clearDraft(client?.origin, draftScope);
+            if (draft.trim())
+              saveDraft(client?.localDataScope, draftScope, draft);
+            else clearDraft(client?.localDataScope, draftScope);
           }
         }
         haptics.warning();
@@ -1312,7 +1313,7 @@ export function SpotlightCarousel({
     },
     [
       activeCard,
-      client?.origin,
+      client?.localDataScope,
       draft,
       draftScope,
       onScheduleReply,
@@ -2284,7 +2285,8 @@ export function SpotlightCarousel({
                   pendingReplyRef.current = null;
                   if (replyError) setReplyError("");
                   setDraft(next);
-                  if (draftScope) saveDraft(client?.origin, draftScope, next);
+                  if (draftScope)
+                    saveDraft(client?.localDataScope, draftScope, next);
                 }}
                 placeholder={`Reply to @${agentName}…`}
                 placeholderTextColor={theme.muted}
@@ -2413,8 +2415,9 @@ export function SpotlightCarousel({
           setScheduleError("");
           setScheduleOpen(false);
           if (draftScope) {
-            if (draft.trim()) saveDraft(client?.origin, draftScope, draft);
-            else clearDraft(client?.origin, draftScope);
+            if (draft.trim())
+              saveDraft(client?.localDataScope, draftScope, draft);
+            else clearDraft(client?.localDataScope, draftScope);
           }
         }}
       />

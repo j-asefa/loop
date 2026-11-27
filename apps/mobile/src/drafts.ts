@@ -342,24 +342,15 @@ export function clearDraft(
 }
 
 /** Purge all cached drafts for a workspace on sign-out or session expiry. */
-export function clearWorkspaceDrafts(
-  origin: string | null | undefined,
-  options?: { requireFileRemoval?: boolean },
-): void {
+export function clearWorkspaceDrafts(origin: string | null | undefined): void {
   const bucket = draftWorkspaceBucket(origin);
-  let removalFailed = false;
   for (const makeFile of [draftFileForBucket, legacyDraftFileForBucket]) {
     try {
       const file = makeFile(bucket);
       if (file.exists) file.delete();
     } catch {
-      removalFailed = true;
+      // Best-effort removal of files belonging to this session.
     }
-  }
-  if (removalFailed && options?.requireFileRemoval) {
-    throw new Error(
-      "Could not clear drafts from the previous pairing. Try pairing again.",
-    );
   }
   bucketEpoch.set(bucket, (bucketEpoch.get(bucket) ?? 0) + 1);
   pendingOpsByBucket.delete(bucket);

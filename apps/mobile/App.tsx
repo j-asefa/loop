@@ -30,6 +30,7 @@ import {
 import {
   isUncertainOutcomeError,
   LoopApiError,
+  randomUuid,
   LoopClient,
 } from "./src/api/client";
 import type { PendingAgentCreate } from "./src/drafts-codec";
@@ -43,7 +44,7 @@ import {
   loadPairedSession,
   savePairedSession,
 } from "./src/api/pairing";
-import { isSamePairedDevice } from "./src/api/pairing-url";
+import { assignPairingStorage, localDataScope } from "./src/api/pairing-url";
 import {
   applyLiveStreamBatch,
   buildAgentQueuedRuns,
@@ -128,10 +129,10 @@ import {
 import { haptics } from "./src/haptics";
 import { DARK_THEME, LIGHT_THEME } from "./src/theme";
 
-function clearPairedWorkspaceData(origin: string, requireFileRemoval = false) {
-  clearWorkspaceDrafts(origin, { requireFileRemoval });
-  clearWorkspaceCache(origin, { requireFileRemoval });
-  clearWorkspaceNotificationPrefs(origin, { requireFileRemoval });
+function clearPairedWorkspaceData(scope: string | undefined) {
+  clearWorkspaceDrafts(scope);
+  clearWorkspaceCache(scope);
+  clearWorkspaceNotificationPrefs(scope);
 }
 
 type AppTab = "feed" | "projects" | "pulls" | "search" | "profile";
@@ -304,7 +305,7 @@ function LoopShell() {
       inspectUrl(event.url),
     );
     const unsubNotifTap = subscribeNotificationTaps((data) => {
-      const origin = activeSessionRef.current?.origin;
+      const origin = localDataScope(activeSessionRef.current);
       if (!origin) {
         // Hold cold-start notification taps until Keychain session finishes loading
         pendingNotificationTapRef.current = data;
@@ -340,7 +341,7 @@ function LoopShell() {
       // Invalidate any in-flight workspace loads BEFORE deleting local files so a
       // sibling fetchAll cannot recreate cache or fire notifications after expiry.
       workspaceGenRef.current = loadCoordRef.current.reset();
-      clearPairedWorkspaceData(expiredSession.origin);
+      clearPairedWorkspaceData(localDataScope(expiredSession));
       void clearPairedSession();
       setComposeTarget(null);
       setSession(null);
@@ -359,7 +360,6 @@ function LoopShell() {
     [session, handleUnauthorizedForSession],
   );
 
-  const pairingChangeRef = useRef(false);
   const workspaceGenRef = useRef(0);
   const loadCoordRef = useRef(new WorkspaceLoadCoordinator());
   // Durable per-target idempotency/command keys so retries after uncertain timeouts reuse the same key
@@ -371,12 +371,7 @@ function LoopShell() {
 
   const loadWorkspace = useCallback(
     async (options?: { silent?: boolean }) => {
-      if (
-        !client ||
-        pairingChangeRef.current ||
-        activeSessionRef.current !== session
-      )
-        return;
+      if (!client || activeSessionRef.current !== session) return;
       const gen = loadCoordRef.current.currentGeneration;
       await loadCoordRef.current.run(options ?? { silent: true }, {
         setRefreshing,
@@ -473,7 +468,7 @@ function LoopShell() {
           setShowingCachedSnapshot(false);
           setCachedAt(null);
           // Bind cache and notifications strictly to the client that performed this fetch
-          const fetchOrigin = client.origin;
+          const fetchOrigin = client.localDataScope;
           saveWorkspaceCache(fetchOrigin, {
             environmentName: boot.environmentName || "",
             cards: nextTopCards,
@@ -573,7 +568,7 @@ function LoopShell() {
     setNotificationPrefs({ ...DEFAULT_NOTIFICATION_PREFS });
     setNotificationPrefsLoaded(false);
     const gen = workspaceGenRef.current;
-    const origin = client.origin;
+    const origin = client.localDataScope;
     // Drain any cold-start notification tap AFTER resetting overlays so this
     // commit never wipes out the deep-linked thread.
     if (pendingNotificationTapRef.current) {
@@ -1395,9 +1390,7 @@ function LoopShell() {
     // Invalidate any in-flight workspace loads BEFORE deleting local cache files so
     // an about-to-finish fetchAll cannot recreate the cache file right after deletion.
     workspaceGenRef.current = loadCoordRef.current.reset();
-    clearWorkspaceDrafts(signingOutSession?.origin);
-    clearWorkspaceCache(signingOutSession?.origin);
-    clearWorkspaceNotificationPrefs(signingOutSession?.origin);
+    clearPairedWorkspaceData(localDataScope(signingOutSession));
     await clearPairedSession();
     if (activeSessionRef.current !== signingOutSession) return;
     setSession(null);
@@ -1774,7 +1767,7 @@ function LoopShell() {
           onChangeNotificationPrefs={(next) => {
             if (!notificationPrefsLoaded) return;
             setNotificationPrefs(next);
-            saveNotificationPrefs(client?.origin, next);
+            saveNotificationPrefs(client?.localDataScope, next);
           }}
         />
       )}
@@ -2143,36 +2136,23 @@ function LoopShell() {
             setPairingInitialUrl("");
           }}
           onPaired={async (nextSession) => {
-            const previous = activeSessionRef.current;
-            const newDevice = !isSamePairedDevice(previous, nextSession);
-            try {
-              // A URL probe can reuse the same device. Stop the old client from
-              // repopulating the cleared cache before committing new credentials.
-              if (newDevice) {
-                pairingChangeRef.current = true;
-                workspaceGenRef.current = loadCoordRef.current.reset();
-                setRefreshing(false);
-                clearPairedWorkspaceData(nextSession.origin, true);
-              }
-              await savePairedSession(nextSession);
-              if (
-                newDevice &&
-                previous &&
-                previous.origin !== nextSession.origin
-              ) {
-                clearPairedWorkspaceData(previous.origin);
-              }
-              activeSessionRef.current = nextSession;
-              setComposeTarget(null);
-              setSession(nextSession);
-              setPairingOpen(false);
-              setPairingInitialUrl("");
-              showToast(
-                `Paired with ${nextSession.origin.replace(/^https?:\/\//, "")}`,
-              );
-            } finally {
-              pairingChangeRef.current = false;
-            }
+            const paired = assignPairingStorage(
+              activeSessionRef.current,
+              nextSession,
+              randomUuid(),
+            );
+            // A failed SecureStore write leaves the existing session and its
+            // recovery data untouched. Different sessions never share a bucket.
+            await savePairedSession(paired);
+            workspaceGenRef.current = loadCoordRef.current.reset();
+            activeSessionRef.current = paired;
+            setComposeTarget(null);
+            setSession(paired);
+            setPairingOpen(false);
+            setPairingInitialUrl("");
+            showToast(
+              `Paired with ${paired.origin.replace(/^https?:\/\//, "")}`,
+            );
           }}
         />
       )}

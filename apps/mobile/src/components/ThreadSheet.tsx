@@ -170,7 +170,7 @@ export function ThreadSheet({
     copyTrackerRef.current.invalidate();
     setCopiedMsgId(null);
     closeSelectModal();
-  }, [conversationId, client?.origin, closeSelectModal]);
+  }, [conversationId, client?.localDataScope, closeSelectModal]);
 
   useEffect(() => {
     const copyTracker = copyTrackerRef.current;
@@ -223,7 +223,7 @@ export function ThreadSheet({
   useEffect(() => {
     let cancelled = false;
     draftTouchedRef.current = false;
-    void loadDraftEntry(client?.origin, draftScope).then((entry) => {
+    void loadDraftEntry(client?.localDataScope, draftScope).then((entry) => {
       if (cancelled || !entry?.text) return;
       if (entry.pendingSchedule) {
         const restored = {
@@ -255,7 +255,7 @@ export function ThreadSheet({
     return () => {
       cancelled = true;
     };
-  }, [client?.origin, draftScope]);
+  }, [client?.localDataScope, draftScope]);
 
   // The parent rebuilds this array on every render. Read it through a ref so a
   // parent re-render does not reload the thread.
@@ -491,7 +491,7 @@ export function ThreadSheet({
       });
       pendingSendRef.current = null;
       setRetryModeLocked(false);
-      clearDraft(client?.origin, draftScope);
+      clearDraft(client?.localDataScope, draftScope);
       setDraft("");
       clearAttachments();
       if (client) {
@@ -503,7 +503,7 @@ export function ThreadSheet({
         setRetryModeLocked(false);
       } else {
         setRetryModeLocked(true);
-        saveDraft(client?.origin, draftScope, draft, {
+        saveDraft(client?.localDataScope, draftScope, draft, {
           key: idempotencyKey,
           queue,
         });
@@ -543,7 +543,7 @@ export function ThreadSheet({
     setScheduleError("");
     try {
       await saveDraftAndFlush(
-        client?.origin,
+        client?.localDataScope,
         draftScope,
         trimmed || finalText,
         {
@@ -581,7 +581,7 @@ export function ThreadSheet({
       setScheduleOpen(false);
       pendingSendRef.current = null;
       setRetryModeLocked(false);
-      clearDraft(client?.origin, draftScope);
+      clearDraft(client?.localDataScope, draftScope);
       setDraft("");
       clearAttachments();
     } catch (err) {
@@ -605,8 +605,8 @@ export function ThreadSheet({
         return;
       } else {
         setPendingSchedule(null);
-        if (draft.trim()) saveDraft(client?.origin, draftScope, draft);
-        else clearDraft(client?.origin, draftScope);
+        if (draft.trim()) saveDraft(client?.localDataScope, draftScope, draft);
+        else clearDraft(client?.localDataScope, draftScope);
       }
       haptics.warning();
       setScheduleError(
@@ -1012,7 +1012,11 @@ export function ThreadSheet({
                             draftTouchedRef.current = true;
                             pendingSendRef.current = null;
                             setDraft(prompt);
-                            saveDraft(client?.origin, draftScope, prompt);
+                            saveDraft(
+                              client?.localDataScope,
+                              draftScope,
+                              prompt,
+                            );
                           }}
                         />
                         {msg.run_id &&
@@ -1263,7 +1267,7 @@ export function ThreadSheet({
                 draftTouchedRef.current = true;
                 pendingSendRef.current = null;
                 setDraft(next);
-                saveDraft(client?.origin, draftScope, next);
+                saveDraft(client?.localDataScope, draftScope, next);
               }}
               placeholder={`Reply to @${agentName}…`}
               placeholderTextColor={theme.muted}
@@ -1371,8 +1375,9 @@ export function ThreadSheet({
           setPendingSchedule(null);
           setScheduleError("");
           setScheduleOpen(false);
-          if (draft.trim()) saveDraft(client?.origin, draftScope, draft);
-          else clearDraft(client?.origin, draftScope);
+          if (draft.trim())
+            saveDraft(client?.localDataScope, draftScope, draft);
+          else clearDraft(client?.localDataScope, draftScope);
         }}
       />
 

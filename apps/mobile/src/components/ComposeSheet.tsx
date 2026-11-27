@@ -153,7 +153,7 @@ export function ComposeSheet({
   useEffect(() => {
     let cancelled = false;
     draftTouchedRef.current = false;
-    void loadDraftEntry(client?.origin, draftScope).then((entry) => {
+    void loadDraftEntry(client?.localDataScope, draftScope).then((entry) => {
       if (cancelled) return;
       setDraftLoaded(true);
       if (!entry?.text) return;
@@ -199,7 +199,7 @@ export function ComposeSheet({
   }, [
     agentId,
     agent?.folder_id,
-    client?.origin,
+    client?.localDataScope,
     draftScope,
     restoreUploadedAttachments,
   ]);
@@ -307,7 +307,7 @@ export function ComposeSheet({
     // refuse to dispatch if local persistence fails.
     try {
       await saveDraftAndFlush(
-        client?.origin,
+        client?.localDataScope,
         draftScope,
         trimmed || finalText,
         {
@@ -344,7 +344,7 @@ export function ComposeSheet({
       setScheduleOpen(false);
       sendKeyRef.current = null;
       setHasPendingSend(false);
-      clearDraft(client?.origin, draftScope);
+      clearDraft(client?.localDataScope, draftScope);
       clearAttachments();
       onClose();
     } catch (err) {
@@ -368,8 +368,8 @@ export function ComposeSheet({
         return;
       } else {
         setPendingSchedule(null);
-        if (text.trim()) saveDraft(client?.origin, draftScope, text);
-        else clearDraft(client?.origin, draftScope);
+        if (text.trim()) saveDraft(client?.localDataScope, draftScope, text);
+        else clearDraft(client?.localDataScope, draftScope);
       }
       haptics.warning();
       setScheduleError(
@@ -415,7 +415,7 @@ export function ComposeSheet({
         };
         if (client && !pendingCreate) {
           await saveDraftAndFlush(
-            client.origin,
+            client.localDataScope,
             draftScope,
             text.trim() || finalText,
             {
@@ -430,7 +430,7 @@ export function ComposeSheet({
       sendKeyRef.current = null;
       if (!agent && client) {
         const settled = settlePendingAgentCreate(
-          client.origin,
+          client.localDataScope,
           draftScope,
           idempotencyKey,
         );
@@ -441,7 +441,7 @@ export function ComposeSheet({
         }
         if (settled !== "settled") return;
       } else {
-        clearDraft(client?.origin, draftScope);
+        clearDraft(client?.localDataScope, draftScope);
       }
       clearAttachments();
       onClose();
@@ -450,7 +450,9 @@ export function ComposeSheet({
       if (dispatched && isUncertainOutcomeError(err)) {
         if (agent) {
           setHasPendingSend(true);
-          saveDraft(client?.origin, draftScope, text, { key: idempotencyKey });
+          saveDraft(client?.localDataScope, draftScope, text, {
+            key: idempotencyKey,
+          });
         }
       } else if (dispatched) {
         sendKeyRef.current = null;
@@ -458,7 +460,7 @@ export function ComposeSheet({
         if (!agent) {
           if (client) {
             const settled = settlePendingAgentCreate(
-              client.origin,
+              client.localDataScope,
               draftScope,
               idempotencyKey,
               text.trim() || finalText,
@@ -668,7 +670,7 @@ export function ComposeSheet({
                   draftTouchedRef.current = true;
                   sendKeyRef.current = null;
                   setText(next);
-                  saveDraft(client?.origin, draftScope, next);
+                  saveDraft(client?.localDataScope, draftScope, next);
                 }}
                 placeholder={
                   agent ? `Message @${agent.name}…` : "What should it do?"
@@ -781,8 +783,9 @@ export function ComposeSheet({
             setPendingSchedule(null);
             setScheduleError("");
             setScheduleOpen(false);
-            if (text.trim()) saveDraft(client?.origin, draftScope, text);
-            else clearDraft(client?.origin, draftScope);
+            if (text.trim())
+              saveDraft(client?.localDataScope, draftScope, text);
+            else clearDraft(client?.localDataScope, draftScope);
           }}
         />
       )}

@@ -63,9 +63,11 @@ import {
   type LiveStreamOverlay,
 } from "../apps/mobile/src/api/socket.js";
 import {
+  assignPairingStorage,
   assertSameOriginResponse,
   extractSessionCookie,
   isSamePairedDevice,
+  localDataScope,
   preserveProbedCredentials,
   normalizeWorkspaceUrl,
   tryParsePairingLink,
@@ -4095,4 +4097,18 @@ it("preserves a re-probed paired device and treats a different device on the sam
       origin: "https://other.example.com",
     }),
   ).toBe(false);
+  const existingScope = assignPairingStorage(null, current, "nonce");
+  const replacementScope = assignPairingStorage(
+    existingScope,
+    replacement,
+    "new",
+  );
+  expect(localDataScope(current)).toBe(current.origin);
+  expect(
+    localDataScope(assignPairingStorage(existingScope, probe, "ignored")),
+  ).toBe(localDataScope(existingScope));
+  expect(localDataScope(replacementScope)).not.toBe(
+    localDataScope(existingScope),
+  );
+  expect(localDataScope(replacementScope)).not.toBe(current.origin);
 });
