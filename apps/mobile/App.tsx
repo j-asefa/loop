@@ -129,8 +129,7 @@ import {
 import { haptics } from "./src/haptics";
 import { DARK_THEME, LIGHT_THEME } from "./src/theme";
 
-function clearPairedWorkspaceData(scope: string | undefined) {
-  clearWorkspaceDrafts(scope);
+function clearEphemeralWorkspaceData(scope: string | undefined) {
   clearWorkspaceCache(scope);
   clearWorkspaceNotificationPrefs(scope);
 }
@@ -332,16 +331,21 @@ function LoopShell() {
   }, []);
 
   const activeSessionRef = useRef<PairedSession | null>(null);
+  const pairingInProgressRef = useRef(false);
   activeSessionRef.current = session;
 
   const handleUnauthorizedForSession = useCallback(
     (expiredSession: PairedSession) => {
       // Ignore stale 401s from a previous workspace after switching workspaces
-      if (activeSessionRef.current !== expiredSession) return;
+      if (
+        pairingInProgressRef.current ||
+        activeSessionRef.current !== expiredSession
+      )
+        return;
       // Invalidate any in-flight workspace loads BEFORE deleting local files so a
       // sibling fetchAll cannot recreate cache or fire notifications after expiry.
       workspaceGenRef.current = loadCoordRef.current.reset();
-      clearPairedWorkspaceData(localDataScope(expiredSession));
+      clearEphemeralWorkspaceData(localDataScope(expiredSession));
       void clearPairedSession();
       setComposeTarget(null);
       setSession(null);
@@ -1390,7 +1394,9 @@ function LoopShell() {
     // Invalidate any in-flight workspace loads BEFORE deleting local cache files so
     // an about-to-finish fetchAll cannot recreate the cache file right after deletion.
     workspaceGenRef.current = loadCoordRef.current.reset();
-    clearPairedWorkspaceData(localDataScope(signingOutSession));
+    const scope = localDataScope(signingOutSession);
+    clearWorkspaceDrafts(scope);
+    clearEphemeralWorkspaceData(scope);
     await clearPairedSession();
     if (activeSessionRef.current !== signingOutSession) return;
     setSession(null);
@@ -2136,23 +2142,33 @@ function LoopShell() {
             setPairingInitialUrl("");
           }}
           onPaired={async (nextSession) => {
-            const paired = assignPairingStorage(
-              activeSessionRef.current,
-              nextSession,
-              randomUuid(),
-            );
-            // A failed SecureStore write leaves the existing session and its
-            // recovery data untouched. Different sessions never share a bucket.
-            await savePairedSession(paired);
-            workspaceGenRef.current = loadCoordRef.current.reset();
-            activeSessionRef.current = paired;
-            setComposeTarget(null);
-            setSession(paired);
-            setPairingOpen(false);
-            setPairingInitialUrl("");
-            showToast(
-              `Paired with ${paired.origin.replace(/^https?:\/\//, "")}`,
-            );
+            pairingInProgressRef.current = true;
+            try {
+              const previous = activeSessionRef.current;
+              const paired = assignPairingStorage(
+                previous,
+                nextSession,
+                randomUuid(),
+              );
+              // A failed SecureStore write leaves the existing session and all
+              // of its recovery data untouched.
+              await savePairedSession(paired);
+              workspaceGenRef.current = loadCoordRef.current.reset();
+              const previousScope = localDataScope(previous);
+              if (previousScope && previousScope !== localDataScope(paired)) {
+                clearEphemeralWorkspaceData(previousScope);
+              }
+              activeSessionRef.current = paired;
+              setComposeTarget(null);
+              setSession(paired);
+              setPairingOpen(false);
+              setPairingInitialUrl("");
+              showToast(
+                `Paired with ${paired.origin.replace(/^https?:\/\//, "")}`,
+              );
+            } finally {
+              pairingInProgressRef.current = false;
+            }
           }}
         />
       )}

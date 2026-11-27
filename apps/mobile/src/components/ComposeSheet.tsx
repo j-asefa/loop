@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -454,6 +455,12 @@ export function ComposeSheet({
             key: idempotencyKey,
           });
         }
+      } else if (dispatched && pendingCreate) {
+        // A new rejection does not establish the outcome of an earlier timed-out POST.
+        setError(
+          "Creation is still unconfirmed. Check the Feed before discarding the recovery record.",
+        );
+        return;
       } else if (dispatched) {
         sendKeyRef.current = null;
         setHasPendingSend(false);
@@ -487,6 +494,35 @@ export function ComposeSheet({
       sendingRef.current = false;
       setBusy(false);
     }
+  }
+
+  function confirmDiscardCreation() {
+    if (!client || !pendingCreate || sendingRef.current) return;
+    Alert.alert(
+      "Discard creation recovery?",
+      "The agent may already have started. Check the Feed before sending this draft again.",
+      [
+        { text: "Keep recovery", style: "cancel" },
+        {
+          text: "Discard recovery",
+          style: "destructive",
+          onPress: () => {
+            const settled = settlePendingAgentCreate(
+              client.localDataScope,
+              draftScope,
+              pendingCreate.idempotencyKey,
+              text || pendingCreate.text,
+            );
+            if (settled === "write-failed")
+              setError("Could not clear the recovery record. Try again.");
+            if (settled !== "settled") return;
+            sendKeyRef.current = null;
+            setPendingCreate(null);
+            setError("");
+          },
+        },
+      ],
+    );
   }
 
   const title = agent
@@ -726,9 +762,19 @@ export function ComposeSheet({
             </View>
 
             {createLocked && !busy && (
-              <Text style={{ color: theme.muted }}>
-                Retry to check whether this agent was started.
-              </Text>
+              <>
+                <Text style={{ color: theme.muted }}>
+                  Retry to check whether this agent was started.
+                </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={confirmDiscardCreation}
+                >
+                  <Text style={{ color: theme.brassText }}>
+                    Discard recovery record
+                  </Text>
+                </Pressable>
+              </>
             )}
 
             {error ? (

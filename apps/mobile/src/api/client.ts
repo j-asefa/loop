@@ -126,6 +126,11 @@ export class LoopClient {
     { version: string; request: Promise<ApiConversationPage> }
   >();
 
+  private readonly carouselSaveRequests = new Map<
+    string,
+    Set<Promise<unknown>>
+  >();
+
   constructor(session: PairedSession, onUnauthorized?: () => void) {
     this.session = session;
     this.onUnauthorized = onUnauthorized;
@@ -395,6 +400,12 @@ export class LoopClient {
   }
 
   refreshCarouselPage(id: string, version = ""): Promise<ApiConversationPage> {
+    const saves = this.carouselSaveRequests.get(id);
+    if (saves?.size) {
+      return Promise.allSettled(saves).then(() =>
+        this.refreshCarouselPage(id, version),
+      );
+    }
     const pending = this.carouselRequests.get(id);
     if (pending?.version === version) return pending.request;
     const request = this.carouselPage(id)
@@ -662,12 +673,21 @@ export class LoopClient {
     saved: boolean,
     conversationId?: string,
   ): Promise<{ ok: boolean; saved: boolean }> {
+    const request = this.request<{ ok: boolean; saved: boolean }>(
+      saved ? "POST" : "DELETE",
+      `/api/messages/${encodeURIComponent(messageId)}/saved`,
+      {},
+    );
+    const saves = conversationId
+      ? (this.carouselSaveRequests.get(conversationId) ??
+        new Set<Promise<unknown>>())
+      : undefined;
+    if (conversationId && saves) {
+      saves.add(request);
+      this.carouselSaveRequests.set(conversationId, saves);
+    }
     try {
-      const result = await this.request<{ ok: boolean; saved: boolean }>(
-        saved ? "POST" : "DELETE",
-        `/api/messages/${encodeURIComponent(messageId)}/saved`,
-        {},
-      );
+      const result = await request;
       if (conversationId) {
         const cached = this.carouselPages.get(conversationId);
         if (cached) {
@@ -689,6 +709,11 @@ export class LoopClient {
         this.carouselRequests.delete(conversationId);
       }
       throw error;
+    } finally {
+      if (conversationId && saves) {
+        saves.delete(request);
+        if (!saves.size) this.carouselSaveRequests.delete(conversationId);
+      }
     }
   }
 
