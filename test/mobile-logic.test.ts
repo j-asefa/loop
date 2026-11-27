@@ -73,6 +73,15 @@ import {
   validateSendAt,
 } from "../apps/mobile/src/schedule-utils.js";
 import {
+  MAX_MERMAID_NODES,
+  parseMermaidDiagram,
+} from "../apps/mobile/src/mermaid-parser.js";
+import {
+  findInlineMathAt,
+  formatLatexInline,
+  parseLatexDisplayRows,
+} from "../apps/mobile/src/latex-math.js";
+import {
   avatarColors,
   DARK_THEME,
   LIGHT_THEME,
@@ -2449,5 +2458,156 @@ describe("mobile voice recording and scheduled send helpers", () => {
     expect(
       readDraftEntryFromStore(store, scope, day10 + 1000)?.pendingSchedule,
     ).toBeUndefined();
+  });
+});
+
+describe("mobile native Mermaid diagram parser and layout", () => {
+  it("parses flowcharts with shapes, subgraphs, labels, cycles, and strips HTML tags", () => {
+    const src = `
+      %% comment ignored
+      flowchart TD
+        subgraph API["Edge Layer"]
+          A([Start]) --> B{"<b>Valid?</b>"}
+        end
+        B -->|Yes| C[Process]
+        B -. No .-> D((Reject))
+        C ==> A
+    `;
+    const layout = parseMermaidDiagram(src);
+    expect(layout?.kind).toBe("flowchart");
+    if (!layout || layout.kind !== "flowchart") return;
+    expect(layout.direction).toBe("TD");
+    expect(layout.nodes.map((n) => n.id)).toEqual(["A", "B", "C", "D"]);
+    expect(layout.nodes.find((n) => n.id === "A")?.shape).toBe("stadium");
+    expect(layout.nodes.find((n) => n.id === "B")?.shape).toBe("diamond");
+    expect(layout.nodes.find((n) => n.id === "B")?.label).toBe("Valid?");
+    expect(layout.nodes.find((n) => n.id === "D")?.shape).toBe("circle");
+    expect(layout.edges).toHaveLength(4);
+    expect(layout.edges[1].label).toBe("Yes");
+    expect(layout.edges[2].style).toBe("dashed");
+    expect(layout.edges[3].style).toBe("thick");
+    expect(layout.subgraphs).toHaveLength(1);
+    expect(layout.subgraphs[0].label).toBe("Edge Layer");
+    expect(layout.width).toBeGreaterThan(200);
+    expect(layout.height).toBeGreaterThan(120);
+  });
+
+  it("parses sequence, state, and class diagrams and caps huge inputs", () => {
+    const seq = parseMermaidDiagram(`
+      sequenceDiagram
+        actor U as User
+        participant S as Server
+        U->>S: POST /api/runs
+        Note over U,S: Idempotent key
+        S-->>U: 201 Created
+        S->>S: Enqueue worker
+    `);
+    expect(seq?.kind).toBe("sequence");
+    if (seq?.kind === "sequence") {
+      expect(seq.participants.map((p) => p.label)).toEqual(["User", "Server"]);
+      expect(seq.participants[0].isActor).toBe(true);
+      expect(seq.steps).toHaveLength(4);
+      expect(seq.steps[1].kind).toBe("note");
+    }
+
+    const state = parseMermaidDiagram(`
+      stateDiagram-v2
+        [*] --> Queued
+        Queued --> Running : claim
+        Running --> [*] : finish
+    `);
+    expect(state?.kind).toBe("state");
+    if (state?.kind === "state") {
+      expect(state.nodes.find((n) => n.shape === "start")).toBeTruthy();
+      expect(state.nodes.find((n) => n.shape === "end")).toBeTruthy();
+      expect(state.edges).toHaveLength(3);
+    }
+
+    const cls = parseMermaidDiagram(`
+      classDiagram
+        class Run {
+          +id: string
+          +state: string
+        }
+        Agent *-- Run : owns
+    `);
+    expect(cls?.kind).toBe("class");
+    if (cls?.kind === "class") {
+      expect(cls.nodes.find((n) => n.id === "Run")?.members).toEqual([
+        "+id: string",
+        "+state: string",
+      ]);
+      expect(cls.edges).toHaveLength(1);
+    }
+
+    // Unrecognized syntax returns null so MermaidDiagram falls back to source
+    expect(parseMermaidDiagram("gantt\n  title Roadmap")).toBeNull();
+    expect(parseMermaidDiagram("")).toBeNull();
+
+    // Node cap bounds large graphs safely
+    const hugeLines = ["graph LR"];
+    for (let i = 0; i < MAX_MERMAID_NODES + 25; i += 1) {
+      hugeLines.push(`N${i} --> N${i + 1}`);
+    }
+    const capped = parseMermaidDiagram(hugeLines.join("\n"));
+    expect(capped?.kind).toBe("flowchart");
+    if (capped?.kind === "flowchart") {
+      expect(capped.nodes.length).toBeLessThanOrEqual(MAX_MERMAID_NODES);
+    }
+  });
+});
+
+describe("mobile native LaTeX math parser and currency safety", () => {
+  it("detects inline math while refusing currency amounts in prose", () => {
+    expect(findInlineMathAt("Cost is $5 and $10 today.", 8)).toBeNull();
+    expect(findInlineMathAt("Price $100/mo to $200/mo.", 6)).toBeNull();
+    expect(findInlineMathAt("Bad $ x + 1 $ spacing", 4)).toBeNull();
+    expect(findInlineMathAt("Escaped \\$x$ text", 9)).toBeNull();
+
+    expect(findInlineMathAt("Given $x^2 + y^2 = r^2$, we have", 6)).toEqual({
+      raw: "x^2 + y^2 = r^2",
+      end: 23,
+    });
+    expect(findInlineMathAt("Let \\(\\alpha + \\beta\\) hold.", 4)).toEqual({
+      raw: "\\alpha + \\beta",
+      end: 22,
+    });
+  });
+
+  it("formats inline LaTeX typography and parses display fractions and matrices", () => {
+    expect(formatLatexInline("x^2 + y_1 \\le \\infty")).toBe("x² + y₁ ≤ ∞");
+    expect(formatLatexInline("\\alpha \\to \\beta \\in \\mathbb{R}")).toBe(
+      "α → β ∈ ℝ",
+    );
+    expect(formatLatexInline("\\sqrt[3]{x + 1}")).toBe("³√(x + 1)");
+    expect(formatLatexInline("\\frac{a + b}{c}")).toBe("(a + b)/c");
+
+    const fracRows = parseLatexDisplayRows(
+      "E = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}",
+    );
+    expect(fracRows).toEqual([
+      [
+        { kind: "text", text: "E =" },
+        { kind: "fraction", num: "-b ± √(b² - 4ac)", den: "2a" },
+      ],
+    ]);
+
+    const matRows = parseLatexDisplayRows(
+      "A = \\begin{bmatrix} 1 & 2 \\\\ 3 & 4 \\end{bmatrix}",
+    );
+    expect(matRows).toEqual([
+      [
+        { kind: "text", text: "A =" },
+        {
+          kind: "matrix",
+          left: "[",
+          right: "]",
+          rows: [
+            ["1", "2"],
+            ["3", "4"],
+          ],
+        },
+      ],
+    ]);
   });
 });

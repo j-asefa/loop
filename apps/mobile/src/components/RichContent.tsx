@@ -28,7 +28,13 @@ import {
 import { getAgentArt } from "../agentArt";
 import { resolveLoopFileTarget, type LoopFileTarget } from "../api/files";
 import { haptics } from "../haptics";
+import {
+  findInlineMathAt,
+  formatLatexInline,
+  parseLatexDisplayRows,
+} from "../latex-math";
 import type { LoopTheme } from "../theme";
+import { MermaidDiagram } from "./MermaidDiagram";
 
 export function AgentAvatar({
   name,
@@ -127,6 +133,7 @@ type InlineToken =
   | { kind: "boldItalic"; children: InlineToken[] }
   | { kind: "strike"; children: InlineToken[] }
   | { kind: "code"; text: string }
+  | { kind: "math"; text: string }
   | {
       kind: "link";
       label: string;
@@ -261,6 +268,17 @@ function tokenizeInline(
 
   while (i < text.length) {
     const ch = text[i];
+
+    // Inline LaTeX math ($...$ or \(...\)); checked before ESCAPABLE_CHARS so \( is preserved
+    if (ch === "$" || (ch === "\\" && text[i + 1] === "(")) {
+      const math = findInlineMathAt(text, i);
+      if (math) {
+        flushPlain();
+        tokens.push({ kind: "math", text: formatLatexInline(math.raw) });
+        i = math.end;
+        continue;
+      }
+    }
 
     // Escaped markdown punctuation
     if (
@@ -491,6 +509,22 @@ function renderInlineTokens(
         </Text>
       );
     }
+    if (tok.kind === "math") {
+      return (
+        <Text
+          key={key}
+          style={[
+            styles.inlineMath,
+            {
+              backgroundColor: theme.soft,
+              color: theme.text,
+            },
+          ]}
+        >
+          {` ${tok.text} `}
+        </Text>
+      );
+    }
     if (tok.kind === "link") {
       const loopFile = resolveLoopFileTarget(tok.url, opts?.workspaceOrigin);
       if (loopFile) {
@@ -588,6 +622,7 @@ type ContentBlock =
   | { kind: "hr" }
   | { kind: "table"; headers: string[]; rows: string[][] }
   | { kind: "code"; lang: string; code: string }
+  | { kind: "math"; expr: string }
   | { kind: "spec"; spec: ParsedSpec };
 
 function splitTableRow(line: string): string[] {
@@ -683,8 +718,49 @@ function parseMarkdownBlocks(content: string): ContentBlock[] {
         } else {
           blocks.push({ kind: "code", lang: "spec", code: body.trimEnd() });
         }
+      } else if (
+        fence.lang === "math" ||
+        fence.lang === "latex" ||
+        fence.lang === "tex"
+      ) {
+        const expr = body.trim();
+        if (expr) {
+          blocks.push({ kind: "math", expr });
+        }
       } else {
         blocks.push({ kind: "code", lang: fence.lang, code: body.trimEnd() });
+      }
+      continue;
+    }
+
+    // Display math block: $$...$$ (single or multi-line) or \[...\]
+    const singleDollarMath = /^\$\$(.+)\$\$$/.exec(trimmed);
+    if (singleDollarMath && singleDollarMath[1].trim()) {
+      flushParagraph();
+      blocks.push({ kind: "math", expr: singleDollarMath[1].trim() });
+      i += 1;
+      continue;
+    }
+    const singleBracketMath = /^\\\[(.+)\\\]$/.exec(trimmed);
+    if (singleBracketMath && singleBracketMath[1].trim()) {
+      flushParagraph();
+      blocks.push({ kind: "math", expr: singleBracketMath[1].trim() });
+      i += 1;
+      continue;
+    }
+    if (trimmed === "$$" || trimmed === "\\[") {
+      flushParagraph();
+      const closeDelim = trimmed === "$$" ? "$$" : "\\]";
+      const exprLines: string[] = [];
+      i += 1;
+      while (i < lines.length && lines[i].trim() !== closeDelim) {
+        exprLines.push(lines[i]);
+        i += 1;
+      }
+      if (i < lines.length) i += 1;
+      const expr = exprLines.join("\n").trim();
+      if (expr) {
+        blocks.push({ kind: "math", expr });
       }
       continue;
     }
@@ -1500,6 +1576,9 @@ export const RichContent = React.memo(function RichContent({
           );
         }
         if (block.kind === "code") {
+          if (block.lang === "mermaid") {
+            return <MermaidDiagram key={idx} code={block.code} theme={theme} />;
+          }
           return (
             <CodeBlock
               key={idx}
@@ -1508,6 +1587,9 @@ export const RichContent = React.memo(function RichContent({
               theme={theme}
             />
           );
+        }
+        if (block.kind === "math") {
+          return <MathBlock key={idx} expr={block.expr} theme={theme} />;
         }
         return (
           <SpecNode
@@ -1524,6 +1606,160 @@ export const RichContent = React.memo(function RichContent({
     </View>
   );
 });
+
+function MathBlock({ expr, theme }: { expr: string; theme: LoopTheme }) {
+  const rows = useMemo(() => parseLatexDisplayRows(expr), [expr]);
+  const [copied, setCopied] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, []);
+
+  const handleCopy = () => {
+    haptics.success();
+    void Clipboard.setStringAsync(expr)
+      .then(() => {
+        setCopied(true);
+        if (timerRef.current) clearTimeout(timerRef.current);
+        timerRef.current = setTimeout(() => {
+          timerRef.current = null;
+          setCopied(false);
+        }, 1800);
+      })
+      .catch(() => {});
+  };
+
+  return (
+    <View
+      style={[
+        styles.mathBlock,
+        { backgroundColor: theme.soft, borderColor: theme.line },
+      ]}
+    >
+      <View style={styles.codeHeadRow}>
+        <Text style={[styles.codeLang, { color: theme.brassText }]}>math</Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={copied ? "LaTeX copied" : "Copy LaTeX"}
+          hitSlop={8}
+          onPress={handleCopy}
+          style={({ pressed }) => [
+            styles.codeCopyBtn,
+            {
+              backgroundColor: pressed ? theme.attention : theme.surface,
+              borderColor: copied ? theme.attentionLine : theme.line,
+            },
+          ]}
+        >
+          {copied ? (
+            <Check size={12} color={theme.brassText} />
+          ) : (
+            <Copy size={12} color={theme.muted} />
+          )}
+          <Text
+            style={[
+              styles.codeCopyText,
+              { color: copied ? theme.brassText : theme.muted },
+            ]}
+          >
+            {copied ? "Copied" : "Copy"}
+          </Text>
+        </Pressable>
+      </View>
+
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.mathScrollContent}
+      >
+        <View style={styles.mathRows}>
+          {rows.map((row, rIdx) => (
+            <View key={rIdx} style={styles.mathRow}>
+              {row.map((seg, sIdx) => {
+                if (seg.kind === "fraction") {
+                  return (
+                    <View key={sIdx} style={styles.mathFraction}>
+                      <Text
+                        style={[styles.mathFracPart, { color: theme.text }]}
+                      >
+                        {seg.num}
+                      </Text>
+                      <View
+                        style={[
+                          styles.mathFracBar,
+                          { backgroundColor: theme.text },
+                        ]}
+                      />
+                      <Text
+                        style={[styles.mathFracPart, { color: theme.text }]}
+                      >
+                        {seg.den}
+                      </Text>
+                    </View>
+                  );
+                }
+                if (seg.kind === "matrix") {
+                  return (
+                    <View key={sIdx} style={styles.mathMatrixWrap}>
+                      {seg.left ? (
+                        <Text
+                          style={[
+                            styles.mathMatrixDelim,
+                            { color: theme.brassText },
+                          ]}
+                        >
+                          {seg.left}
+                        </Text>
+                      ) : null}
+                      <View style={styles.mathMatrixBody}>
+                        {seg.rows.map((mRow, mrIdx) => (
+                          <View key={mrIdx} style={styles.mathMatrixRow}>
+                            {mRow.map((cell, mcIdx) => (
+                              <Text
+                                key={mcIdx}
+                                style={[
+                                  styles.mathMatrixCell,
+                                  { color: theme.text },
+                                ]}
+                              >
+                                {cell}
+                              </Text>
+                            ))}
+                          </View>
+                        ))}
+                      </View>
+                      {seg.right ? (
+                        <Text
+                          style={[
+                            styles.mathMatrixDelim,
+                            { color: theme.brassText },
+                          ]}
+                        >
+                          {seg.right}
+                        </Text>
+                      ) : null}
+                    </View>
+                  );
+                }
+                return (
+                  <Text
+                    key={sIdx}
+                    style={[styles.mathText, { color: theme.text }]}
+                  >
+                    {seg.text}
+                  </Text>
+                );
+              })}
+            </View>
+          ))}
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
 
 function CodeBlock({
   lang,
@@ -1860,5 +2096,72 @@ const styles = StyleSheet.create({
   codeCopyText: {
     fontSize: 11,
     fontWeight: "600",
+  },
+  inlineMath: {
+    fontSize: 15.5,
+    fontStyle: "italic",
+    borderRadius: 4,
+  },
+  mathBlock: {
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 12,
+    gap: 8,
+  },
+  mathScrollContent: {
+    paddingVertical: 4,
+    minWidth: "100%",
+    justifyContent: "center",
+  },
+  mathRows: {
+    gap: 8,
+    alignItems: "center",
+  },
+  mathRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  mathText: {
+    fontSize: 17,
+    lineHeight: 24,
+    fontWeight: "500",
+  },
+  mathFraction: {
+    alignItems: "center",
+    paddingHorizontal: 3,
+  },
+  mathFracPart: {
+    fontSize: 14.5,
+    lineHeight: 19,
+    textAlign: "center",
+  },
+  mathFracBar: {
+    height: 1.25,
+    alignSelf: "stretch",
+    minWidth: 18,
+    marginVertical: 2,
+  },
+  mathMatrixWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  mathMatrixDelim: {
+    fontSize: 28,
+    fontWeight: "300",
+  },
+  mathMatrixBody: {
+    gap: 3,
+  },
+  mathMatrixRow: {
+    flexDirection: "row",
+    gap: 12,
+    justifyContent: "space-between",
+  },
+  mathMatrixCell: {
+    fontSize: 15,
+    lineHeight: 20,
+    textAlign: "center",
   },
 });
