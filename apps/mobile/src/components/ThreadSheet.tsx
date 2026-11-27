@@ -959,6 +959,7 @@ export function ThreadSheet({
             </Pressable>
             <TextInput
               value={draft}
+              editable={!sending}
               onChangeText={(next) => {
                 draftTouchedRef.current = true;
                 pendingSendRef.current = null;

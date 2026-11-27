@@ -1739,6 +1739,7 @@ export function SpotlightCarousel({
               <TextInput
                 ref={replyInputRef}
                 value={draft}
+                editable={!sending}
                 onChangeText={(next) => {
                   draftTouchedRef.current = true;
                   pendingReplyRef.current = null;
@@ -2018,9 +2019,12 @@ export function SpotlightCarousel({
               <Pressable
                 onPress={() => {
                   const target = actionSheetCard;
+                  const fullBody =
+                    (target.messageId && fullBodies.get(target.messageId)) ||
+                    target.body;
                   setActionSheetCard(null);
                   haptics.success();
-                  void Clipboard.setStringAsync(target.body)
+                  void Clipboard.setStringAsync(fullBody)
                     .then(() => onNotify?.("Copied answer"))
                     .catch(() => {});
                 }}

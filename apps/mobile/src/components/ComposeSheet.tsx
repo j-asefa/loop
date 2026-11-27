@@ -352,6 +352,7 @@ export function ComposeSheet({
               </Pressable>
               <TextInput
                 value={text}
+                editable={!busy}
                 onChangeText={(next) => {
                   draftTouchedRef.current = true;
                   sendKeyRef.current = null;

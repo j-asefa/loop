@@ -66,14 +66,23 @@ export function SearchScreen({
   const [prompts, setPrompts] = useState<ApiPersonalPrompt[]>([]);
   const [loading, setLoading] = useState(false);
   const searchSeqRef = useRef(0);
+  const localCardsRef = useRef(localCards);
+  localCardsRef.current = localCards;
 
   // Immediately invalidate any in-flight search or load-more cursor whenever query,
   // category, or workspace client changes — before the 220 ms search debounce fires.
   useEffect(() => {
     searchSeqRef.current += 1;
+    setLoading(false);
     setNextCursor(null);
     setLoadingMore(false);
   }, [client, query, category]);
+
+  // Clear previous workspace's results immediately when switching workspaces or signing out
+  useEffect(() => {
+    setResults([]);
+    setPrompts([]);
+  }, [client]);
 
   const matchingAgents = useMemo(() => {
     const clean = query.trim().replace(/^@/, "").toLowerCase();
@@ -86,12 +95,13 @@ export function SearchScreen({
   const runSearch = useCallback(async () => {
     const seq = ++searchSeqRef.current;
     const q = query.trim();
+    setLoading(false);
     setNextCursor(null);
     setLoadingMore(false);
     if (category === "prompts") {
       if (!client) {
         setPrompts(
-          localCards
+          localCardsRef.current
             .filter(
               (c) => !q || c.prompt.toLowerCase().includes(q.toLowerCase()),
             )
@@ -125,8 +135,9 @@ export function SearchScreen({
     }
 
     if (!client) {
+      const cards = localCardsRef.current;
       const hits = searchThreadCards(
-        localCards.map((c) => ({
+        cards.map((c) => ({
           id: c.id,
           title: c.fallbackTitle,
           prompt: c.prompt,
@@ -139,7 +150,7 @@ export function SearchScreen({
       );
       setResults(
         hits.map((h) => {
-          const card = localCards[h.index];
+          const card = cards[h.index];
           return {
             id: h.cardId,
             kind: "message",
@@ -177,7 +188,7 @@ export function SearchScreen({
     } finally {
       if (seq === searchSeqRef.current) setLoading(false);
     }
-  }, [client, query, category, localCards]);
+  }, [client, query, category]);
 
   const loadMoreResults = useCallback(async () => {
     const q = query.trim();

@@ -167,8 +167,6 @@ function LoopShell() {
   const [loadingMoreFeed, setLoadingMoreFeed] = useState(false);
   const hasLoadedOlderFeedRef = useRef(false);
   const feedPageEpochRef = useRef(0);
-  const liveCardsRef = useRef<NativeResultCard[]>([]);
-  liveCardsRef.current = liveCards;
   const [summary, setSummary] = useState<ApiFeedSummary | null>(null);
   const [agents, setAgents] = useState<ApiAgent[]>(DEMO_AGENTS);
   const [folders, setFolders] = useState<ApiFolder[]>([]);
@@ -341,22 +339,7 @@ function LoopShell() {
                 ? (doneCardPage?.next ?? null)
                 : (feedPage.next ?? null),
             );
-          } else if (hasLoadedOlderFeedRef.current) {
-            // Preserve cards pushed past page 1 so no gap opens between page 1 and loaded older pages.
-            const freshIds = new Set(nextTopCards.map((c) => c.id));
-            const pushedDown = liveCardsRef.current.filter(
-              (c) => !freshIds.has(c.id),
-            );
-            if (pushedDown.length > 0) {
-              setOlderFeedCards((prev) => {
-                const existingIds = new Set(prev.map((c) => c.id));
-                const additions = pushedDown.filter(
-                  (c) => !existingIds.has(c.id),
-                );
-                return additions.length > 0 ? [...additions, ...prev] : prev;
-              });
-            }
-          } else {
+          } else if (!hasLoadedOlderFeedRef.current) {
             setFeedCursorSource(useCardsSource ? "cards" : "feed");
             setFeedNextCursor(
               useCardsSource
@@ -710,31 +693,33 @@ function LoopShell() {
         showToast(doneKey ? "Marked done" : "Archived reply", () => {
           if (gen !== workspaceGenRef.current) return;
           haptics.light();
-          // Restore immediately into olderFeedCards as well so undoing a paginated card
-          // brings it back even if it sits below page 1.
-          setOlderFeedCards((prev) =>
-            prev.some((c) => c.id === card.id) ? prev : [card, ...prev],
-          );
           const restores: Promise<unknown>[] = [];
           if (doneKey) {
             restores.push(
-              client
-                .setDoneHidden(card.conversationId, doneKey, false)
-                .catch(() => {}),
+              client.setDoneHidden(card.conversationId, doneKey, false),
             );
           }
           if (replyMessageId) {
             restores.push(
-              client
-                .setReplyState(replyMessageId, { archived: false })
-                .catch(() => {}),
+              client.setReplyState(replyMessageId, { archived: false }),
             );
           }
-          void Promise.all(restores).then(() => {
-            if (gen === workspaceGenRef.current) {
+          void Promise.all(restores)
+            .then(() => {
+              if (gen !== workspaceGenRef.current) return;
+              // Restore into olderFeedCards only after server confirms so paginated cards
+              // reappear immediately without leaving a phantom card on failure.
+              setOlderFeedCards((prev) =>
+                prev.some((c) => c.id === card.id) ? prev : [card, ...prev],
+              );
               void loadWorkspaceRef.current({ silent: true });
-            }
-          });
+            })
+            .catch(() => {
+              if (gen === workspaceGenRef.current) {
+                showToast("Could not undo — syncing…");
+                void loadWorkspaceRef.current({ silent: true });
+              }
+            });
         });
         return;
       }
