@@ -27,7 +27,12 @@ import {
   SafeAreaProvider,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
-import { isUncertainOutcomeError, LoopClient } from "./src/api/client";
+import {
+  isUncertainOutcomeError,
+  LoopApiError,
+  LoopClient,
+} from "./src/api/client";
+import type { PendingAgentCreate } from "./src/drafts-codec";
 import {
   guessMimeFromName,
   type LoopFileTarget,
@@ -944,6 +949,7 @@ function LoopShell() {
           idempotencyKey,
           queue,
         });
+        if (gen !== workspaceGenRef.current) return;
         showToast(
           queue
             ? `Queued for @${card.agentName}`
@@ -951,20 +957,19 @@ function LoopShell() {
               ? `Sent to @${card.agentName} with ${attachmentIds.length} ${attachmentIds.length === 1 ? "file" : "files"}`
               : `Sent to @${card.agentName}`,
         );
-        scheduleSilentRefresh(450, gen);
+        scheduleSilentRefresh(0, gen);
         return;
       }
-      setTimeout(() => {
-        const nextCard = buildSimulatedReply(
-          card.conversationId,
-          card.agentName,
-          card.projectName,
-          card.model,
-          prompt,
-        );
-        setDemoCards((prev) => [nextCard, ...prev]);
-        haptics.success();
-      }, 1100);
+      await new Promise<void>((resolve) => setTimeout(resolve, 1100));
+      const nextCard = buildSimulatedReply(
+        card.conversationId,
+        card.agentName,
+        card.projectName,
+        card.model,
+        prompt,
+      );
+      setDemoCards((prev) => [nextCard, ...prev]);
+      haptics.success();
     },
     [client, agents, scheduleSilentRefresh, showToast],
   );
@@ -1075,25 +1080,23 @@ function LoopShell() {
   );
 
   const handleComposeCreate = useCallback(
-    async (
-      input: ComposeSubmit & {
-        name: string;
-        connectionId: string;
-        model: string;
-        folderId?: string | null;
-      },
-    ) => {
+    async (input: PendingAgentCreate) => {
       if (client) {
+        if (activeSessionRef.current !== session) {
+          throw new LoopApiError(401, "Workspace changed.");
+        }
         const gen = workspaceGenRef.current;
         const created = await client.createAgent({
           name: input.name,
           connectionId: input.connectionId,
           model: input.model,
+          effort: input.effort,
           initialPrompt: input.text,
           attachmentIds: input.attachmentIds,
           folderId: input.folderId,
           idempotencyKey: input.idempotencyKey,
         });
+        if (gen !== workspaceGenRef.current) return;
         showToast(`Started @${created.name}`);
         setAppTab("feed");
         scheduleSilentRefresh(400, gen);
@@ -1111,7 +1114,7 @@ function LoopShell() {
       haptics.success();
       showToast(`@${input.name} answered`);
     },
-    [client, scheduleSilentRefresh, showToast],
+    [client, session, scheduleSilentRefresh, showToast],
   );
 
   const handleDecideApproval = useCallback(
@@ -1994,6 +1997,27 @@ function LoopShell() {
           allCards={activeCards}
           theme={theme}
           onClose={() => setProfileAgent(null)}
+          onUpdateModel={
+            client
+              ? async (selection) => {
+                  const gen = workspaceGenRef.current;
+                  const updated = await client.updateAgentModel(
+                    profileAgent.id,
+                    selection,
+                  );
+                  if (gen !== workspaceGenRef.current) return;
+                  setAgents((prev) =>
+                    prev.map((agent) =>
+                      agent.id === updated.id ? updated : agent,
+                    ),
+                  );
+                  setProfileAgent((prev) =>
+                    prev?.id === updated.id ? updated : prev,
+                  );
+                  void loadWorkspaceRef.current({ silent: true });
+                }
+              : undefined
+          }
           onMessageAgent={(agent) => {
             setProfileAgent(null);
             setComposeTarget({ kind: "agent", agent });

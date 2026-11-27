@@ -1,3 +1,4 @@
+import type { AgentModelSelection } from "../models";
 import {
   parseArtifactFileMetadata,
   parseContentDispositionFilename,
@@ -460,6 +461,7 @@ export class LoopClient {
     name: string;
     connectionId: string;
     model: string;
+    effort?: string | null;
     initialPrompt: string;
     attachmentIds?: string[];
     folderId?: string | null;
@@ -474,12 +476,24 @@ export class LoopClient {
         name: input.name,
         connectionId: input.connectionId,
         model: input.model,
+        ...(input.effort != null ? { effort: input.effort } : {}),
         initialPrompt: input.initialPrompt,
         attachmentIds: input.attachmentIds ?? [],
         ...(input.folderId ? { folderId: input.folderId } : {}),
         idempotencyKey: input.idempotencyKey,
       },
       RUN_REQUEST_TIMEOUT_MS,
+    );
+  }
+
+  updateAgentModel(
+    agentId: string,
+    selection: AgentModelSelection,
+  ): Promise<ApiAgent> {
+    return this.request(
+      "PATCH",
+      `/api/agents/${encodeURIComponent(agentId)}`,
+      selection,
     );
   }
 

@@ -5,14 +5,13 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
 import { BlurView } from "expo-blur";
-import { ArrowUp, Clock, Paperclip, X } from "lucide-react-native";
+import { ArrowUp, Clock, Cpu, Paperclip, X } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   isUncertainOutcomeError,
@@ -27,13 +26,15 @@ import {
   loadDraftEntry,
   saveDraft,
   saveDraftAndFlush,
+  type PendingAgentCreate,
 } from "../drafts";
 import { haptics } from "../haptics";
 import {
   agentModelLabel,
   connectedHarnesses,
   defaultModelFor,
-  harnessLabel,
+  effortLabel,
+  type AgentModelSelection,
 } from "../models";
 import type { LoopTheme } from "../theme";
 import {
@@ -41,6 +42,7 @@ import {
   AttachmentSourceSheet,
   useAttachments,
 } from "./AttachmentTray";
+import { AgentModelSheet } from "./AgentModelSheet";
 import { ScheduleSendSheet } from "./ScheduleSendSheet";
 import { VoiceRecorderButton } from "./VoiceRecorder";
 
@@ -77,17 +79,11 @@ export function ComposeSheet({
     agent: ApiAgent,
     input: ComposeSubmit & { sendAt: number; folderId?: string | null },
   ) => Promise<void>;
-  onCreate: (
-    input: ComposeSubmit & {
-      name: string;
-      connectionId: string;
-      model: string;
-      folderId?: string | null;
-    },
-  ) => Promise<void>;
+  onCreate: (input: PendingAgentCreate) => Promise<void>;
 }) {
   const insets = useSafeAreaInsets();
   const agent = target.kind === "agent" ? target.agent : null;
+  const agentId = agent?.id;
   const folderId =
     target.kind === "agent"
       ? (target.agent.folder_id ?? null)
@@ -96,15 +92,26 @@ export function ComposeSheet({
     () => connectedHarnesses(connections),
     [connections],
   );
-  const [connectionId, setConnectionId] = useState(harnesses[0]?.id ?? "");
-  const connection =
-    harnesses.find((c) => c.id === connectionId) ?? harnesses[0];
-  const model = connection ? defaultModelFor(connection) : "";
+  const [modelSelection, setModelSelection] =
+    useState<AgentModelSelection | null>(null);
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [pendingCreate, setPendingCreate] = useState<PendingAgentCreate | null>(
+    null,
+  );
+  const [draftLoaded, setDraftLoaded] = useState(false);
+  const defaultConnection = harnesses[0];
+  const selection = pendingCreate ??
+    modelSelection ?? {
+      connectionId: defaultConnection?.id ?? "",
+      model: defaultConnection ? defaultModelFor(defaultConnection) : "",
+      effort: null,
+    };
   // One name per sheet: a retry after an uncertain create must send the same
   // name with the same key so the server returns the agent it already made.
   const [name, setName] = useState("");
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  const sendingRef = useRef(false);
   const [error, setError] = useState("");
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleBusy, setScheduleBusy] = useState(false);
@@ -138,7 +145,21 @@ export function ComposeSheet({
     let cancelled = false;
     draftTouchedRef.current = false;
     void loadDraftEntry(client?.origin, draftScope).then((entry) => {
-      if (cancelled || !entry?.text) return;
+      if (cancelled) return;
+      setDraftLoaded(true);
+      if (!entry?.text) return;
+      if (!agentId && entry.pendingAgentCreate) {
+        const pending = entry.pendingAgentCreate;
+        setPendingCreate(pending);
+        setName(pending.name);
+        setModelSelection({
+          connectionId: pending.connectionId,
+          model: pending.model,
+          effort: pending.effort,
+        });
+        setText(entry.text);
+        return;
+      }
       if (entry.pendingSchedule) {
         // Always restore a locked schedule even if the user started typing before disk load finished.
         const restored = {
@@ -165,7 +186,7 @@ export function ComposeSheet({
     return () => {
       cancelled = true;
     };
-  }, [agent?.folder_id, client?.origin, draftScope]);
+  }, [agentId, agent?.folder_id, client?.origin, draftScope]);
 
   useEffect(() => {
     if (agent || !client) return;
@@ -208,21 +229,21 @@ export function ComposeSheet({
     setHasPendingSend(false);
   }, [text, attSig]);
 
-  // Only new-agent creation depends on connection?.id; existing-agent schedules must not reset on connection list refreshes.
-  useEffect(() => {
-    if (agent) return;
-    sendKeyRef.current = null;
-    setHasPendingSend(false);
-  }, [agent, connection?.id]);
-
   const scheduleLocked = Boolean(pendingSchedule?.locked);
+  const createLocked = Boolean(pendingCreate);
+  const composerLocked = scheduleLocked || createLocked;
   const ready = agent
     ? true
     : client
-      ? Boolean(name && connection && model)
+      ? draftLoaded &&
+        Boolean(
+          pendingCreate || (name && selection.connectionId && selection.model),
+        )
       : true;
   const cannotSend =
-    (!text.trim() && composeAttachments.readyIds.length === 0) ||
+    (!pendingCreate &&
+      !text.trim() &&
+      composeAttachments.readyIds.length === 0) ||
     composeAttachments.uploading ||
     composeAttachments.hasErrors ||
     recordingAudio ||
@@ -352,43 +373,68 @@ export function ComposeSheet({
   async function handleSend() {
     const trimmed = text.trim();
     const { readyIds, readyNames, clearAttachments } = composeAttachments;
-    if (cannotSend) return;
+    if (cannotSend || sendingRef.current) return;
     const finalText =
       trimmed ||
       (readyNames.length === 1
         ? `Attached ${readyNames[0]}`
         : `Attached ${readyNames.length} files`);
     if (!sendKeyRef.current) sendKeyRef.current = randomUuid();
-    const idempotencyKey = sendKeyRef.current;
+    const idempotencyKey = pendingCreate?.idempotencyKey ?? sendKeyRef.current;
+    sendingRef.current = true;
     haptics.medium();
     setBusy(true);
     setError("");
+    let dispatched = false;
     try {
-      const input = {
-        text: finalText,
-        attachmentIds: readyIds,
-        idempotencyKey,
-      };
-      if (agent) await onMessage(agent, input);
-      else
-        await onCreate({
-          ...input,
-          name: name || "agent",
-          connectionId: connection?.id ?? "",
-          model,
-          folderId,
+      if (agent) {
+        dispatched = true;
+        await onMessage(agent, {
+          text: finalText,
+          attachmentIds: readyIds,
+          idempotencyKey,
         });
+      } else {
+        const creation = pendingCreate ?? {
+          ...selection,
+          text: finalText,
+          attachmentIds: readyIds,
+          idempotencyKey,
+          name: name || "agent",
+          folderId,
+        };
+        if (client && !pendingCreate) {
+          await saveDraftAndFlush(
+            client.origin,
+            draftScope,
+            text.trim() || finalText,
+            {
+              agentCreate: creation,
+            },
+          );
+          setPendingCreate(creation);
+        }
+        dispatched = true;
+        await onCreate(creation);
+      }
       sendKeyRef.current = null;
       clearDraft(client?.origin, draftScope);
       clearAttachments();
       onClose();
     } catch (err) {
-      if (isUncertainOutcomeError(err)) {
-        setHasPendingSend(true);
-        saveDraft(client?.origin, draftScope, text, { key: idempotencyKey });
-      } else {
+      if (err instanceof LoopApiError && err.status === 401) return;
+      if (dispatched && isUncertainOutcomeError(err)) {
+        if (agent) {
+          setHasPendingSend(true);
+          saveDraft(client?.origin, draftScope, text, { key: idempotencyKey });
+        }
+      } else if (dispatched) {
         sendKeyRef.current = null;
         setHasPendingSend(false);
+        if (!agent) {
+          setPendingCreate(null);
+          saveDraft(client?.origin, draftScope, text.trim() || finalText);
+        }
       }
       haptics.warning();
       setError(
@@ -399,6 +445,7 @@ export function ComposeSheet({
             : "Could not start the agent.",
       );
     } finally {
+      sendingRef.current = false;
       setBusy(false);
     }
   }
@@ -484,53 +531,41 @@ export function ComposeSheet({
               </Pressable>
             </View>
 
-            {/* A new agent needs only its harness; shown when there is a choice. */}
-            {!agent && harnesses.length > 1 && (
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-                contentContainerStyle={styles.pillRail}
+            {!agent && client && (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Choose model and effort"
+                disabled={busy || createLocked || harnesses.length === 0}
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setModelPickerOpen(true);
+                }}
+                style={[
+                  styles.modelButton,
+                  { backgroundColor: theme.soft, borderColor: theme.line },
+                ]}
               >
-                {harnesses.map((c) => {
-                  const active = c.id === connection?.id;
-                  return (
-                    <Pressable
-                      key={c.id}
-                      accessibilityRole="button"
-                      accessibilityState={{ selected: active }}
-                      onPress={() => {
-                        haptics.selection();
-                        setConnectionId(c.id);
-                      }}
-                      style={[
-                        styles.harnessChip,
+                <Cpu size={16} color={theme.brassText} />
+                <Text style={[styles.modelButtonText, { color: theme.text }]}>
+                  {selection.model
+                    ? agentModelLabel(
                         {
-                          backgroundColor: active
-                            ? theme.attention
-                            : theme.soft,
-                          borderColor: active ? theme.brass : theme.line,
+                          connection_id: selection.connectionId,
+                          model: selection.model,
                         },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.harnessChipText,
-                          { color: active ? theme.brassText : theme.muted },
-                        ]}
-                      >
-                        {harnessLabel(c)}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </ScrollView>
+                        connections,
+                      )
+                    : "Choose model"}
+                  {" · "}
+                  {effortLabel(selection.effort)}
+                </Text>
+              </Pressable>
             )}
 
             <AttachmentChipStrip
               attachments={composeAttachments.attachments}
               theme={theme}
-              locked={scheduleLocked}
+              locked={composerLocked || busy}
               onRemove={composeAttachments.removeAttachment}
               onRetry={(id) => void composeAttachments.retryAttachment(id)}
             />
@@ -548,7 +583,7 @@ export function ComposeSheet({
                   !composeAttachments.canAddMore ||
                   busy ||
                   scheduleBusy ||
-                  scheduleLocked
+                  composerLocked
                 }
                 onPress={() => {
                   haptics.light();
@@ -560,7 +595,7 @@ export function ComposeSheet({
                   (!composeAttachments.canAddMore ||
                     busy ||
                     scheduleBusy ||
-                    scheduleLocked) && {
+                    composerLocked) && {
                     opacity: 0.4,
                   },
                 ]}
@@ -580,7 +615,7 @@ export function ComposeSheet({
                   !composeAttachments.canAddMore ||
                   busy ||
                   scheduleBusy ||
-                  scheduleLocked
+                  composerLocked
                 }
                 onRecordingChange={setRecordingAudio}
                 onRecorded={(file) => {
@@ -591,7 +626,7 @@ export function ComposeSheet({
               />
               <TextInput
                 value={text}
-                editable={!busy && !scheduleBusy && !scheduleLocked}
+                editable={!busy && !scheduleBusy && !composerLocked}
                 onChangeText={(next) => {
                   draftTouchedRef.current = true;
                   sendKeyRef.current = null;
@@ -604,6 +639,7 @@ export function ComposeSheet({
                 placeholderTextColor={theme.muted}
                 style={[styles.input, { color: theme.text }]}
                 multiline
+                maxLength={30_000}
                 autoFocus
               />
               {agent && client && onSchedule && (
@@ -625,7 +661,13 @@ export function ComposeSheet({
                 </Pressable>
               )}
               <Pressable
-                accessibilityLabel={agent ? "Send" : "Start agent"}
+                accessibilityLabel={
+                  agent
+                    ? "Send"
+                    : createLocked
+                      ? "Retry starting agent"
+                      : "Start agent"
+                }
                 disabled={cannotSend}
                 onPress={() => void handleSend()}
                 style={({ pressed }) => [
@@ -644,6 +686,12 @@ export function ComposeSheet({
               </Pressable>
             </View>
 
+            {createLocked && !busy && (
+              <Text style={{ color: theme.muted }}>
+                Retry to check whether this agent was started.
+              </Text>
+            )}
+
             {error ? (
               <Text style={[styles.errorText, { color: theme.orange }]}>
                 {error}
@@ -652,6 +700,20 @@ export function ComposeSheet({
           </View>
         </View>
       </KeyboardAvoidingView>
+
+      {modelPickerOpen && (
+        <AgentModelSheet
+          initialSelection={selection}
+          connections={connections}
+          theme={theme}
+          confirmLabel="Use model and effort"
+          onClose={() => setModelPickerOpen(false)}
+          onSave={(next) => {
+            sendKeyRef.current = null;
+            setModelSelection(next);
+          }}
+        />
+      )}
 
       <AttachmentSourceSheet
         visible={composeAttachments.pickerOpen}
@@ -723,13 +785,17 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     marginTop: 2,
   },
-  harnessChip: {
+  modelButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    gap: 8,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 999,
     borderWidth: 1,
   },
-  harnessChipText: {
+  modelButtonText: {
     fontSize: 12.5,
     fontWeight: "600",
   },
@@ -740,10 +806,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
-  },
-  pillRail: {
-    gap: 8,
-    paddingRight: 16,
   },
   composerBox: {
     flexDirection: "row",

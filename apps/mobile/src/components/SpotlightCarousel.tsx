@@ -6,6 +6,7 @@ import React, {
   useState,
 } from "react";
 import {
+  ActivityIndicator,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
@@ -75,6 +76,7 @@ import type { ApiSnippet } from "../api/types";
 import type { AgentRunSummary } from "./AgentProfileSheet";
 import { PublishedFilesStrip } from "./FilePreviewModal";
 import {
+  feedPreviewText,
   QUICK_REPLIES,
   relativeTime,
   type NativeResultCard,
@@ -217,6 +219,7 @@ export function SpotlightCarousel({
   >(() => new Map());
   const fetchedRunsRef = useRef(new Set<string>());
   const conversationId = cards[0]?.conversationId;
+  const [openingFrameReady, setOpeningFrameReady] = useState(false);
   // Read slide metadata through a ref so mark-read/save/silent reloads do not re-fire
   // `client.conversation(conversationId)` on every `cards` array identity change.
   const baseCardRef = useRef(cards[0]);
@@ -274,53 +277,49 @@ export function SpotlightCarousel({
   );
 
   useEffect(() => {
-    if (!client || !conversationId) return;
+    if (!openingFrameReady || !client || !conversationId) return;
     let cancelled = false;
-    // Defer full-thread history fetch until after the opening spring renders frame 1
-    const timer = setTimeout(() => {
-      if (cancelled) return;
-      void client
-        .conversation(conversationId)
-        .then((page) => {
-          if (cancelled) return;
-          const {
-            promptMap,
-            bodyMap,
-            runIdMap,
-            slides: extra,
-          } = parseConversationPageToSlides(page, conversationId);
-          setHistoryPrompts((prev) => new Map([...prev, ...promptMap]));
-          setHistoryRunIds((prev) => new Map([...prev, ...runIdMap]));
-          setFullBodies((prev) => {
-            const next = new Map(prev);
-            for (const [id, content] of bodyMap) {
-              const existing = next.get(id);
-              if (!existing || content.length > existing.length) {
-                next.set(id, content);
-              }
+    void client
+      .conversation(conversationId)
+      .then((page) => {
+        if (cancelled) return;
+        const {
+          promptMap,
+          bodyMap,
+          runIdMap,
+          slides: extra,
+        } = parseConversationPageToSlides(page, conversationId);
+        setHistoryPrompts((prev) => new Map([...prev, ...promptMap]));
+        setHistoryRunIds((prev) => new Map([...prev, ...runIdMap]));
+        setFullBodies((prev) => {
+          const next = new Map(prev);
+          for (const [id, content] of bodyMap) {
+            const existing = next.get(id);
+            if (!existing || content.length > existing.length) {
+              next.set(id, content);
             }
-            return next;
-          });
-          setHistorySlides((prev) => {
-            if (!hasLoadedOlderHistoryRef.current || prev.length === 0) {
-              return extra;
-            }
-            const seen = new Set(extra.map((c) => c.messageId || c.id));
-            const older = prev.filter((c) => !seen.has(c.messageId || c.id));
-            return [...extra, ...older];
-          });
-          if (!hasLoadedOlderHistoryRef.current) {
-            setHistoryNextCursor(page.next ?? null);
           }
-          setSteerableRunId(page.steerable_run_id ?? null);
-        })
-        .catch(() => {});
-    }, 140);
+          return next;
+        });
+        setHistorySlides((prev) => {
+          if (!hasLoadedOlderHistoryRef.current || prev.length === 0) {
+            return extra;
+          }
+          const seen = new Set(extra.map((c) => c.messageId || c.id));
+          const older = prev.filter((c) => !seen.has(c.messageId || c.id));
+          return [...extra, ...older];
+        });
+        if (!hasLoadedOlderHistoryRef.current) {
+          setHistoryNextCursor(page.next ?? null);
+        }
+        setSteerableRunId(page.steerable_run_id ?? null);
+      })
+      .catch(() => {});
     return () => {
       cancelled = true;
-      clearTimeout(timer);
     };
   }, [
+    openingFrameReady,
     client,
     conversationId,
     activeRun?.id,
@@ -466,6 +465,7 @@ export function SpotlightCarousel({
     locked: boolean;
   } | null>(null);
   const [sending, setSending] = useState(false);
+  const sendingRef = useRef(false);
 
   useEffect(() => {
     if (!draftScope) return;
@@ -619,7 +619,16 @@ export function SpotlightCarousel({
 
   useEffect(() => {
     entrance.value = withSpring(1, { damping: 24, stiffness: 280, mass: 0.85 });
-  }, []);
+    // Paint the cached preview before building rich content and reading history.
+    let contentFrame: number | undefined;
+    const openingFrame = requestAnimationFrame(() => {
+      contentFrame = requestAnimationFrame(() => setOpeningFrameReady(true));
+    });
+    return () => {
+      cancelAnimationFrame(openingFrame);
+      if (contentFrame !== undefined) cancelAnimationFrame(contentFrame);
+    };
+  }, [entrance]);
 
   useEffect(() => {
     const onShow = (e?: {
@@ -961,7 +970,7 @@ export function SpotlightCarousel({
       uploading ||
       hasErrors ||
       recordingAudio ||
-      sending ||
+      sendingRef.current ||
       scheduleBusy ||
       pendingSchedule ||
       !activeCard
@@ -987,8 +996,10 @@ export function SpotlightCarousel({
       replyToMessageId === activeCard.messageId
         ? activeCard
         : { ...activeCard, messageId: replyToMessageId };
+    sendingRef.current = true;
     haptics.medium();
     setSending(true);
+    Keyboard.dismiss();
     setReplyError("");
     try {
       await Promise.resolve(
@@ -999,7 +1010,6 @@ export function SpotlightCarousel({
       if (draftScope) clearDraft(client?.origin, draftScope);
       setDraft("");
       clearAttachments();
-      Keyboard.dismiss();
     } catch (err) {
       if (!isUncertainOutcomeError(err)) {
         pendingReplyRef.current = null;
@@ -1018,11 +1028,11 @@ export function SpotlightCarousel({
         err instanceof Error ? err.message : "Could not send reply. Try again.",
       );
     } finally {
-      setTimeout(() => setSending(false), client ? 250 : 1150);
+      sendingRef.current = false;
+      setSending(false);
     }
   }, [
     draft,
-    sending,
     recordingAudio,
     scheduleBusy,
     pendingSchedule,
@@ -1569,26 +1579,6 @@ export function SpotlightCarousel({
             </View>
           )}
 
-          {/* Simulated arrival / sending status pills */}
-          {!searchOpen && sending && !activeRun && (
-            <View style={styles.statusBannerWrap}>
-              <View
-                style={[
-                  styles.statusBannerPill,
-                  {
-                    backgroundColor: theme.pillBg,
-                    borderColor: theme.line,
-                  },
-                ]}
-              >
-                <Sparkles size={13} color={theme.brassText} />
-                <Text style={[styles.statusBannerText, { color: theme.muted }]}>
-                  @{agentName} is writing a new card…
-                </Text>
-              </View>
-            </View>
-          )}
-
           {!searchOpen && queuedRuns.length > 0 && (
             <View style={styles.statusBannerWrap}>
               <Pressable
@@ -1739,6 +1729,7 @@ export function SpotlightCarousel({
                       client={client}
                       index={index}
                       isActive={index === safeIndex}
+                      showRichBody={openingFrameReady && index === safeIndex}
                       isMatch={isMatch}
                       cardWidth={cardWidth}
                       snapInterval={snapInterval}
@@ -1903,8 +1894,28 @@ export function SpotlightCarousel({
             />
           )}
 
+          {sending && (
+            <View style={styles.replyFloatWrap}>
+              <View
+                accessibilityLiveRegion="polite"
+                style={[
+                  styles.replyPill,
+                  styles.pendingReply,
+                  { backgroundColor: theme.pillBg, borderColor: theme.line },
+                ]}
+              >
+                <ActivityIndicator size="small" color={theme.brassText} />
+                <Text style={[styles.statusBannerText, { color: theme.text }]}>
+                  Sending reply…
+                </Text>
+              </View>
+            </View>
+          )}
+
           {/* Detached Floating Reply Pill along the bottom */}
-          <View style={styles.replyFloatWrap}>
+          <View
+            style={[styles.replyFloatWrap, sending && styles.hiddenComposer]}
+          >
             {canSteerActiveRun && (
               <View style={styles.deliveryModeRow}>
                 <Pressable
@@ -2792,6 +2803,7 @@ const FloatingCarouselCard = React.memo(function FloatingCarouselCard({
   client,
   index,
   isActive,
+  showRichBody,
   isMatch,
   cardWidth,
   snapInterval,
@@ -2810,6 +2822,7 @@ const FloatingCarouselCard = React.memo(function FloatingCarouselCard({
   client?: LoopClient | null;
   index: number;
   isActive: boolean;
+  showRichBody: boolean;
   isMatch: boolean;
   cardWidth: number;
   snapInterval: number;
@@ -2828,10 +2841,9 @@ const FloatingCarouselCard = React.memo(function FloatingCarouselCard({
   const pullArmedRef = useRef(false);
   const dragStartAtTopRef = useRef(false);
   const lastPullYRef = useRef(0);
-  // Render full Markdown only on the active slide; peeking neighbors render a fast top-half slice
-  const renderedBody = useMemo(
-    () => (isActive ? slide.body : slide.body.slice(0, 1200)),
-    [isActive, slide.body],
+  const preview = useMemo(
+    () => (showRichBody ? "" : feedPreviewText(slide.body.slice(0, 1600))),
+    [showRichBody, slide.body],
   );
 
   const animatedCardStyle = useAnimatedStyle(() => {
@@ -3060,16 +3072,25 @@ const FloatingCarouselCard = React.memo(function FloatingCarouselCard({
             <CarouselPromptQuote prompt={header.promptQuote} theme={theme} />
           )}
 
-          <RichContent
-            content={renderedBody}
-            theme={theme}
-            workspaceOrigin={client?.origin}
-            onReplyButton={onReplyButton}
-            onOpenFile={onOpenFileTarget}
-            skipLeadingHeading={
-              header.titleSource === "heading" ? header.title : undefined
-            }
-          />
+          {showRichBody ? (
+            <RichContent
+              content={slide.body}
+              theme={theme}
+              workspaceOrigin={client?.origin}
+              onReplyButton={onReplyButton}
+              onOpenFile={onOpenFileTarget}
+              skipLeadingHeading={
+                header.titleSource === "heading" ? header.title : undefined
+              }
+            />
+          ) : (
+            <Text
+              numberOfLines={12}
+              style={[styles.openingPreview, { color: theme.text }]}
+            >
+              {preview}
+            </Text>
+          )}
 
           {isActive && files.length > 0 && (
             <PublishedFilesStrip
@@ -3800,6 +3821,13 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     paddingHorizontal: 8,
     paddingBottom: 6,
+  },
+  openingPreview: { fontSize: 15, lineHeight: 22 },
+  hiddenComposer: { display: "none" },
+  pendingReply: {
+    justifyContent: "center",
+    alignItems: "center",
+    minHeight: 46,
   },
   replyPill: {
     flexDirection: "row",

@@ -20,6 +20,7 @@ import {
   ChevronDown,
   ChevronUp,
   Cpu,
+  Pencil,
   Folder,
   Layers,
   Plus,
@@ -29,7 +30,12 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { LoopClient } from "../api/client";
 import type { ApiAgent, ApiConnection, ApiFolder } from "../api/types";
-import { agentModelLabel, harnessLabel } from "../models";
+import {
+  agentModelLabel,
+  effortLabel,
+  harnessLabel,
+  type AgentModelSelection,
+} from "../models";
 import { relativeTime, type NativeResultCard } from "../fixtures";
 import { haptics } from "../haptics";
 import type { LoopTheme } from "../theme";
@@ -38,6 +44,8 @@ import {
   feedPreviewText,
   ProfileCoverBanner,
 } from "./RichContent";
+
+import { AgentModelSheet } from "./AgentModelSheet";
 
 type ProfileTab = "results" | "threads" | "traces";
 
@@ -66,6 +74,7 @@ export function AgentProfileSheet({
   theme,
   onClose,
   onMessageAgent,
+  onUpdateModel,
   onOpenStack,
   onOpenThread,
 }: {
@@ -78,6 +87,7 @@ export function AgentProfileSheet({
   theme: LoopTheme;
   onClose: () => void;
   onMessageAgent: (agent: ApiAgent) => void;
+  onUpdateModel?: (selection: AgentModelSelection) => Promise<void>;
   onOpenStack: (conversationId: string, seedCard?: NativeResultCard) => void;
   onOpenThread: (input: {
     conversationId: string;
@@ -87,6 +97,7 @@ export function AgentProfileSheet({
   }) => void;
 }) {
   const insets = useSafeAreaInsets();
+  const [editingModel, setEditingModel] = useState(false);
   const [tab, setTab] = useState<ProfileTab>("results");
   const [instructionsOpen, setInstructionsOpen] = useState(false);
   const [loading, setLoading] = useState(Boolean(client));
@@ -412,7 +423,15 @@ export function AgentProfileSheet({
 
             <View style={styles.metaChips}>
               {cleanModel ? (
-                <View
+                <Pressable
+                  accessibilityRole={onUpdateModel ? "button" : undefined}
+                  accessibilityLabel={
+                    onUpdateModel
+                      ? `Change model and effort. Current model: ${cleanModel}, ${effortLabel(agent.effort)}`
+                      : undefined
+                  }
+                  disabled={!onUpdateModel}
+                  onPress={() => setEditingModel(true)}
                   style={[
                     styles.metaChip,
                     { backgroundColor: theme.surface, borderColor: theme.line },
@@ -421,8 +440,14 @@ export function AgentProfileSheet({
                   <Cpu size={12} color={theme.brassText} />
                   <Text style={[styles.metaChipText, { color: theme.muted }]}>
                     {cleanModel}
+                    {agent.effort
+                      ? ` · ${effortLabel(agent.effort)} effort`
+                      : ""}
                   </Text>
-                </View>
+                  {onUpdateModel && (
+                    <Pencil size={12} color={theme.brassText} />
+                  )}
+                </Pressable>
               ) : null}
               <View
                 style={[
@@ -732,6 +757,28 @@ export function AgentProfileSheet({
           )}
         </View>
       </ScrollView>
+      {editingModel && onUpdateModel && (
+        <AgentModelSheet
+          initialSelection={{
+            connectionId: agent.connection_id ?? "",
+            model: agent.model,
+            effort: agent.effort ?? null,
+          }}
+          caption={`For future runs from @${agent.name}`}
+          connections={connections}
+          theme={theme}
+          onClose={() => setEditingModel(false)}
+          onSave={(selection) => {
+            if (
+              selection.connectionId !== agent.connection_id ||
+              selection.model !== agent.model ||
+              selection.effort !== (agent.effort ?? null)
+            ) {
+              return onUpdateModel(selection);
+            }
+          }}
+        />
+      )}
     </View>
   );
 }

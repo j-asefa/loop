@@ -1,11 +1,20 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   agentModelLabel,
   connectedHarnesses,
   defaultModelFor,
   harnessLabel,
+  modelCatalog,
   runModelLabel,
 } from "../apps/mobile/src/models.js";
+import { LoopClient } from "../apps/mobile/src/api/client.js";
+import {
+  createEmptyDraftMap,
+  DRAFT_TTL_MS,
+  parseDraftStore,
+  serializeDraftStore,
+  setDraftInStore,
+} from "../apps/mobile/src/drafts-codec.js";
 import type { ApiConnection } from "../apps/mobile/src/api/types.js";
 
 function connection(
@@ -92,5 +101,115 @@ describe("mobile model labels", () => {
     expect(harnesses.map(harnessLabel)).toContain("Claude Code");
     expect(defaultModelFor(harnesses[0])).toBe("native-default");
     expect(defaultModelFor(connection("empty", "opencode", []))).toBe("");
+  });
+});
+
+describe("mobile model defaults", () => {
+  it("offers only effort values the selected model reports", () => {
+    const configured = connection("codex", "codex", [
+      {
+        id: "model-a",
+        name: "Model A",
+        effortLevels: [
+          { value: "low" },
+          { value: "xhigh" },
+          { value: "low" },
+          { value: "Mal Formed" },
+          null,
+        ],
+        defaultEffort: "low",
+      },
+      { id: "model-b", name: "Model B" },
+    ]);
+    const [a, b] = modelCatalog(configured);
+    expect(a.effortLevels).toEqual(["low", "xhigh"]);
+    expect(a.defaultEffort).toBe("low");
+    expect(b.effortLevels).toBeUndefined();
+  });
+
+  it("keeps an uncertain creation's exact settings and payload through draft reload and expiry", () => {
+    const pending = {
+      idempotencyKey: "creation-key",
+      connectionId: "codex",
+      name: "test-agent",
+      model: "model-a",
+      effort: "xhigh",
+      text: "Attached example.txt",
+      folderId: "project-a",
+      attachmentIds: ["attachment-a"],
+    };
+    const now = 123_000;
+    const scope = "compose:new:project-a";
+    const map = setDraftInStore(
+      createEmptyDraftMap(),
+      scope,
+      pending.text,
+      now,
+      {
+        agentCreate: pending,
+      },
+    );
+    const restored = parseDraftStore(
+      serializeDraftStore(map, now),
+      now + DRAFT_TTL_MS + 1,
+    );
+    expect(restored[scope].pendingAgentCreate).toEqual(pending);
+  });
+
+  it("sends the configured model and effort through the create and update client calls", async () => {
+    const origin = "https://loop.example.com";
+    const mockFetch = vi.spyOn(globalThis, "fetch").mockImplementation(
+      async (url) =>
+        ({
+          ok: true,
+          status: 200,
+          redirected: false,
+          url: String(url),
+          text: async () => JSON.stringify({ id: "agent-1" }),
+        }) as Response,
+    );
+    try {
+      const client = new LoopClient({
+        origin,
+        cookie: "__Host-loop=token",
+        csrf: "csrf-1",
+        deviceName: "Fixture",
+        pairedAt: 1,
+      });
+      await client.createAgent({
+        name: "test-agent",
+        connectionId: "codex",
+        model: "model-a",
+        effort: "xhigh",
+        initialPrompt: "Start here",
+        idempotencyKey: "creation-key",
+      });
+      await client.updateAgentModel("agent-1", {
+        connectionId: "codex",
+        model: "model-b",
+        effort: null,
+      });
+      const [create, update] = mockFetch.mock.calls;
+      expect(create[0]).toBe(origin + "/api/agents");
+      expect(create[1]?.method).toBe("POST");
+      expect(JSON.parse(String(create[1]?.body))).toEqual({
+        name: "test-agent",
+        connectionId: "codex",
+        model: "model-a",
+        effort: "xhigh",
+        initialPrompt: "Start here",
+        attachmentIds: [],
+        idempotencyKey: "creation-key",
+      });
+      expect(update[0]).toBe(origin + "/api/agents/agent-1");
+      expect(update[1]?.method).toBe("PATCH");
+      expect(JSON.parse(String(update[1]?.body))).toEqual({
+        connectionId: "codex",
+        model: "model-b",
+        effort: null,
+      });
+    } finally {
+      mockFetch.mockRestore();
+    }
   });
 });

@@ -20,6 +20,7 @@ export {
   type DraftEntry,
   type DraftPendingMeta,
   type PendingScheduleDraft,
+  type PendingAgentCreate,
   type PendingShareDraft,
 } from "./drafts-codec";
 
@@ -121,7 +122,11 @@ async function ensureBucketLoaded(bucket: string): Promise<DraftMap> {
     let dirty = false;
     if (ops) {
       for (const scope of ops.deletes) {
-        if (merged[scope]?.pendingSchedule || merged[scope]?.pendingShare) {
+        if (
+          merged[scope]?.pendingSchedule ||
+          merged[scope]?.pendingShare ||
+          merged[scope]?.pendingAgentCreate
+        ) {
           continue;
         }
         merged = deleteDraftFromStore(merged, scope);
@@ -132,6 +137,8 @@ async function ensureBucketLoaded(bucket: string): Promise<DraftMap> {
         // to overwrite a persisted pendingSchedule or pendingShare lock on disk.
         if (merged[scope]?.pendingSchedule && !op.pending?.schedule) continue;
         if (merged[scope]?.pendingShare && !op.pending?.share) continue;
+        if (merged[scope]?.pendingAgentCreate && !op.pending?.agentCreate)
+          continue;
         merged = setDraftInStore(
           merged,
           scope,
@@ -196,7 +203,12 @@ export function saveDraft(
   const current = memoryBuckets.get(bucket) ?? createEmptyDraftMap();
   const next = setDraftInStore(current, scope, text, Date.now(), pending);
   memoryBuckets.set(bucket, next);
-  if (pending?.key || pending?.schedule || pending?.share) {
+  if (
+    pending?.key ||
+    pending?.schedule ||
+    pending?.share ||
+    pending?.agentCreate
+  ) {
     flushBucketNow(bucket);
   } else {
     scheduleBucketFlush(bucket);
@@ -210,8 +222,20 @@ export async function saveDraftAndFlush(
   pending?: DraftPendingMeta,
 ): Promise<void> {
   const bucket = draftWorkspaceBucket(origin);
+  const epoch = bucketEpoch.get(bucket);
   await ensureBucketLoaded(bucket);
+  if (bucketEpoch.get(bucket) !== epoch) {
+    throw new Error("Workspace changed while saving the draft.");
+  }
   const current = memoryBuckets.get(bucket) ?? createEmptyDraftMap();
+  const existingAgentCreate = current[scope]?.pendingAgentCreate;
+  if (
+    existingAgentCreate &&
+    pending?.agentCreate &&
+    existingAgentCreate.idempotencyKey !== pending.agentCreate.idempotencyKey
+  ) {
+    throw new Error("A pending agent creation already exists for this draft.");
+  }
   const existingSchedule = current[scope]?.pendingSchedule;
   if (
     existingSchedule &&
@@ -233,6 +257,9 @@ export async function saveDraftAndFlush(
     );
   }
   const next = setDraftInStore(current, scope, text, Date.now(), pending);
+  if (pending?.agentCreate && !next[scope]?.pendingAgentCreate) {
+    throw new Error("Could not save the settings for this agent creation.");
+  }
   const timer = flushTimers.get(bucket);
   if (timer) {
     clearTimeout(timer);
@@ -242,7 +269,7 @@ export async function saveDraftAndFlush(
     writeBucketFile(bucket, next);
   } catch {
     throw new Error(
-      "Could not persist schedule recovery state locally. Please try again.",
+      "Could not persist send recovery state locally. Please try again.",
     );
   }
   memoryBuckets.set(bucket, next);
