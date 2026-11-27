@@ -3,7 +3,7 @@ import { z } from "zod";
 import { QueryRecords } from "../query-records.js";
 import { parseRecord } from "../row-schemas.js";
 import { statement } from "./statement.js";
-import { answerPredicate } from "../feed-answers.js";
+import { answerPredicate, nonemptyAnswer } from "../feed-answers.js";
 import { CAROUSEL_PAGE_CARDS } from "../../shared/done-stack.js";
 import { STARTED_RUN_DISPLAY_STATES } from "../../shared/run-state.js";
 // Order/eligibility is maintained transactionally by migrations 065/073. Materialize
@@ -25,7 +25,10 @@ export const transcriptPageSql = `WITH page AS MATERIALIZED (
 const carouselAnswer = `(${answerPredicate("m")} OR (
   m.role='assistant' AND EXISTS (
     SELECT 1 FROM steering_replies reply
+    JOIN results res ON res.owner_id=reply.owner_id AND res.id='reply:'||reply.message_id
+      AND res.sealed=1 AND res.kind='steering_reply'
     WHERE reply.owner_id=m.owner_id AND reply.message_id=m.id
+      AND ${nonemptyAnswer("json_extract(res.outcome,'$.body')")}
   )
 ))`;
 

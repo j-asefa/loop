@@ -1011,6 +1011,35 @@ it("uses and saves the sealed text of a published steering reply in carousel his
   );
   messages.updateContentAndMetadata(db, "Edited transcript", metadata, reply);
 
+  const unsealed = id();
+  seedMessage(db, {
+    id: unsealed,
+    owner_id: owner,
+    run_id: run.id,
+    conversation_id: conversationId,
+    role: "assistant",
+    content: "Unsealed steering reply",
+    metadata,
+    created_at: now() + 2,
+  });
+  steeringReplies.insert(db, unsealed, owner, steeringId, now());
+  const blank = id();
+  seedMessage(db, {
+    id: blank,
+    owner_id: owner,
+    run_id: run.id,
+    conversation_id: conversationId,
+    role: "assistant",
+    content: "\n\t",
+    metadata,
+    created_at: now() + 3,
+  });
+  steeringReplies.insert(db, blank, owner, steeringId, now());
+  publishSteeringReplyResult(
+    { ownerId: owner, messageId: blank, steeringId },
+    db,
+  );
+
   const path = `/conversations/${conversationId}`;
   const regular = workspaceApi.conversation.response.parse(
     (await request(path)).data,
@@ -1021,6 +1050,8 @@ it("uses and saves the sealed text of a published steering reply in carousel his
   expect(regular.messages.find(({ id }) => id === reply)?.content).toBe(
     "Edited transcript",
   );
+  expect(carousel.messages.map(({ id }) => id)).not.toContain(unsealed);
+  expect(carousel.messages.map(({ id }) => id)).not.toContain(blank);
   expect(carousel.messages.find(({ id }) => id === reply)).toMatchObject({
     content: "The sealed reply",
     carousel_prompt: "Which option?",

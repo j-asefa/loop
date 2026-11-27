@@ -3990,6 +3990,25 @@ it("reuses a carousel snapshot within one paired client and coalesces its refres
     await unsave;
     expect((await reopened).page.saved).toEqual([]);
     expect(fetchPage).toHaveBeenCalledTimes(readsBefore + 1);
+
+    let finishSave!: (response: Response) => void;
+    transport.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finishSave = resolve;
+      }),
+    );
+    transport.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true, saved: false })),
+    );
+    const requestsBefore = transport.mock.calls.length;
+    const first = client.setSaved("bookmark", true, "thread");
+    const second = client.setSaved("bookmark", false, "thread");
+    expect(transport).toHaveBeenCalledTimes(requestsBefore + 1);
+    finishSave(new Response(JSON.stringify({ ok: true, saved: true })));
+    await first;
+    await second;
+    expect(transport).toHaveBeenCalledTimes(requestsBefore + 2);
+    expect(client.cachedCarouselPage("thread")?.page.saved).toEqual([]);
   } finally {
     transport.mockRestore();
   }

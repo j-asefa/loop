@@ -135,6 +135,11 @@ export class LoopClient {
     { version: string; request: Promise<CarouselPageSnapshot> }
   >();
 
+  private readonly bookmarkRequests = new Map<
+    string,
+    Promise<{ ok: boolean; saved: boolean }>
+  >();
+
   private readonly carouselSaveRequests = new Map<
     string,
     Set<Promise<unknown>>
@@ -708,11 +713,15 @@ export class LoopClient {
     saved: boolean,
     conversationId?: string,
   ): Promise<{ ok: boolean; saved: boolean }> {
-    const request = this.request<{ ok: boolean; saved: boolean }>(
-      saved ? "POST" : "DELETE",
-      `/api/messages/${encodeURIComponent(messageId)}/saved`,
-      {},
-    );
+    const dispatch = () =>
+      this.request<{ ok: boolean; saved: boolean }>(
+        saved ? "POST" : "DELETE",
+        `/api/messages/${encodeURIComponent(messageId)}/saved`,
+        {},
+      );
+    const previous = this.bookmarkRequests.get(messageId);
+    const request = previous ? previous.then(dispatch, dispatch) : dispatch();
+    this.bookmarkRequests.set(messageId, request);
     const saves = conversationId
       ? (this.carouselSaveRequests.get(conversationId) ??
         new Set<Promise<unknown>>())
@@ -752,6 +761,8 @@ export class LoopClient {
       }
       throw error;
     } finally {
+      if (this.bookmarkRequests.get(messageId) === request)
+        this.bookmarkRequests.delete(messageId);
       if (conversationId && saves) {
         saves.delete(request);
         if (!saves.size) this.carouselSaveRequests.delete(conversationId);

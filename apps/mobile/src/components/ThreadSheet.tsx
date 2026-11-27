@@ -128,6 +128,22 @@ export function ThreadSheet({
     Map<string, PublishedFileItem[]>
   >(() => new Map());
   const [savedIds, setSavedIds] = useState<Set<string>>(() => new Set());
+  const bookmarkRevision = useRef(0);
+  const pendingBookmarks = useRef(new Set<string>());
+  const lastSavedRead = useRef(-Infinity);
+  const applyBookmarks = useCallback(
+    (saved: string[], revision: number, startedAt: number) => {
+      if (
+        bookmarkRevision.current !== revision ||
+        pendingBookmarks.current.size ||
+        startedAt < lastSavedRead.current
+      )
+        return;
+      lastSavedRead.current = startedAt;
+      setSavedIds(new Set(saved));
+    },
+    [],
+  );
   const [working, setWorking] = useState(false);
   const [steerableRunId, setSteerableRunId] = useState<string | null>(null);
   const [deliveryMode, setDeliveryMode] = useState<"steer" | "queue">("steer");
@@ -340,6 +356,8 @@ export function ThreadSheet({
       setLoading(true);
       setError("");
     }
+    const bookmarkRead = bookmarkRevision.current;
+    const startedAt = performance.now();
     try {
       const page = await client.conversation(conversationId);
       if (!gate.accept(token, conversationId)) return;
@@ -361,18 +379,7 @@ export function ThreadSheet({
       if (!hasLoadedHistoryRef.current) {
         setNextCursor(page.next ?? null);
       }
-      setSavedIds((prev) => {
-        if (!hasLoadedHistoryRef.current) return new Set(page.saved);
-        // Replace bookmark state authoritatively for refreshed page messages while keeping
-        // bookmarks for earlier paginated messages not included in this page.
-        const pageMsgIds = new Set(page.messages.map((m) => m.id));
-        const merged = new Set<string>();
-        for (const id of prev) {
-          if (!pageMsgIds.has(id)) merged.add(id);
-        }
-        for (const id of page.saved) merged.add(id);
-        return merged;
-      });
+      applyBookmarks(page.saved, bookmarkRead, startedAt);
       setWorking(page.working);
       setSteerableRunId(page.steerable_run_id ?? null);
       if (page.conversation.title) setResolvedTitle(page.conversation.title);
@@ -387,12 +394,14 @@ export function ThreadSheet({
     } finally {
       if (gate.isLatest(token)) setLoading(false);
     }
-  }, [client, conversationId]);
+  }, [client, conversationId, applyBookmarks]);
 
   const loadEarlier = useCallback(async () => {
     if (!client || !nextCursor || loadingMore || loading) return;
     const targetConv = conversationId;
     const cursor = nextCursor;
+    const bookmarkRead = bookmarkRevision.current;
+    const startedAt = performance.now();
     setLoadingMore(true);
     try {
       const page = await client.conversation(targetConv, cursor);
@@ -407,18 +416,21 @@ export function ThreadSheet({
         }
         return prev;
       });
-      setSavedIds((prev) => {
-        const merged = new Set(prev);
-        for (const id of page.saved) merged.add(id);
-        return merged;
-      });
+      applyBookmarks(page.saved, bookmarkRead, startedAt);
       setNextCursor(page.next ?? null);
     } catch {
       // keep existing messages
     } finally {
       setLoadingMore(false);
     }
-  }, [client, conversationId, loading, loadingMore, nextCursor]);
+  }, [
+    client,
+    conversationId,
+    loading,
+    loadingMore,
+    nextCursor,
+    applyBookmarks,
+  ]);
 
   useEffect(() => {
     void load();
@@ -643,7 +655,10 @@ export function ThreadSheet({
   }
 
   async function handleToggleSave(msgId: string) {
+    if (pendingBookmarks.current.has(msgId)) return;
     const isSaved = savedIds.has(msgId);
+    pendingBookmarks.current.add(msgId);
+    bookmarkRevision.current++;
     haptics.medium();
     setSavedIds((prev) => {
       const next = new Set(prev);
@@ -661,6 +676,9 @@ export function ThreadSheet({
         else next.delete(msgId);
         return next;
       });
+    } finally {
+      pendingBookmarks.current.delete(msgId);
+      bookmarkRevision.current++;
     }
   }
 
