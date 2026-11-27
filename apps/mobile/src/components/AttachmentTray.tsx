@@ -36,6 +36,7 @@ export type PendingAttachment = {
   size?: number;
   uri?: string;
   isImage: boolean;
+  deleteAfterUpload?: boolean;
   status: "uploading" | "ready" | "error";
   uploadedId?: string;
   error?: string;
@@ -110,6 +111,7 @@ export function useAttachments(
           size: file.size,
           uri: file.uri,
           isImage,
+          deleteAfterUpload: file.deleteAfterUpload,
           status: tooBig ? "error" : client ? "uploading" : "ready",
           uploadedId: client ? undefined : `demo-file-${Date.now()}-${idx}`,
           error: tooBig ? "Max 25 MB per file" : undefined,
@@ -143,6 +145,9 @@ export function useAttachments(
                 ...(opts?.folderId ? { folderId: opts.folderId } : {}),
               },
             );
+            if (src.deleteAfterUpload) {
+              deleteTempUploadFile(src.uri);
+            }
             haptics.light();
             updateAttachments((prev) =>
               prev.map((a) =>
@@ -172,10 +177,6 @@ export function useAttachments(
                   : a,
               ),
             );
-          } finally {
-            if (src.deleteAfterUpload) {
-              deleteTempUploadFile(src.uri);
-            }
           }
         }),
       );
@@ -252,12 +253,83 @@ export function useAttachments(
   const removeAttachment = useCallback(
     (localId: string) => {
       haptics.light();
+      const target = attachmentsRef.current.find((a) => a.localId === localId);
+      if (target?.deleteAfterUpload && target.status !== "ready") {
+        deleteTempUploadFile(target.uri);
+      }
       updateAttachments((prev) => prev.filter((a) => a.localId !== localId));
     },
     [updateAttachments],
   );
 
+  const retryAttachment = useCallback(
+    async (localId: string) => {
+      if (!client) return;
+      const target = attachmentsRef.current.find((a) => a.localId === localId);
+      if (!target || target.status !== "error" || !target.uri) return;
+      if (target.size && target.size > MAX_UPLOAD_BYTES) return;
+      updateAttachments((prev) =>
+        prev.map((a) =>
+          a.localId === localId
+            ? { ...a, status: "uploading", error: undefined }
+            : a,
+        ),
+      );
+      try {
+        const uploaded = await client.uploadFile(
+          {
+            uri: target.uri,
+            name: target.name,
+            mimeType: target.mime,
+          },
+          {
+            ...(opts?.agentId ? { agentId: opts.agentId } : {}),
+            ...(opts?.folderId ? { folderId: opts.folderId } : {}),
+          },
+        );
+        if (target.deleteAfterUpload) {
+          deleteTempUploadFile(target.uri);
+        }
+        haptics.light();
+        updateAttachments((prev) =>
+          prev.map((a) =>
+            a.localId === localId
+              ? {
+                  ...a,
+                  name: uploaded.name || a.name,
+                  mime: uploaded.mime || a.mime,
+                  size: uploaded.size ?? a.size,
+                  status: "ready",
+                  uploadedId: uploaded.id,
+                  error: undefined,
+                }
+              : a,
+          ),
+        );
+      } catch (err) {
+        haptics.warning();
+        updateAttachments((prev) =>
+          prev.map((a) =>
+            a.localId === localId
+              ? {
+                  ...a,
+                  status: "error",
+                  error: err instanceof Error ? err.message : "Upload failed",
+                }
+              : a,
+          ),
+        );
+      }
+    },
+    [client, opts?.agentId, opts?.folderId, updateAttachments],
+  );
+
   const clearAttachments = useCallback(() => {
+    for (const att of attachmentsRef.current) {
+      if (att.deleteAfterUpload && att.status !== "ready") {
+        deleteTempUploadFile(att.uri);
+      }
+    }
     updateAttachments(() => []);
   }, [updateAttachments]);
 
@@ -292,6 +364,7 @@ export function useAttachments(
     takePhoto,
     pickDocument,
     removeAttachment,
+    retryAttachment,
     clearAttachments,
   };
 }
@@ -300,10 +373,12 @@ export function AttachmentChipStrip({
   attachments,
   theme,
   onRemove,
+  onRetry,
 }: {
   attachments: PendingAttachment[];
   theme: LoopTheme;
   onRemove: (localId: string) => void;
+  onRetry?: (localId: string) => void;
 }) {
   if (!attachments.length) return null;
 
@@ -347,7 +422,11 @@ export function AttachmentChipStrip({
             </View>
           )}
 
-          <View style={styles.chipMeta}>
+          <Pressable
+            disabled={att.status !== "error" || !onRetry}
+            onPress={() => onRetry?.(att.localId)}
+            style={styles.chipMeta}
+          >
             <Text
               style={[styles.chipName, { color: theme.text }]}
               numberOfLines={1}
@@ -366,10 +445,12 @@ export function AttachmentChipStrip({
               {att.status === "uploading"
                 ? "Uploading…"
                 : att.status === "error"
-                  ? att.error || "Failed"
+                  ? onRetry
+                    ? `${att.error || "Failed"} · Tap to retry`
+                    : att.error || "Failed"
                   : formatFileSize(att.size) || "Attached"}
             </Text>
-          </View>
+          </Pressable>
 
           {att.status === "uploading" ? (
             <ActivityIndicator size="small" color={theme.brassText} />

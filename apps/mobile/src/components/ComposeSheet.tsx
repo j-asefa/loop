@@ -107,6 +107,7 @@ export function ComposeSheet({
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleBusy, setScheduleBusy] = useState(false);
   const [scheduleError, setScheduleError] = useState("");
+  const [recordingAudio, setRecordingAudio] = useState(false);
   const [hasPendingSend, setHasPendingSend] = useState(false);
   const [pendingSchedule, setPendingSchedule] = useState<{
     idempotencyKey: string;
@@ -178,7 +179,7 @@ export function ComposeSheet({
       setPendingSchedule(restoredPendingScheduleRef.current);
       restoredPendingScheduleRef.current = null;
     } else {
-      setPendingSchedule(null);
+      setPendingSchedule((prev) => (prev?.locked ? prev : null));
     }
     if (restoredPendingKeyRef.current) {
       sendKeyRef.current = restoredPendingKeyRef.current;
@@ -197,6 +198,7 @@ export function ComposeSheet({
     setHasPendingSend(false);
   }, [agent, connection?.id]);
 
+  const scheduleLocked = Boolean(pendingSchedule?.locked);
   const ready = agent
     ? true
     : client
@@ -205,6 +207,7 @@ export function ComposeSheet({
   const cannotSend =
     (!text.trim() && composeAttachments.readyIds.length === 0) ||
     composeAttachments.uploading ||
+    recordingAudio ||
     !ready ||
     busy ||
     scheduleBusy ||
@@ -217,6 +220,7 @@ export function ComposeSheet({
       composeAttachments.readyIds.length > 0 ||
       Boolean(pendingSchedule)) &&
     !composeAttachments.uploading &&
+    !recordingAudio &&
     ready &&
     !busy &&
     !scheduleBusy &&
@@ -466,6 +470,7 @@ export function ComposeSheet({
               attachments={composeAttachments.attachments}
               theme={theme}
               onRemove={composeAttachments.removeAttachment}
+              onRetry={(id) => void composeAttachments.retryAttachment(id)}
             />
 
             {/* Prompt Input */}
@@ -478,7 +483,10 @@ export function ComposeSheet({
               <Pressable
                 accessibilityLabel="Attach photo or file"
                 disabled={
-                  !composeAttachments.canAddMore || busy || scheduleBusy
+                  !composeAttachments.canAddMore ||
+                  busy ||
+                  scheduleBusy ||
+                  scheduleLocked
                 }
                 onPress={() => {
                   haptics.light();
@@ -487,7 +495,10 @@ export function ComposeSheet({
                 }}
                 style={[
                   styles.attachBtn,
-                  (!composeAttachments.canAddMore || busy || scheduleBusy) && {
+                  (!composeAttachments.canAddMore ||
+                    busy ||
+                    scheduleBusy ||
+                    scheduleLocked) && {
                     opacity: 0.4,
                   },
                 ]}
@@ -504,8 +515,12 @@ export function ComposeSheet({
               <VoiceRecorderButton
                 theme={theme}
                 disabled={
-                  !composeAttachments.canAddMore || busy || scheduleBusy
+                  !composeAttachments.canAddMore ||
+                  busy ||
+                  scheduleBusy ||
+                  scheduleLocked
                 }
+                onRecordingChange={setRecordingAudio}
                 onRecorded={(file) => {
                   setError("");
                   void composeAttachments.addFiles([file]);
@@ -514,7 +529,7 @@ export function ComposeSheet({
               />
               <TextInput
                 value={text}
-                editable={!busy && !scheduleBusy}
+                editable={!busy && !scheduleBusy && !scheduleLocked}
                 onChangeText={(next) => {
                   draftTouchedRef.current = true;
                   sendKeyRef.current = null;
@@ -601,6 +616,13 @@ export function ComposeSheet({
           lockedSendAt={pendingSchedule?.locked ? pendingSchedule.sendAt : null}
           onClose={() => setScheduleOpen(false)}
           onConfirm={(sendAt) => void handleSchedule(sendAt)}
+          onDiscardPending={() => {
+            setPendingSchedule(null);
+            setScheduleError("");
+            setScheduleOpen(false);
+            if (text.trim()) saveDraft(client?.origin, draftScope, text);
+            else clearDraft(client?.origin, draftScope);
+          }}
         />
       )}
     </View>

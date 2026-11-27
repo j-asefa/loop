@@ -157,6 +157,7 @@ export function ThreadSheet({
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleBusy, setScheduleBusy] = useState(false);
   const [scheduleError, setScheduleError] = useState("");
+  const [recordingAudio, setRecordingAudio] = useState(false);
   const [pendingSchedule, setPendingSchedule] = useState<{
     idempotencyKey: string;
     sendAt: number;
@@ -227,7 +228,7 @@ export function ThreadSheet({
       setPendingSchedule(restoredPendingScheduleRef.current);
       restoredPendingScheduleRef.current = null;
     } else {
-      setPendingSchedule(null);
+      setPendingSchedule((prev) => (prev?.locked ? prev : null));
     }
     if (restoredPendingRef.current) {
       pendingSendRef.current = restoredPendingRef.current;
@@ -238,6 +239,8 @@ export function ThreadSheet({
     pendingSendRef.current = null;
     setRetryModeLocked(false);
   }, [draft, conversationId, attSig]);
+
+  const scheduleLocked = Boolean(pendingSchedule?.locked);
 
   const load = useCallback(async () => {
     if (!client) {
@@ -403,6 +406,7 @@ export function ThreadSheet({
     if (
       (!trimmed && readyIds.length === 0) ||
       uploading ||
+      recordingAudio ||
       sending ||
       scheduleBusy ||
       pendingSchedule
@@ -891,6 +895,7 @@ export function ThreadSheet({
                           workspaceOrigin={client?.origin}
                           onOpenFile={onOpenFileTarget}
                           onReplyButton={(prompt) => {
+                            if (scheduleLocked) return;
                             draftTouchedRef.current = true;
                             pendingSendRef.current = null;
                             setDraft(prompt);
@@ -1063,6 +1068,7 @@ export function ThreadSheet({
             attachments={replyAttachments.attachments}
             theme={theme}
             onRemove={replyAttachments.removeAttachment}
+            onRetry={(id) => void replyAttachments.retryAttachment(id)}
           />
           <View
             style={[
@@ -1072,7 +1078,12 @@ export function ThreadSheet({
           >
             <Pressable
               accessibilityLabel="Attach photo or file"
-              disabled={!replyAttachments.canAddMore || sending || scheduleBusy}
+              disabled={
+                !replyAttachments.canAddMore ||
+                sending ||
+                scheduleBusy ||
+                scheduleLocked
+              }
               onPress={() => {
                 haptics.light();
                 Keyboard.dismiss();
@@ -1080,7 +1091,10 @@ export function ThreadSheet({
               }}
               style={[
                 styles.attachBtn,
-                (!replyAttachments.canAddMore || sending || scheduleBusy) && {
+                (!replyAttachments.canAddMore ||
+                  sending ||
+                  scheduleBusy ||
+                  scheduleLocked) && {
                   opacity: 0.4,
                 },
               ]}
@@ -1096,7 +1110,13 @@ export function ThreadSheet({
             </Pressable>
             <VoiceRecorderButton
               theme={theme}
-              disabled={!replyAttachments.canAddMore || sending || scheduleBusy}
+              disabled={
+                !replyAttachments.canAddMore ||
+                sending ||
+                scheduleBusy ||
+                scheduleLocked
+              }
+              onRecordingChange={setRecordingAudio}
               onRecorded={(file) => {
                 setError("");
                 void replyAttachments.addFiles([file]);
@@ -1105,7 +1125,7 @@ export function ThreadSheet({
             />
             <TextInput
               value={draft}
-              editable={!sending && !scheduleBusy}
+              editable={!sending && !scheduleBusy && !scheduleLocked}
               onChangeText={(next) => {
                 draftTouchedRef.current = true;
                 pendingSendRef.current = null;
@@ -1121,8 +1141,11 @@ export function ThreadSheet({
               <Pressable
                 accessibilityLabel="Schedule reply"
                 disabled={
-                  (!draft.trim() && replyAttachments.readyIds.length === 0) ||
+                  (!draft.trim() &&
+                    replyAttachments.readyIds.length === 0 &&
+                    !pendingSchedule) ||
                   replyAttachments.uploading ||
+                  recordingAudio ||
                   sending ||
                   scheduleBusy ||
                   retryModeLocked
@@ -1135,8 +1158,11 @@ export function ThreadSheet({
                 }}
                 style={[
                   styles.attachBtn,
-                  ((!draft.trim() && replyAttachments.readyIds.length === 0) ||
+                  ((!draft.trim() &&
+                    replyAttachments.readyIds.length === 0 &&
+                    !pendingSchedule) ||
                     replyAttachments.uploading ||
+                    recordingAudio ||
                     sending ||
                     scheduleBusy ||
                     retryModeLocked) && { opacity: 0.35 },
@@ -1152,6 +1178,7 @@ export function ThreadSheet({
               disabled={
                 (!draft.trim() && replyAttachments.readyIds.length === 0) ||
                 replyAttachments.uploading ||
+                recordingAudio ||
                 sending ||
                 scheduleBusy ||
                 Boolean(pendingSchedule)
@@ -1164,6 +1191,7 @@ export function ThreadSheet({
                   opacity:
                     (!draft.trim() && replyAttachments.readyIds.length === 0) ||
                     replyAttachments.uploading ||
+                    recordingAudio ||
                     sending ||
                     scheduleBusy ||
                     Boolean(pendingSchedule)
@@ -1202,6 +1230,13 @@ export function ThreadSheet({
         lockedSendAt={pendingSchedule?.locked ? pendingSchedule.sendAt : null}
         onClose={() => setScheduleOpen(false)}
         onConfirm={(sendAt) => void handleSchedule(sendAt)}
+        onDiscardPending={() => {
+          setPendingSchedule(null);
+          setScheduleError("");
+          setScheduleOpen(false);
+          if (draft.trim()) saveDraft(client?.origin, draftScope, draft);
+          else clearDraft(client?.origin, draftScope);
+        }}
       />
     </View>
   );

@@ -33,11 +33,13 @@ export function VoiceRecorderButton({
   disabled,
   onRecorded,
   onError,
+  onRecordingChange,
 }: {
   theme: LoopTheme;
   disabled?: boolean;
   onRecorded: (file: PickedFile) => void;
   onError?: (message: string) => void;
+  onRecordingChange?: (active: boolean) => void;
 }) {
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const [recording, setRecording] = useState(false);
@@ -51,9 +53,11 @@ export function VoiceRecorderButton({
   const disabledRef = useRef(Boolean(disabled));
   const onRecordedRef = useRef(onRecorded);
   const onErrorRef = useRef(onError);
+  const onRecordingChangeRef = useRef(onRecordingChange);
   disabledRef.current = Boolean(disabled);
   onRecordedRef.current = onRecorded;
   onErrorRef.current = onError;
+  onRecordingChangeRef.current = onRecordingChange;
 
   const stopTimer = useCallback(() => {
     if (timerRef.current) {
@@ -85,8 +89,15 @@ export function VoiceRecorderButton({
         resetAudioMode();
         if (!mountedRef.current || !attach || disabledRef.current) {
           deleteTempAudio(uri);
-          if (!attach && mountedRef.current) {
-            haptics.light();
+          if (mountedRef.current) {
+            if (attach && disabledRef.current) {
+              haptics.warning();
+              onErrorRef.current?.(
+                "Could not attach voice note — attachment limit reached or send in progress.",
+              );
+            } else if (!attach) {
+              haptics.light();
+            }
           }
           return;
         }
@@ -113,6 +124,9 @@ export function VoiceRecorderButton({
         }
       } finally {
         busyRef.current = false;
+        if (mountedRef.current) {
+          onRecordingChangeRef.current?.(false);
+        }
       }
     },
     [recorder, resetAudioMode, stopTimer],
@@ -180,6 +194,7 @@ export function VoiceRecorderButton({
       recordingRef.current = true;
       setElapsedSec(0);
       setRecording(true);
+      onRecordingChangeRef.current?.(true);
       haptics.medium();
       stopTimer();
       timerRef.current = setInterval(() => {

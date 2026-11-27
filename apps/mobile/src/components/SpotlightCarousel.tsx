@@ -493,6 +493,7 @@ export function SpotlightCarousel({
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleBusy, setScheduleBusy] = useState(false);
   const [scheduleError, setScheduleError] = useState("");
+  const [recordingAudio, setRecordingAudio] = useState(false);
   const [pendingSchedule, setPendingSchedule] = useState<{
     idempotencyKey: string;
     sendAt: number;
@@ -533,7 +534,7 @@ export function SpotlightCarousel({
       setPendingSchedule(restoredPendingScheduleRef.current);
       restoredPendingScheduleRef.current = null;
     } else {
-      setPendingSchedule(null);
+      setPendingSchedule((prev) => (prev?.locked ? prev : null));
     }
     if (restoredPendingReplyRef.current) {
       pendingReplyRef.current = {
@@ -547,6 +548,8 @@ export function SpotlightCarousel({
     pendingReplyRef.current = null;
     setRetryModeLocked(false);
   }, [draft, conversationId, attachmentKeySig]);
+
+  const scheduleLocked = Boolean(pendingSchedule?.locked);
 
   // If the user opened a synthetic working:* placeholder at slide 0 and the run
   // finishes (superseding the placeholder with a live Done card), promote it smoothly.
@@ -844,6 +847,7 @@ export function SpotlightCarousel({
 
   const prefillReply = useCallback(
     (prompt: string) => {
+      if (scheduleLocked) return;
       draftTouchedRef.current = true;
       pendingReplyRef.current = null;
       setReplyError("");
@@ -852,7 +856,7 @@ export function SpotlightCarousel({
       setQuickReplyOpen(false);
       setTimeout(() => replyInputRef.current?.focus(), 60);
     },
-    [client?.origin, draftScope],
+    [client?.origin, draftScope, scheduleLocked],
   );
 
   const handleSlideToggleSaved = useCallback(
@@ -882,6 +886,7 @@ export function SpotlightCarousel({
     if (
       (!trimmed && readyIds.length === 0) ||
       uploading ||
+      recordingAudio ||
       sending ||
       scheduleBusy ||
       pendingSchedule ||
@@ -944,6 +949,7 @@ export function SpotlightCarousel({
   }, [
     draft,
     sending,
+    recordingAudio,
     scheduleBusy,
     pendingSchedule,
     activeCard,
@@ -1861,6 +1867,7 @@ export function SpotlightCarousel({
               attachments={replyAttachments.attachments}
               theme={theme}
               onRemove={replyAttachments.removeAttachment}
+              onRetry={(id) => void replyAttachments.retryAttachment(id)}
             />
             <View
               style={[
@@ -1874,7 +1881,10 @@ export function SpotlightCarousel({
               <Pressable
                 accessibilityLabel="Attach photo or file"
                 disabled={
-                  !replyAttachments.canAddMore || sending || scheduleBusy
+                  !replyAttachments.canAddMore ||
+                  sending ||
+                  scheduleBusy ||
+                  scheduleLocked
                 }
                 onPress={() => {
                   haptics.light();
@@ -1883,7 +1893,10 @@ export function SpotlightCarousel({
                 }}
                 style={[
                   styles.replyQuickBtn,
-                  (!replyAttachments.canAddMore || sending || scheduleBusy) && {
+                  (!replyAttachments.canAddMore ||
+                    sending ||
+                    scheduleBusy ||
+                    scheduleLocked) && {
                     opacity: 0.4,
                   },
                 ]}
@@ -1900,8 +1913,12 @@ export function SpotlightCarousel({
               <VoiceRecorderButton
                 theme={theme}
                 disabled={
-                  !replyAttachments.canAddMore || sending || scheduleBusy
+                  !replyAttachments.canAddMore ||
+                  sending ||
+                  scheduleBusy ||
+                  scheduleLocked
                 }
+                onRecordingChange={setRecordingAudio}
                 onRecorded={(file) => {
                   setReplyError("");
                   void replyAttachments.addFiles([file]);
@@ -1910,18 +1927,22 @@ export function SpotlightCarousel({
               />
               <Pressable
                 accessibilityLabel="Quick replies and snippets"
+                disabled={scheduleLocked}
                 onPress={() => {
                   haptics.light();
                   setQuickReplyOpen(true);
                 }}
-                style={styles.replyQuickBtn}
+                style={[
+                  styles.replyQuickBtn,
+                  scheduleLocked && { opacity: 0.4 },
+                ]}
               >
                 <Zap size={16} color={theme.brassText} />
               </Pressable>
               <TextInput
                 ref={replyInputRef}
                 value={draft}
-                editable={!sending && !scheduleBusy}
+                editable={!sending && !scheduleBusy && !scheduleLocked}
                 onChangeText={(next) => {
                   draftTouchedRef.current = true;
                   pendingReplyRef.current = null;
@@ -1940,8 +1961,11 @@ export function SpotlightCarousel({
                 <Pressable
                   accessibilityLabel="Schedule reply"
                   disabled={
-                    (!draft.trim() && replyAttachments.readyIds.length === 0) ||
+                    (!draft.trim() &&
+                      replyAttachments.readyIds.length === 0 &&
+                      !pendingSchedule) ||
                     replyAttachments.uploading ||
+                    recordingAudio ||
                     sending ||
                     scheduleBusy ||
                     retryModeLocked
@@ -1955,8 +1979,10 @@ export function SpotlightCarousel({
                   style={[
                     styles.replyOpenThreadBtn,
                     ((!draft.trim() &&
-                      replyAttachments.readyIds.length === 0) ||
+                      replyAttachments.readyIds.length === 0 &&
+                      !pendingSchedule) ||
                       replyAttachments.uploading ||
+                      recordingAudio ||
                       sending ||
                       scheduleBusy ||
                       retryModeLocked) && { opacity: 0.35 },
@@ -1985,6 +2011,7 @@ export function SpotlightCarousel({
                 disabled={
                   (!draft.trim() && replyAttachments.readyIds.length === 0) ||
                   replyAttachments.uploading ||
+                  recordingAudio ||
                   sending ||
                   scheduleBusy ||
                   Boolean(pendingSchedule)
@@ -1998,6 +2025,7 @@ export function SpotlightCarousel({
                       (!draft.trim() &&
                         replyAttachments.readyIds.length === 0) ||
                       replyAttachments.uploading ||
+                      recordingAudio ||
                       sending ||
                       scheduleBusy ||
                       Boolean(pendingSchedule)
@@ -2040,6 +2068,15 @@ export function SpotlightCarousel({
         lockedSendAt={pendingSchedule?.locked ? pendingSchedule.sendAt : null}
         onClose={() => setScheduleOpen(false)}
         onConfirm={(sendAt) => void submitScheduledReply(sendAt)}
+        onDiscardPending={() => {
+          setPendingSchedule(null);
+          setScheduleError("");
+          setScheduleOpen(false);
+          if (draftScope) {
+            if (draft.trim()) saveDraft(client?.origin, draftScope, draft);
+            else clearDraft(client?.origin, draftScope);
+          }
+        }}
       />
 
       {/* Queued Messages Sheet for this agent */}

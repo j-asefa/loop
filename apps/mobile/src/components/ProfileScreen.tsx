@@ -104,9 +104,11 @@ export function ProfileScreen({
   const localCardsRef = useRef(localCards);
   localCardsRef.current = localCards;
   const loadGenRef = useRef(0);
+  const workspaceGenRef = useRef(0);
 
   // Reset all profile state on workspace switch or sign-out and guard against stale responses
   useEffect(() => {
+    workspaceGenRef.current += 1;
     loadGenRef.current += 1;
     setLoading(false);
     setProfile(null);
@@ -640,6 +642,7 @@ export function ProfileScreen({
                               disabled={isBusy}
                               onPress={async () => {
                                 if (isBusy) return;
+                                const wsGen = workspaceGenRef.current;
                                 const gen = loadGenRef.current;
                                 haptics.medium();
                                 setScheduledNotice("");
@@ -652,12 +655,15 @@ export function ProfileScreen({
                                   const res = await client.retryScheduledSend(
                                     s.id,
                                   );
-                                  if (gen !== loadGenRef.current) return;
+                                  if (wsGen !== workspaceGenRef.current) return;
                                   if (res.run) {
                                     haptics.success();
                                     setScheduled((prev) =>
                                       prev.filter((x) => x.id !== s.id),
                                     );
+                                    if (gen !== loadGenRef.current) {
+                                      void loadSection();
+                                    }
                                   } else {
                                     haptics.warning();
                                     setScheduled((prev) =>
@@ -671,7 +677,7 @@ export function ProfileScreen({
                                     );
                                   }
                                 } catch (err) {
-                                  if (gen !== loadGenRef.current) return;
+                                  if (wsGen !== workspaceGenRef.current) return;
                                   haptics.warning();
                                   if (isUncertainOutcomeError(err)) {
                                     setScheduledNotice(
@@ -733,6 +739,7 @@ export function ProfileScreen({
                             hitSlop={8}
                             onPress={async () => {
                               if (isBusy) return;
+                              const wsGen = workspaceGenRef.current;
                               const gen = loadGenRef.current;
                               haptics.warning();
                               setScheduledNotice("");
@@ -743,21 +750,22 @@ export function ProfileScreen({
                               });
                               try {
                                 await client.cancelScheduled(s.id);
-                                if (gen === loadGenRef.current) {
-                                  setScheduled((prev) =>
-                                    prev.filter((x) => x.id !== s.id),
-                                  );
+                                if (wsGen !== workspaceGenRef.current) return;
+                                setScheduled((prev) =>
+                                  prev.filter((x) => x.id !== s.id),
+                                );
+                                if (gen !== loadGenRef.current) {
+                                  void loadSection();
                                 }
                               } catch (err) {
-                                if (gen === loadGenRef.current) {
-                                  setScheduledNotice(
-                                    err instanceof Error
-                                      ? err.message
-                                      : "Could not cancel scheduled message.",
-                                  );
-                                  if (isUncertainOutcomeError(err)) {
-                                    void loadSection();
-                                  }
+                                if (wsGen !== workspaceGenRef.current) return;
+                                setScheduledNotice(
+                                  err instanceof Error
+                                    ? err.message
+                                    : "Could not cancel scheduled message.",
+                                );
+                                if (isUncertainOutcomeError(err)) {
+                                  void loadSection();
                                 }
                               } finally {
                                 setBusyScheduledIds((prev) => {

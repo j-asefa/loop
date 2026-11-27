@@ -38,6 +38,7 @@ export function ScheduleSendSheet({
   lockedSendAt = null,
   onClose,
   onConfirm,
+  onDiscardPending,
 }: {
   visible: boolean;
   theme: LoopTheme;
@@ -51,6 +52,8 @@ export function ScheduleSendSheet({
   lockedSendAt?: number | null;
   onClose: () => void;
   onConfirm: (sendAt: number) => void;
+  /** Explicit user escape hatch after checking Profile → Scheduled to clear a pending lock. */
+  onDiscardPending?: () => void;
 }) {
   const insets = useSafeAreaInsets();
   const [customMinutes, setCustomMinutes] = useState<number | null>(null);
@@ -198,6 +201,25 @@ export function ScheduleSendSheet({
                   </>
                 )}
               </Pressable>
+              {onDiscardPending && (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Unlock draft and start fresh"
+                  disabled={busy}
+                  onPress={() => {
+                    haptics.light();
+                    onDiscardPending();
+                  }}
+                  style={[
+                    styles.discardBtn,
+                    { borderColor: theme.line, opacity: busy ? 0.5 : 1 },
+                  ]}
+                >
+                  <Text style={[styles.discardBtnText, { color: theme.muted }]}>
+                    Already scheduled? Unlock draft
+                  </Text>
+                </Pressable>
+              )}
             </View>
           ) : (
             <ScrollView
@@ -458,6 +480,17 @@ const styles = StyleSheet.create({
   retryBtnText: {
     fontSize: 13.5,
     fontWeight: "700",
+  },
+  discardBtn: {
+    height: 36,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  discardBtnText: {
+    fontSize: 12.5,
+    fontWeight: "600",
   },
   busyRow: {
     flexDirection: "row",
