@@ -114,6 +114,17 @@ async function fetchWithTimeout(
 export class LoopClient {
   private session: PairedSession;
   private onUnauthorized?: () => void;
+  private readonly carouselPages = new Map<
+    string,
+    {
+      page: ApiConversationPage;
+      fetchedAt: number;
+    }
+  >();
+  private readonly carouselRequests = new Map<
+    string,
+    { version: string; request: Promise<ApiConversationPage> }
+  >();
 
   constructor(session: PairedSession, onUnauthorized?: () => void) {
     this.session = session;
@@ -359,6 +370,46 @@ export class LoopClient {
       "GET",
       `/api/conversations/${encodeURIComponent(id)}${q}`,
     );
+  }
+
+  // A short-lived snapshot for instant reopen. Only this paired client can
+  // see it, and the carousel revalidates it on every open.
+  cachedCarouselPage(id: string): ApiConversationPage | undefined {
+    const cached = this.carouselPages.get(id);
+    if (!cached) return;
+    if (Date.now() - cached.fetchedAt > 60_000) return;
+    return cached.page;
+  }
+
+  refreshCarouselPage(id: string, version = ""): Promise<ApiConversationPage> {
+    const pending = this.carouselRequests.get(id);
+    if (pending?.version === version) return pending.request;
+    const request = this.conversation(id)
+      .then((page) => {
+        if (this.carouselRequests.get(id)?.request !== request) return page;
+        this.carouselPages.delete(id);
+        // Bound retained transcript size as well as the number of cached pages.
+        if (
+          page.messages.reduce(
+            (length, message) => length + message.content.length,
+            0,
+          ) <= 300_000
+        ) {
+          this.carouselPages.set(id, { page, fetchedAt: Date.now() });
+          if (this.carouselPages.size > 12) {
+            const oldest = this.carouselPages.keys().next().value;
+            if (oldest !== undefined) this.carouselPages.delete(oldest);
+          }
+        }
+        return page;
+      })
+      .finally(() => {
+        if (this.carouselRequests.get(id)?.request === request) {
+          this.carouselRequests.delete(id);
+        }
+      });
+    this.carouselRequests.set(id, { version, request });
+    return request;
   }
 
   messageDetail(id: string): Promise<ApiMessage> {

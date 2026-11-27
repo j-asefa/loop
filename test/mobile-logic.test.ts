@@ -3887,3 +3887,58 @@ describe("mobile snippet usage sorting and quick-reply keyboard layout", () => {
     );
   });
 });
+
+it("reuses a carousel snapshot within one paired client and coalesces its refresh", async () => {
+  const session = {
+    origin: "https://loop.example.com",
+    cookie: "__Host-loop=fixture",
+    csrf: "fixture",
+    deviceName: "Fixture",
+    pairedAt: 1,
+  };
+  const client = new LoopClient(session);
+  const page = {
+    conversation: {
+      id: "thread",
+      title: "Result",
+      agent_id: null,
+      project_id: null,
+      created_at: 1,
+    },
+    messages: [],
+    saved: [],
+    next: null,
+    steerable_run_id: null,
+  };
+  const fetchPage = vi.spyOn(client, "conversation").mockResolvedValue(page);
+  const request = client.refreshCarouselPage("thread");
+  expect(client.refreshCarouselPage("thread")).toBe(request);
+  expect(await request).toBe(page);
+  expect(client.cachedCarouselPage("thread")).toBe(page);
+  expect(new LoopClient(session).cachedCarouselPage("thread")).toBeUndefined();
+  expect(fetchPage).toHaveBeenCalledTimes(1);
+  fetchPage.mockRejectedValueOnce(new Error("offline"));
+  await expect(client.refreshCarouselPage("thread")).rejects.toThrow("offline");
+  expect(client.cachedCarouselPage("thread")).toBe(page);
+  await expect(client.refreshCarouselPage("thread")).resolves.toBe(page);
+  expect(fetchPage).toHaveBeenCalledTimes(3);
+
+  let completeOlder!: (value: typeof page) => void;
+  fetchPage.mockReturnValueOnce(
+    new Promise((resolve) => {
+      completeOlder = resolve;
+    }),
+  );
+  const olderRequest = client.refreshCarouselPage("thread", "running");
+  const newPage = {
+    ...page,
+    conversation: { ...page.conversation, title: "Finished" },
+  };
+  fetchPage.mockResolvedValueOnce(newPage);
+  await expect(client.refreshCarouselPage("thread", "completed")).resolves.toBe(
+    newPage,
+  );
+  completeOlder(page);
+  await olderRequest;
+  expect(client.cachedCarouselPage("thread")).toBe(newPage);
+});

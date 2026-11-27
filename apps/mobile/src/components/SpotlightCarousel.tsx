@@ -76,7 +76,6 @@ import type { ApiSnippet } from "../api/types";
 import type { AgentRunSummary } from "./AgentProfileSheet";
 import { PublishedFilesStrip } from "./FilePreviewModal";
 import {
-  feedPreviewText,
   QUICK_REPLIES,
   relativeTime,
   type NativeResultCard,
@@ -150,6 +149,53 @@ type SpotlightCarouselProps = {
   ) => Promise<void>;
 };
 
+function parseConversationPageToSlides(
+  page: import("../api/types").ApiConversationPage,
+  base: NativeResultCard | undefined,
+): {
+  promptMap: Map<string, string>;
+  bodyMap: Map<string, string>;
+  runIdMap: Map<string, string>;
+  slides: NativeResultCard[];
+} {
+  const promptMap = new Map<string, string>();
+  const bodyMap = new Map<string, string>();
+  const runIdMap = new Map<string, string>();
+  const savedSet = new Set(page.saved);
+  const extra: NativeResultCard[] = [];
+  let lastPrompt = "";
+  for (const msg of page.messages) {
+    if (msg.role === "user") {
+      lastPrompt = msg.content;
+      continue;
+    }
+    if (msg.role !== "assistant" || !msg.content.trim()) continue;
+    if (lastPrompt) promptMap.set(msg.id, lastPrompt);
+    if (msg.run_id) runIdMap.set(msg.id, msg.run_id);
+    bodyMap.set(msg.id, msg.content);
+    extra.push({
+      id: msg.id,
+      conversationId: page.conversation.id,
+      tab: "done",
+      agentId: base?.agentId,
+      agentName: base?.agentName ?? "agent",
+      projectName: base?.projectName ?? "Workspace",
+      model: base?.model ?? "",
+      prompt: lastPrompt || page.conversation.title,
+      fallbackTitle: page.conversation.title || "Result",
+      body: msg.content,
+      createdAt: msg.created_at,
+      saved: savedSet.has(msg.id),
+      unread: false,
+      messageId: msg.id,
+      runId: msg.run_id ?? undefined,
+    });
+    lastPrompt = "";
+  }
+  extra.reverse();
+  return { promptMap, bodyMap, runIdMap, slides: extra };
+}
+
 export function SpotlightCarousel({
   cards,
   queuedRuns = [],
@@ -198,89 +244,48 @@ export function SpotlightCarousel({
     [cards, pinnedSet],
   );
 
-  // In live mode, lazily hydrate full conversation history + truncated bodies + run IDs
+  const conversationId = cards[0]?.conversationId;
+  const [initialHistory] = useState(() => {
+    const page = conversationId
+      ? client?.cachedCarouselPage(conversationId)
+      : undefined;
+    return page ? parseConversationPageToSlides(page, cards[0]) : undefined;
+  });
+  // Seed the first render from a cached page, then revalidate in the background.
   const [historyPrompts, setHistoryPrompts] = useState<Map<string, string>>(
-    () => new Map(),
+    () => initialHistory?.promptMap ?? new Map(),
   );
   const [historyRunIds, setHistoryRunIds] = useState<Map<string, string>>(
-    () => new Map(),
+    () => initialHistory?.runIdMap ?? new Map(),
   );
-  const [historySlides, setHistorySlides] = useState<NativeResultCard[]>([]);
+  const [historySlides, setHistorySlides] = useState<NativeResultCard[]>(
+    () => initialHistory?.slides ?? [],
+  );
   const [historyNextCursor, setHistoryNextCursor] = useState<string | null>(
     null,
   );
   const [loadingMoreHistory, setLoadingMoreHistory] = useState(false);
   const hasLoadedOlderHistoryRef = useRef(false);
   const [fullBodies, setFullBodies] = useState<Map<string, string>>(
-    () => new Map(),
+    () => initialHistory?.bodyMap ?? new Map(),
   );
   const [runFilesByRunId, setRunFilesByRunId] = useState<
     Map<string, PublishedFileItem[]>
   >(() => new Map());
   const fetchedRunsRef = useRef(new Set<string>());
-  const conversationId = cards[0]?.conversationId;
-  const [openingFrameReady, setOpeningFrameReady] = useState(false);
   // Read slide metadata through a ref so mark-read/save/silent reloads do not re-fire
   // `client.conversation(conversationId)` on every `cards` array identity change.
   const baseCardRef = useRef(cards[0]);
   baseCardRef.current = cards[0];
 
-  const parseConversationPageToSlides = useCallback(
-    (
-      page: import("../api/types").ApiConversationPage,
-      convId: string,
-    ): {
-      promptMap: Map<string, string>;
-      bodyMap: Map<string, string>;
-      runIdMap: Map<string, string>;
-      slides: NativeResultCard[];
-    } => {
-      const promptMap = new Map<string, string>();
-      const bodyMap = new Map<string, string>();
-      const runIdMap = new Map<string, string>();
-      const savedSet = new Set(page.saved);
-      const extra: NativeResultCard[] = [];
-      let lastPrompt = "";
-      const base = baseCardRef.current;
-      for (const msg of page.messages) {
-        if (msg.role === "user") {
-          lastPrompt = msg.content;
-          continue;
-        }
-        if (msg.role !== "assistant" || !msg.content.trim()) continue;
-        if (lastPrompt) promptMap.set(msg.id, lastPrompt);
-        if (msg.run_id) runIdMap.set(msg.id, msg.run_id);
-        bodyMap.set(msg.id, msg.content);
-        extra.push({
-          id: msg.id,
-          conversationId: convId,
-          tab: "done",
-          agentId: base?.agentId,
-          agentName: base?.agentName ?? "agent",
-          projectName: base?.projectName ?? "Workspace",
-          model: base?.model ?? "",
-          prompt: lastPrompt || page.conversation.title,
-          fallbackTitle: page.conversation.title || "Result",
-          body: msg.content,
-          createdAt: msg.created_at,
-          saved: savedSet.has(msg.id),
-          unread: false,
-          messageId: msg.id,
-          runId: msg.run_id ?? undefined,
-        });
-        lastPrompt = "";
-      }
-      extra.reverse();
-      return { promptMap, bodyMap, runIdMap, slides: extra };
-    },
-    [],
-  );
-
   useEffect(() => {
-    if (!openingFrameReady || !client || !conversationId) return;
+    if (!client || !conversationId) return;
     let cancelled = false;
     void client
-      .conversation(conversationId)
+      .refreshCarouselPage(
+        conversationId,
+        JSON.stringify([activeRun?.id, activeRun?.state]),
+      )
       .then((page) => {
         if (cancelled) return;
         const {
@@ -288,19 +293,17 @@ export function SpotlightCarousel({
           bodyMap,
           runIdMap,
           slides: extra,
-        } = parseConversationPageToSlides(page, conversationId);
-        setHistoryPrompts((prev) => new Map([...prev, ...promptMap]));
-        setHistoryRunIds((prev) => new Map([...prev, ...runIdMap]));
-        setFullBodies((prev) => {
-          const next = new Map(prev);
-          for (const [id, content] of bodyMap) {
-            const existing = next.get(id);
-            if (!existing || content.length > existing.length) {
-              next.set(id, content);
-            }
-          }
-          return next;
-        });
+        } = parseConversationPageToSlides(page, baseCardRef.current);
+        const keepOlder = hasLoadedOlderHistoryRef.current;
+        setHistoryPrompts((prev) =>
+          keepOlder ? new Map([...prev, ...promptMap]) : promptMap,
+        );
+        setHistoryRunIds((prev) =>
+          keepOlder ? new Map([...prev, ...runIdMap]) : runIdMap,
+        );
+        setFullBodies((prev) =>
+          keepOlder ? new Map([...prev, ...bodyMap]) : bodyMap,
+        );
         setHistorySlides((prev) => {
           if (!hasLoadedOlderHistoryRef.current || prev.length === 0) {
             return extra;
@@ -318,14 +321,7 @@ export function SpotlightCarousel({
     return () => {
       cancelled = true;
     };
-  }, [
-    openingFrameReady,
-    client,
-    conversationId,
-    activeRun?.id,
-    activeRun?.state,
-    parseConversationPageToSlides,
-  ]);
+  }, [client, conversationId, activeRun?.id, activeRun?.state]);
 
   const loadMoreHistory = useCallback(async () => {
     if (
@@ -345,7 +341,7 @@ export function SpotlightCarousel({
         bodyMap,
         runIdMap,
         slides: older,
-      } = parseConversationPageToSlides(page, conversationId);
+      } = parseConversationPageToSlides(page, baseCardRef.current);
       hasLoadedOlderHistoryRef.current = true;
       setHistoryPrompts((prev) => new Map([...promptMap, ...prev]));
       setHistoryRunIds((prev) => new Map([...runIdMap, ...prev]));
@@ -367,13 +363,7 @@ export function SpotlightCarousel({
     } finally {
       setLoadingMoreHistory(false);
     }
-  }, [
-    client,
-    conversationId,
-    historyNextCursor,
-    loadingMoreHistory,
-    parseConversationPageToSlides,
-  ]);
+  }, [client, conversationId, historyNextCursor, loadingMoreHistory]);
 
   const slides = useMemo(() => {
     const ordered: NativeResultCard[] = [];
@@ -619,15 +609,6 @@ export function SpotlightCarousel({
 
   useEffect(() => {
     entrance.value = withSpring(1, { damping: 24, stiffness: 280, mass: 0.85 });
-    // Paint the cached preview before building rich content and reading history.
-    let contentFrame: number | undefined;
-    const openingFrame = requestAnimationFrame(() => {
-      contentFrame = requestAnimationFrame(() => setOpeningFrameReady(true));
-    });
-    return () => {
-      cancelAnimationFrame(openingFrame);
-      if (contentFrame !== undefined) cancelAnimationFrame(contentFrame);
-    };
   }, [entrance]);
 
   useEffect(() => {
@@ -1729,7 +1710,6 @@ export function SpotlightCarousel({
                       client={client}
                       index={index}
                       isActive={index === safeIndex}
-                      showRichBody={openingFrameReady && index === safeIndex}
                       isMatch={isMatch}
                       cardWidth={cardWidth}
                       snapInterval={snapInterval}
@@ -2803,7 +2783,6 @@ const FloatingCarouselCard = React.memo(function FloatingCarouselCard({
   client,
   index,
   isActive,
-  showRichBody,
   isMatch,
   cardWidth,
   snapInterval,
@@ -2822,7 +2801,6 @@ const FloatingCarouselCard = React.memo(function FloatingCarouselCard({
   client?: LoopClient | null;
   index: number;
   isActive: boolean;
-  showRichBody: boolean;
   isMatch: boolean;
   cardWidth: number;
   snapInterval: number;
@@ -2841,10 +2819,6 @@ const FloatingCarouselCard = React.memo(function FloatingCarouselCard({
   const pullArmedRef = useRef(false);
   const dragStartAtTopRef = useRef(false);
   const lastPullYRef = useRef(0);
-  const preview = useMemo(
-    () => (showRichBody ? "" : feedPreviewText(slide.body.slice(0, 1600))),
-    [showRichBody, slide.body],
-  );
 
   const animatedCardStyle = useAnimatedStyle(() => {
     const inputRange = [
@@ -3072,25 +3046,16 @@ const FloatingCarouselCard = React.memo(function FloatingCarouselCard({
             <CarouselPromptQuote prompt={header.promptQuote} theme={theme} />
           )}
 
-          {showRichBody ? (
-            <RichContent
-              content={slide.body}
-              theme={theme}
-              workspaceOrigin={client?.origin}
-              onReplyButton={onReplyButton}
-              onOpenFile={onOpenFileTarget}
-              skipLeadingHeading={
-                header.titleSource === "heading" ? header.title : undefined
-              }
-            />
-          ) : (
-            <Text
-              numberOfLines={12}
-              style={[styles.openingPreview, { color: theme.text }]}
-            >
-              {preview}
-            </Text>
-          )}
+          <RichContent
+            content={isActive ? slide.body : slide.body.slice(0, 1200)}
+            theme={theme}
+            workspaceOrigin={client?.origin}
+            onReplyButton={onReplyButton}
+            onOpenFile={onOpenFileTarget}
+            skipLeadingHeading={
+              header.titleSource === "heading" ? header.title : undefined
+            }
+          />
 
           {isActive && files.length > 0 && (
             <PublishedFilesStrip
@@ -3822,7 +3787,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingBottom: 6,
   },
-  openingPreview: { fontSize: 15, lineHeight: 22 },
   hiddenComposer: { display: "none" },
   pendingReply: {
     justifyContent: "center",
