@@ -530,6 +530,8 @@ export function SpotlightCarousel({
   );
   const [stageHeight, setStageHeight] = useState(0);
   const effectiveStageHeight = stageHeight > 0 ? stageHeight : screenHeight;
+  const effectiveStageHeightRef = useRef(effectiveStageHeight);
+  effectiveStageHeightRef.current = effectiveStageHeight;
   const keyboardInset = keyboardCoords
     ? computeKeyboardInset(
         { endCoordinates: keyboardCoords },
@@ -537,7 +539,7 @@ export function SpotlightCarousel({
         Platform.OS,
       )
     : 0;
-  const keyboardVisible = keyboardInset > 0;
+  const keyboardVisible = Boolean(keyboardCoords);
   const [steerableRunId, setSteerableRunId] = useState<string | null>(null);
   const [deliveryMode, setDeliveryMode] = useState<"steer" | "queue">("steer");
   const [retryModeLocked, setRetryModeLocked] = useState(false);
@@ -645,7 +647,20 @@ export function SpotlightCarousel({
     );
     const changeSub =
       Platform.OS === "ios"
-        ? Keyboard.addListener("keyboardWillChangeFrame", onShow)
+        ? Keyboard.addListener("keyboardWillChangeFrame", (e) => {
+            const screenY = e?.endCoordinates?.screenY;
+            const height = e?.endCoordinates?.height;
+            if (
+              (typeof height === "number" && height <= 0) ||
+              (typeof screenY === "number" &&
+                Number.isFinite(screenY) &&
+                screenY >= effectiveStageHeightRef.current)
+            ) {
+              onHide();
+              return;
+            }
+            onShow(e);
+          })
         : null;
     return () => {
       showSub.remove();

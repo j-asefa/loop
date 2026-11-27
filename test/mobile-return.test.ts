@@ -3575,18 +3575,54 @@ it("computes isolated per-owner snippet usage counts while preserving newest-fir
     { content: "Summarize thread", use_count: 0 },
   ]);
 
-  // Tie-breaking on mobile: when Check CI status gets a second use later than Review this PR, it moves first.
-  await api(w.owner, "/runs", "POST", {
-    agentId: a.id,
-    conversationId: cid,
-    input: "Check CI status",
-    idempotencyKey: "tie-" + randomBytes(6).toString("hex"),
-    queue: true,
-  });
-  const afterTie = (await api(w.owner, "/snippets")).data.items;
-  expect(sortSnippetsByUsage(afterTie).map((s: any) => s.content)).toEqual([
+  // Tie-breaking on mobile: when both "Review this PR" (server index 2) and "Check CI status"
+  // (server index 1) have equal use_count (3) with "Review this PR" strictly newer,
+  // last_used_at moves "Review this PR" first despite newest-first server order.
+  const latestUsageTs = (
+    db
+      .prepare(
+        "SELECT MAX(created_at) AS ts FROM messages WHERE owner_id=? AND trim(content) IN ('Check CI status', 'Review this PR')",
+      )
+      .get(w.owner) as { ts: number }
+  ).ts;
+  insertMsg.run(
+    id(),
+    w.owner,
+    cid,
+    existingRun,
     "Check CI status",
+    JSON.stringify({ personal: true }),
+    latestUsageTs + 1,
+  );
+  insertMsg.run(
+    id(),
+    w.owner,
+    cid,
+    existingRun,
+    "Check CI status",
+    JSON.stringify({ personal: true }),
+    latestUsageTs + 2,
+  );
+  insertMsg.run(
+    id(),
+    w.owner,
+    cid,
+    existingRun,
     "Review this PR",
+    JSON.stringify({ personal: true }),
+    latestUsageTs + 10,
+  );
+  const afterTie = (await api(w.owner, "/snippets")).data.items;
+  expect(
+    afterTie.map((s: any) => ({ content: s.content, use_count: s.use_count })),
+  ).toEqual([
+    { content: "Summarize thread", use_count: 0 },
+    { content: "Check CI status", use_count: 3 },
+    { content: "Review this PR", use_count: 3 },
+  ]);
+  expect(sortSnippetsByUsage(afterTie).map((s: any) => s.content)).toEqual([
+    "Review this PR",
+    "Check CI status",
     "Summarize thread",
   ]);
 });
