@@ -80,6 +80,7 @@ import { RemindSheet, type RemindChoice } from "./src/components/RemindSheet";
 import { SearchScreen } from "./src/components/SearchScreen";
 import { SpotlightCarousel } from "./src/components/SpotlightCarousel";
 import { ThreadSheet } from "./src/components/ThreadSheet";
+import { clearWorkspaceDrafts } from "./src/drafts";
 import {
   buildSimulatedReply,
   createInitialCards,
@@ -158,6 +159,16 @@ function LoopShell() {
     createInitialCards(),
   );
   const [liveCards, setLiveCards] = useState<NativeResultCard[]>([]);
+  const [olderFeedCards, setOlderFeedCards] = useState<NativeResultCard[]>([]);
+  // Keep cursor value and endpoint source atomic so a refresh can never mix a `feed`
+  // cursor with the `cards` endpoint (or vice versa).
+  const [feedCursor, setFeedCursor] = useState<{
+    source: "cards" | "feed";
+    before: string;
+  } | null>(null);
+  const [loadingMoreFeed, setLoadingMoreFeed] = useState(false);
+  const hasLoadedOlderFeedRef = useRef(false);
+  const feedPageEpochRef = useRef(0);
   const [summary, setSummary] = useState<ApiFeedSummary | null>(null);
   const [agents, setAgents] = useState<ApiAgent[]>(DEMO_AGENTS);
   const [folders, setFolders] = useState<ApiFolder[]>([]);
@@ -242,6 +253,7 @@ function LoopShell() {
     (expiredSession: PairedSession) => {
       // Ignore stale 401s from a previous workspace after switching workspaces
       if (activeSessionRef.current !== expiredSession) return;
+      clearWorkspaceDrafts(expiredSession.origin);
       void clearPairedSession();
       setSession(null);
       setSocketStatus("offline");
@@ -280,7 +292,7 @@ function LoopShell() {
           const [
             boot,
             feedPage,
-            doneCardItems,
+            doneCardPage,
             replyPage,
             queuedPage,
             workingPage,
@@ -291,7 +303,7 @@ function LoopShell() {
           ] = await Promise.all([
             client.bootstrap(),
             client.feed("done"),
-            client.doneCards().catch(() => null),
+            client.doneCardsPage().catch(() => null),
             client.feed("replies").catch(() => null),
             client.feed("queued").catch(() => null),
             client.feed("working").catch(() => null),
@@ -308,13 +320,33 @@ function LoopShell() {
           setEnvironmentName(boot.environmentName || "");
           setSummary(feedPage.summary);
 
-          const doneSource =
-            doneCardItems && doneCardItems.length > 0
-              ? doneCardItems
-              : feedPage.items;
-          setLiveCards(
-            mergeUnifiedFeedCards(doneSource, replyPage?.items ?? []),
+          const useCardsSource = Boolean(
+            doneCardPage && doneCardPage.items.length > 0,
           );
+          const doneSource = useCardsSource
+            ? doneCardPage!.items
+            : feedPage.items;
+          const nextTopCards = mergeUnifiedFeedCards(
+            doneSource,
+            replyPage?.items ?? [],
+          );
+          const nextPageCursor = useCardsSource
+            ? doneCardPage?.next
+              ? { source: "cards" as const, before: doneCardPage.next }
+              : null
+            : feedPage.next
+              ? { source: "feed" as const, before: feedPage.next }
+              : null;
+          if (options?.silent === false) {
+            feedPageEpochRef.current += 1;
+            hasLoadedOlderFeedRef.current = false;
+            setOlderFeedCards([]);
+            setLoadingMoreFeed(false);
+            setFeedCursor(nextPageCursor);
+          } else if (!hasLoadedOlderFeedRef.current) {
+            setFeedCursor(nextPageCursor);
+          }
+          setLiveCards(nextTopCards);
           if (queuedPage || workingPage) {
             setQueuedFeedItems([
               ...(queuedPage?.items ?? []),
@@ -375,6 +407,11 @@ function LoopShell() {
     setToast((prev) => (prev?.undo ? null : prev));
     setRefreshing(false);
     setLiveCards([]);
+    setOlderFeedCards([]);
+    setFeedCursor(null);
+    setLoadingMoreFeed(false);
+    hasLoadedOlderFeedRef.current = false;
+    feedPageEpochRef.current += 1;
     setFolders([]);
     setApprovals([]);
     setDecisions([]);
@@ -439,7 +476,70 @@ function LoopShell() {
     };
   }, [session, client, handleStreamEvents]);
 
-  const activeCards = client ? liveCards : demoCards;
+  const handleLoadMoreFeed = useCallback(async () => {
+    if (!client || !feedCursor || loadingMoreFeed) return;
+    const gen = loadCoordRef.current.currentGeneration;
+    const epoch = feedPageEpochRef.current;
+    const { source, before } = feedCursor;
+    setLoadingMoreFeed(true);
+    try {
+      const page =
+        source === "cards"
+          ? await client.doneCardsPage({ before })
+          : await client.feed("done", { before });
+      if (
+        gen !== loadCoordRef.current.currentGeneration ||
+        epoch !== feedPageEpochRef.current
+      ) {
+        return;
+      }
+      const mapped = mergeUnifiedFeedCards(page.items, []);
+      hasLoadedOlderFeedRef.current = true;
+      setOlderFeedCards((prev) => {
+        const seenIds = new Set(prev.map((c) => c.id));
+        const seenMsgIds = new Set(
+          prev.map((c) => c.messageId).filter(Boolean),
+        );
+        const extra = mapped.filter(
+          (c) =>
+            !seenIds.has(c.id) &&
+            (!c.messageId || !seenMsgIds.has(c.messageId)),
+        );
+        return extra.length > 0 ? [...prev, ...extra] : prev;
+      });
+      setFeedCursor(page.next ? { source, before: page.next } : null);
+    } catch (err) {
+      if (
+        gen === loadCoordRef.current.currentGeneration &&
+        epoch === feedPageEpochRef.current
+      ) {
+        showToast(
+          err instanceof Error ? err.message : "Could not load older cards.",
+        );
+      }
+    } finally {
+      if (
+        gen === loadCoordRef.current.currentGeneration &&
+        epoch === feedPageEpochRef.current
+      ) {
+        setLoadingMoreFeed(false);
+      }
+    }
+  }, [client, feedCursor, loadingMoreFeed, showToast]);
+
+  const activeCards = useMemo(() => {
+    if (!client) return demoCards;
+    if (olderFeedCards.length === 0) return liveCards;
+    const seenIds = new Set(liveCards.map((c) => c.id));
+    const seenMsgIds = new Set(
+      liveCards.map((c) => c.messageId).filter(Boolean),
+    );
+    const extra = olderFeedCards.filter(
+      (c) =>
+        !seenIds.has(c.id) && (!c.messageId || !seenMsgIds.has(c.messageId)),
+    );
+    return extra.length > 0 ? [...liveCards, ...extra] : liveCards;
+  }, [client, demoCards, liveCards, olderFeedCards]);
 
   const effectiveActiveRuns = useMemo<AgentRunSummary[]>(() => {
     if (client) return activeRuns;
@@ -496,6 +596,7 @@ function LoopShell() {
           (card.replyUnread ?? !card.doneCardKey),
         );
         setLiveCards(clearRead);
+        setOlderFeedCards(clearRead);
         setCarouselOverrideCards((prev) => (prev ? clearRead(prev) : prev));
         setSummary((prev) =>
           prev
@@ -550,6 +651,7 @@ function LoopShell() {
           getGeneration: () => workspaceGenRef.current,
           applyLocal: (saved) => {
             setLiveCards(applySaved(saved));
+            setOlderFeedCards(applySaved(saved));
             setCarouselOverrideCards((prev) =>
               prev ? applySaved(saved)(prev) : prev,
             );
@@ -587,6 +689,7 @@ function LoopShell() {
         if (!doneKey && !replyMessageId) return;
         const gen = workspaceGenRef.current;
         setLiveCards(removeCard);
+        setOlderFeedCards(removeCard);
         setCarouselOverrideCards((prev) => (prev ? removeCard(prev) : prev));
         if (doneKey) {
           void client
@@ -604,23 +707,30 @@ function LoopShell() {
           const restores: Promise<unknown>[] = [];
           if (doneKey) {
             restores.push(
-              client
-                .setDoneHidden(card.conversationId, doneKey, false)
-                .catch(() => {}),
+              client.setDoneHidden(card.conversationId, doneKey, false),
             );
           }
           if (replyMessageId) {
             restores.push(
-              client
-                .setReplyState(replyMessageId, { archived: false })
-                .catch(() => {}),
+              client.setReplyState(replyMessageId, { archived: false }),
             );
           }
-          void Promise.all(restores).then(() => {
-            if (gen === workspaceGenRef.current) {
+          void Promise.all(restores)
+            .then(() => {
+              if (gen !== workspaceGenRef.current) return;
+              // Restore into olderFeedCards only after server confirms so paginated cards
+              // reappear immediately without leaving a phantom card on failure.
+              setOlderFeedCards((prev) =>
+                prev.some((c) => c.id === card.id) ? prev : [card, ...prev],
+              );
               void loadWorkspaceRef.current({ silent: true });
-            }
-          });
+            })
+            .catch(() => {
+              if (gen === workspaceGenRef.current) {
+                showToast("Could not undo — syncing…");
+                void loadWorkspaceRef.current({ silent: true });
+              }
+            });
         });
         return;
       }
@@ -1039,6 +1149,7 @@ function LoopShell() {
     if (client) await client.signOut();
     // Never wipe a newly paired workspace if the user switched while sign-out was in flight
     if (activeSessionRef.current !== signingOutSession) return;
+    clearWorkspaceDrafts(signingOutSession?.origin);
     await clearPairedSession();
     if (activeSessionRef.current !== signingOutSession) return;
     setSession(null);
@@ -1329,6 +1440,8 @@ function LoopShell() {
           environmentName={environmentName}
           socketStatus={socketStatus}
           refreshing={refreshing}
+          hasMore={Boolean(client && feedCursor)}
+          loadingMore={loadingMoreFeed}
           theme={theme}
           scrollRef={feedScrollRef}
           onRefresh={() => {
@@ -1338,6 +1451,7 @@ function LoopShell() {
               showToast("Demo deck refreshed");
             }
           }}
+          onLoadMore={() => void handleLoadMoreFeed()}
           onOpenPairing={() => setPairingOpen(true)}
           onOpenAgent={handleOpenAgent}
           onOpenAgentByName={openAgentByName}
@@ -1531,6 +1645,7 @@ function LoopShell() {
           onToggleSaved={handleToggleSaved}
           onRemind={(card) => setRemindCard(card)}
           onDismissCard={handleDismissCard}
+          onNotify={showToast}
           onSendReply={handleCarouselReply}
         />
       )}

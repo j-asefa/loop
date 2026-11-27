@@ -14,8 +14,18 @@ import {
 import { BlurView } from "expo-blur";
 import { ArrowUp, Paperclip, X } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { randomUuid, type LoopClient } from "../api/client";
+import {
+  isUncertainOutcomeError,
+  randomUuid,
+  type LoopClient,
+} from "../api/client";
 import type { ApiAgent, ApiConnection } from "../api/types";
+import {
+  clearDraft,
+  draftScopeForCompose,
+  loadDraftEntry,
+  saveDraft,
+} from "../drafts";
 import { haptics } from "../haptics";
 import {
   agentModelLabel,
@@ -87,6 +97,26 @@ export function ComposeSheet({
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const draftScope = useMemo(
+    () => draftScopeForCompose(agent?.id, folderId),
+    [agent?.id, folderId],
+  );
+  const draftTouchedRef = useRef(false);
+  const restoredPendingKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    draftTouchedRef.current = false;
+    void loadDraftEntry(client?.origin, draftScope).then((entry) => {
+      if (!cancelled && !draftTouchedRef.current && entry?.text) {
+        restoredPendingKeyRef.current = entry.pendingKey ?? null;
+        setText(entry.text);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [client?.origin, draftScope]);
 
   useEffect(() => {
     if (agent || !client) return;
@@ -112,6 +142,11 @@ export function ComposeSheet({
 
   const attSig = composeAttachments.readyIds.join(",");
   useEffect(() => {
+    if (restoredPendingKeyRef.current) {
+      sendKeyRef.current = restoredPendingKeyRef.current;
+      restoredPendingKeyRef.current = null;
+      return;
+    }
     sendKeyRef.current = null;
   }, [text, connection?.id, attSig]);
 
@@ -156,9 +191,15 @@ export function ComposeSheet({
           folderId,
         });
       sendKeyRef.current = null;
+      clearDraft(client?.origin, draftScope);
       clearAttachments();
       onClose();
     } catch (err) {
+      if (isUncertainOutcomeError(err)) {
+        saveDraft(client?.origin, draftScope, text, { key: idempotencyKey });
+      } else {
+        sendKeyRef.current = null;
+      }
       haptics.warning();
       setError(
         err instanceof Error
@@ -327,9 +368,12 @@ export function ComposeSheet({
               </Pressable>
               <TextInput
                 value={text}
+                editable={!busy}
                 onChangeText={(next) => {
+                  draftTouchedRef.current = true;
                   sendKeyRef.current = null;
                   setText(next);
+                  saveDraft(client?.origin, draftScope, next);
                 }}
                 placeholder={
                   agent ? `Message @${agent.name}…` : "What should it do?"

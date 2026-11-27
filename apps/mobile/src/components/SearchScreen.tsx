@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -51,8 +57,32 @@ export function SearchScreen({
   const [category, setCategory] =
     useState<(typeof CATEGORIES)[number]["id"]>("all");
   const [results, setResults] = useState<ApiSearchItem[]>([]);
+  const [nextCursor, setNextCursor] = useState<{
+    q: string;
+    category: string;
+    before: number;
+  } | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [prompts, setPrompts] = useState<ApiPersonalPrompt[]>([]);
   const [loading, setLoading] = useState(false);
+  const searchSeqRef = useRef(0);
+  const localCardsRef = useRef(localCards);
+  localCardsRef.current = localCards;
+
+  // Immediately invalidate any in-flight search or load-more cursor whenever query,
+  // category, or workspace client changes — before the 220 ms search debounce fires.
+  useEffect(() => {
+    searchSeqRef.current += 1;
+    setLoading(false);
+    setNextCursor(null);
+    setLoadingMore(false);
+  }, [client, query, category]);
+
+  // Clear previous workspace's results immediately when switching workspaces or signing out
+  useEffect(() => {
+    setResults([]);
+    setPrompts([]);
+  }, [client]);
 
   const matchingAgents = useMemo(() => {
     const clean = query.trim().replace(/^@/, "").toLowerCase();
@@ -63,11 +93,15 @@ export function SearchScreen({
   }, [agents, query]);
 
   const runSearch = useCallback(async () => {
+    const seq = ++searchSeqRef.current;
     const q = query.trim();
+    setLoading(false);
+    setNextCursor(null);
+    setLoadingMore(false);
     if (category === "prompts") {
       if (!client) {
         setPrompts(
-          localCards
+          localCardsRef.current
             .filter(
               (c) => !q || c.prompt.toLowerCase().includes(q.toLowerCase()),
             )
@@ -85,11 +119,12 @@ export function SearchScreen({
       }
       setLoading(true);
       try {
-        setPrompts(await client.personalPrompts(q || undefined));
+        const list = await client.personalPrompts(q || undefined);
+        if (seq === searchSeqRef.current) setPrompts(list);
       } catch {
-        setPrompts([]);
+        if (seq === searchSeqRef.current) setPrompts([]);
       } finally {
-        setLoading(false);
+        if (seq === searchSeqRef.current) setLoading(false);
       }
       return;
     }
@@ -100,8 +135,9 @@ export function SearchScreen({
     }
 
     if (!client) {
+      const cards = localCardsRef.current;
       const hits = searchThreadCards(
-        localCards.map((c) => ({
+        cards.map((c) => ({
           id: c.id,
           title: c.fallbackTitle,
           prompt: c.prompt,
@@ -114,7 +150,7 @@ export function SearchScreen({
       );
       setResults(
         hits.map((h) => {
-          const card = localCards[h.index];
+          const card = cards[h.index];
           return {
             id: h.cardId,
             kind: "message",
@@ -136,13 +172,59 @@ export function SearchScreen({
     setLoading(true);
     try {
       const res = await client.search(q, category);
-      setResults(res.items);
+      if (seq === searchSeqRef.current) {
+        setResults(res.items);
+        setNextCursor(
+          res.next !== null && res.next !== undefined
+            ? { q, category, before: res.next }
+            : null,
+        );
+      }
     } catch {
-      setResults([]);
+      if (seq === searchSeqRef.current) {
+        setResults([]);
+        setNextCursor(null);
+      }
     } finally {
-      setLoading(false);
+      if (seq === searchSeqRef.current) setLoading(false);
     }
-  }, [client, query, category, localCards]);
+  }, [client, query, category]);
+
+  const loadMoreResults = useCallback(async () => {
+    const q = query.trim();
+    if (
+      !client ||
+      !q ||
+      !nextCursor ||
+      nextCursor.q !== q ||
+      nextCursor.category !== category ||
+      loadingMore ||
+      loading
+    ) {
+      return;
+    }
+    const seq = searchSeqRef.current;
+    const cursorBefore = nextCursor.before;
+    setLoadingMore(true);
+    try {
+      const res = await client.search(q, category, cursorBefore);
+      if (seq !== searchSeqRef.current) return;
+      setResults((prev) => {
+        const seen = new Set(prev.map((item) => item.id));
+        const extra = res.items.filter((item) => !seen.has(item.id));
+        return extra.length > 0 ? [...prev, ...extra] : prev;
+      });
+      setNextCursor(
+        res.next !== null && res.next !== undefined
+          ? { q, category, before: res.next }
+          : null,
+      );
+    } catch {
+      // keep existing results
+    } finally {
+      if (seq === searchSeqRef.current) setLoadingMore(false);
+    }
+  }, [category, client, loading, loadingMore, nextCursor, query]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -331,46 +413,71 @@ export function SearchScreen({
             No matches for “{query.trim()}”.
           </Text>
         ) : (
-          results.map((item) => (
-            <Pressable
-              key={item.id}
-              onPress={() => {
-                haptics.light();
-                if (item.conversation_id) {
-                  onOpenConversation({
-                    conversationId: item.conversation_id,
-                    title: item.title,
-                    agentName: item.name || "agent",
-                    agentId: item.agent_id,
-                  });
-                }
-              }}
-              style={[
-                styles.card,
-                { backgroundColor: theme.surface, borderColor: theme.line },
-              ]}
-            >
-              <View style={styles.cardTop}>
-                <Text style={[styles.metaText, { color: theme.brassText }]}>
-                  {item.name ? `@${item.name}` : item.kind}
+          <>
+            {results.map((item) => (
+              <Pressable
+                key={item.id}
+                onPress={() => {
+                  haptics.light();
+                  if (item.conversation_id) {
+                    onOpenConversation({
+                      conversationId: item.conversation_id,
+                      title: item.title,
+                      agentName: item.name || "agent",
+                      agentId: item.agent_id,
+                    });
+                  }
+                }}
+                style={[
+                  styles.card,
+                  { backgroundColor: theme.surface, borderColor: theme.line },
+                ]}
+              >
+                <View style={styles.cardTop}>
+                  <Text style={[styles.metaText, { color: theme.brassText }]}>
+                    {item.name ? `@${item.name}` : item.kind}
+                  </Text>
+                  <Text style={[styles.metaText, { color: theme.muted }]}>
+                    {relativeTime(item.updated_at || item.created_at)}
+                  </Text>
+                </View>
+                <Text style={[styles.cardTitle, { color: theme.text }]}>
+                  {item.title}
                 </Text>
-                <Text style={[styles.metaText, { color: theme.muted }]}>
-                  {relativeTime(item.updated_at || item.created_at)}
+                {snippetText(item.snippet) ? (
+                  <Text
+                    style={[styles.snippet, { color: theme.muted }]}
+                    numberOfLines={3}
+                  >
+                    {snippetText(item.snippet)}
+                  </Text>
+                ) : null}
+              </Pressable>
+            ))}
+            {nextCursor !== null && (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Load more results"
+                disabled={loadingMore}
+                onPress={() => {
+                  haptics.light();
+                  void loadMoreResults();
+                }}
+                style={({ pressed }) => [
+                  styles.loadMoreBtn,
+                  {
+                    backgroundColor: pressed ? theme.attention : theme.surface,
+                    borderColor: theme.line,
+                    opacity: loadingMore ? 0.65 : 1,
+                  },
+                ]}
+              >
+                <Text style={[styles.loadMoreText, { color: theme.text }]}>
+                  {loadingMore ? "Loading more results…" : "Load more results"}
                 </Text>
-              </View>
-              <Text style={[styles.cardTitle, { color: theme.text }]}>
-                {item.title}
-              </Text>
-              {snippetText(item.snippet) ? (
-                <Text
-                  style={[styles.snippet, { color: theme.muted }]}
-                  numberOfLines={3}
-                >
-                  {snippetText(item.snippet)}
-                </Text>
-              ) : null}
-            </Pressable>
-          ))
+              </Pressable>
+            )}
+          </>
         )}
       </ScrollView>
     </View>
@@ -482,5 +589,17 @@ const styles = StyleSheet.create({
     textAlign: "center",
     paddingVertical: 32,
     lineHeight: 20,
+  },
+  loadMoreBtn: {
+    marginTop: 6,
+    paddingVertical: 11,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  loadMoreText: {
+    fontSize: 13.5,
+    fontWeight: "600",
   },
 });

@@ -298,22 +298,24 @@ export class LoopClient {
 
   /**
    * Canonical Done cards list (`/api/v1/cards?view=done`), which includes
-   * `read_at`, `unread_version`, and full untruncated card bodies.
+   * `read_at`, `unread_version`, full untruncated card bodies, and `next` cursor.
    */
-  async doneCards(opts?: {
+  async doneCardsPage(opts?: {
     agent?: string;
     limit?: number;
-  }): Promise<ApiFeedItem[]> {
+    before?: string;
+  }): Promise<{ items: ApiFeedItem[]; next: string | null }> {
     const q = new URLSearchParams({
       view: "done",
       limit: String(opts?.limit ?? 60),
     });
     if (opts?.agent) q.set("agent", opts.agent);
+    if (opts?.before) q.set("before", opts.before);
     const page = await this.request<ApiDoneCardPage>(
       "GET",
       `/api/v1/cards?${q.toString()}`,
     );
-    return (page.items ?? [])
+    const items = (page.items ?? [])
       .filter((entry) => entry.card?.type === "done" && entry.card.display)
       .map((entry) => {
         const display = entry.card.display;
@@ -337,6 +339,16 @@ export class LoopClient {
               : {}),
         };
       });
+    return { items, next: page.next ?? null };
+  }
+
+  async doneCards(opts?: {
+    agent?: string;
+    limit?: number;
+    before?: string;
+  }): Promise<ApiFeedItem[]> {
+    const page = await this.doneCardsPage(opts);
+    return page.items;
   }
 
   conversation(id: string, before?: string): Promise<ApiConversationPage> {
@@ -632,9 +644,14 @@ export class LoopClient {
     return [];
   }
 
-  search(q: string, category?: string): Promise<ApiSearchResponse> {
+  search(
+    q: string,
+    category?: string,
+    before?: number,
+  ): Promise<ApiSearchResponse> {
     const params = new URLSearchParams({ q });
     if (category && category !== "all") params.set("category", category);
+    if (before !== undefined) params.set("before", String(before));
     return this.request<ApiSearchResponse>(
       "GET",
       `/api/search?${params.toString()}`,
@@ -697,12 +714,18 @@ export class LoopClient {
     return data.items ?? [];
   }
 
-  async personalFiles(): Promise<PublishedFileItem[]> {
-    const data = await this.request<{ items?: ApiPersonalFile[] }>(
-      "GET",
-      "/api/me/files",
-    );
-    return (data.items ?? []).map((item) => {
+  async personalFilesPage(opts?: {
+    before?: number;
+  }): Promise<{ items: PublishedFileItem[]; next: number | null }> {
+    const query =
+      opts?.before !== undefined
+        ? `?before=${encodeURIComponent(String(opts.before))}`
+        : "";
+    const data = await this.request<{
+      items?: ApiPersonalFile[];
+      next?: number | null;
+    }>("GET", `/api/me/files${query}`);
+    const items = (data.items ?? []).map((item) => {
       const meta = parseArtifactFileMetadata(
         item.metadata,
         item.filename || item.title || "Published file",
@@ -722,6 +745,12 @@ export class LoopClient {
         createdAt: item.created_at,
       };
     });
+    return { items, next: data.next ?? null };
+  }
+
+  async personalFiles(): Promise<PublishedFileItem[]> {
+    const page = await this.personalFilesPage();
+    return page.items;
   }
 
   async runFiles(runId: string): Promise<PublishedFileItem[]> {

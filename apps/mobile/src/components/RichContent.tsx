@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Linking,
   Pressable,
@@ -7,6 +7,7 @@ import {
   Text,
   View,
 } from "react-native";
+import * as Clipboard from "expo-clipboard";
 import Svg, {
   Circle,
   Line,
@@ -16,7 +17,9 @@ import Svg, {
   SvgXml,
 } from "react-native-svg";
 import {
+  Check,
   CheckSquare,
+  Copy,
   CornerDownRight,
   ExternalLink,
   FileCode2,
@@ -1498,27 +1501,12 @@ export const RichContent = React.memo(function RichContent({
         }
         if (block.kind === "code") {
           return (
-            <View
+            <CodeBlock
               key={idx}
-              style={[
-                styles.codeBlock,
-                { backgroundColor: theme.raised, borderColor: theme.line },
-              ]}
-            >
-              {block.lang ? (
-                <View style={styles.codeHead}>
-                  <FileCode2 size={12} color={theme.muted} />
-                  <Text style={[styles.codeLang, { color: theme.muted }]}>
-                    {block.lang}
-                  </Text>
-                </View>
-              ) : null}
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                <Text style={[styles.codeText, { color: theme.text }]}>
-                  {block.code}
-                </Text>
-              </ScrollView>
-            </View>
+              lang={block.lang}
+              code={block.code}
+              theme={theme}
+            />
           );
         }
         return (
@@ -1536,6 +1524,87 @@ export const RichContent = React.memo(function RichContent({
     </View>
   );
 });
+
+function CodeBlock({
+  lang,
+  code,
+  theme,
+}: {
+  lang: string;
+  code: string;
+  theme: LoopTheme;
+}) {
+  const [copied, setCopied] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, []);
+
+  const handleCopy = () => {
+    haptics.success();
+    void Clipboard.setStringAsync(code)
+      .then(() => {
+        setCopied(true);
+        if (timerRef.current) clearTimeout(timerRef.current);
+        timerRef.current = setTimeout(() => {
+          timerRef.current = null;
+          setCopied(false);
+        }, 1800);
+      })
+      .catch(() => {});
+  };
+
+  return (
+    <View
+      style={[
+        styles.codeBlock,
+        { backgroundColor: theme.raised, borderColor: theme.line },
+      ]}
+    >
+      <View style={styles.codeHeadRow}>
+        <View style={styles.codeHead}>
+          <FileCode2 size={12} color={theme.muted} />
+          <Text style={[styles.codeLang, { color: theme.muted }]}>
+            {lang || "code"}
+          </Text>
+        </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={copied ? "Code copied" : "Copy code"}
+          hitSlop={8}
+          onPress={handleCopy}
+          style={({ pressed }) => [
+            styles.codeCopyBtn,
+            {
+              backgroundColor: pressed ? theme.attention : theme.soft,
+              borderColor: copied ? theme.attentionLine : theme.line,
+            },
+          ]}
+        >
+          {copied ? (
+            <Check size={12} color={theme.brassText} />
+          ) : (
+            <Copy size={12} color={theme.muted} />
+          )}
+          <Text
+            style={[
+              styles.codeCopyText,
+              { color: copied ? theme.brassText : theme.muted },
+            ]}
+          >
+            {copied ? "Copied" : "Copy"}
+          </Text>
+        </Pressable>
+      </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <Text style={[styles.codeText, { color: theme.text }]}>{code}</Text>
+      </ScrollView>
+    </View>
+  );
+}
 
 /** Plain clean snippet for Feed stack cards (strips fenced spec & markdown syntax). */
 export { feedPreviewText } from "../fixtures";
@@ -1771,6 +1840,25 @@ const styles = StyleSheet.create({
   },
   replySpecBtnText: {
     fontSize: 13.5,
+    fontWeight: "600",
+  },
+  codeHeadRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  codeCopyBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  codeCopyText: {
+    fontSize: 11,
     fontWeight: "600",
   },
 });
