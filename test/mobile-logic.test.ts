@@ -73,6 +73,15 @@ import {
   validateSendAt,
 } from "../apps/mobile/src/schedule-utils.js";
 import {
+  MAX_MERMAID_NODES,
+  parseMermaidDiagram,
+} from "../apps/mobile/src/mermaid-parser.js";
+import {
+  findInlineMathAt,
+  formatLatexInline,
+  parseLatexDisplayRows,
+} from "../apps/mobile/src/latex-math.js";
+import {
   avatarColors,
   DARK_THEME,
   LIGHT_THEME,
@@ -2449,5 +2458,341 @@ describe("mobile voice recording and scheduled send helpers", () => {
     expect(
       readDraftEntryFromStore(store, scope, day10 + 1000)?.pendingSchedule,
     ).toBeUndefined();
+  });
+});
+
+describe("mobile native Mermaid diagram parser and layout", () => {
+  it("parses flowcharts with shapes, subgraphs, labels, cycles, and strips HTML tags", () => {
+    const src = `
+      %% comment ignored
+      flowchart TD
+        subgraph API["Edge Layer"]
+          A([Start]) --> B{"<b>Valid?</b>"}
+        end
+        B -->|Yes| C[Process]
+        B -. No .-> D((Reject))
+        C ==> A
+    `;
+    const layout = parseMermaidDiagram(src);
+    expect(layout?.kind).toBe("flowchart");
+    if (!layout || layout.kind !== "flowchart") return;
+    expect(layout.direction).toBe("TD");
+    expect(layout.nodes.map((n) => n.id)).toEqual(["A", "B", "C", "D"]);
+    expect(layout.nodes.find((n) => n.id === "A")?.shape).toBe("stadium");
+    expect(layout.nodes.find((n) => n.id === "B")?.shape).toBe("diamond");
+    expect(layout.nodes.find((n) => n.id === "B")?.label).toBe("Valid?");
+    expect(layout.nodes.find((n) => n.id === "D")?.shape).toBe("circle");
+    expect(layout.edges).toHaveLength(4);
+    expect(layout.edges[1].label).toBe("Yes");
+    expect(layout.edges[2].style).toBe("dashed");
+    expect(layout.edges[3].style).toBe("thick");
+    expect(layout.subgraphs).toHaveLength(1);
+    expect(layout.subgraphs[0].label).toBe("Edge Layer");
+    expect(layout.width).toBeGreaterThan(200);
+    expect(layout.height).toBeGreaterThan(120);
+  });
+
+  it("parses sequence, state, and class diagrams and caps huge inputs", () => {
+    const seq = parseMermaidDiagram(`
+      sequenceDiagram
+        actor U as User
+        participant S as Server
+        U->>S: POST /api/runs
+        Note over U,S: Idempotent key
+        S-->>U: 201 Created
+        S->>S: Enqueue worker
+    `);
+    expect(seq?.kind).toBe("sequence");
+    if (seq?.kind === "sequence") {
+      expect(seq.participants.map((p) => p.label)).toEqual(["User", "Server"]);
+      expect(seq.participants[0].isActor).toBe(true);
+      expect(seq.steps).toHaveLength(4);
+      expect(seq.steps[1].kind).toBe("note");
+    }
+
+    const state = parseMermaidDiagram(`
+      stateDiagram-v2
+        [*] --> Queued
+        Queued --> Running : claim
+        Running --> [*] : finish
+    `);
+    expect(state?.kind).toBe("state");
+    if (state?.kind === "state") {
+      expect(state.nodes.find((n) => n.shape === "start")).toBeTruthy();
+      expect(state.nodes.find((n) => n.shape === "end")).toBeTruthy();
+      expect(state.edges).toHaveLength(3);
+    }
+
+    const cls = parseMermaidDiagram(`
+      classDiagram
+        class Run {
+          +id: string
+          +state: string
+        }
+        Agent *-- Run : owns
+    `);
+    expect(cls?.kind).toBe("class");
+    if (cls?.kind === "class") {
+      expect(cls.nodes.find((n) => n.id === "Run")?.members).toEqual([
+        "+id: string",
+        "+state: string",
+      ]);
+      expect(cls.edges).toHaveLength(1);
+    }
+
+    // Unrecognized syntax returns null so MermaidDiagram falls back to source
+    expect(parseMermaidDiagram("gantt\n  title Roadmap")).toBeNull();
+    expect(parseMermaidDiagram("")).toBeNull();
+
+    // Quoted & and %% inside node labels must not split nodes or truncate comments
+    const quoted = parseMermaidDiagram(`
+      flowchart LR
+        A["Research & Development (100%%)"] --> B[Done]
+    `);
+    expect(quoted?.kind).toBe("flowchart");
+    if (quoted?.kind === "flowchart") {
+      expect(quoted.nodes.map((n) => n.id)).toEqual(["A", "B"]);
+      expect(quoted.nodes[0].label).toBe("Research & Development (100%%)");
+      expect(quoted.edges).toHaveLength(1);
+    }
+
+    // Semicolon-separated statements on one line must not merge across statements
+    const multiStmt = parseMermaidDiagram("flowchart LR\n  A --> B; C --> D");
+    expect(multiStmt?.kind).toBe("flowchart");
+    if (multiStmt?.kind === "flowchart") {
+      expect(multiStmt.nodes.map((n) => n.id).sort()).toEqual([
+        "A",
+        "B",
+        "C",
+        "D",
+      ]);
+      expect(multiStmt.edges.map((e) => `${e.from}->${e.to}`)).toEqual([
+        "A->B",
+        "C->D",
+      ]);
+    }
+
+    // Sequence diagrams with alt/else/loop branching fall back to source, while participant named Option still parses
+    expect(
+      parseMermaidDiagram(`
+        sequenceDiagram
+          A->>B: Request
+          alt ok
+            B-->>A: 200
+          else fail
+            B-->>A: 500
+          end
+      `),
+    ).toBeNull();
+    expect(
+      parseMermaidDiagram(`
+        sequenceDiagram
+          loop Every minute
+            A->>B: Ping
+          end
+      `),
+    ).toBeNull();
+    const optParticipant = parseMermaidDiagram(`
+      sequenceDiagram
+        web-app->>API: Select
+        API-xweb-app: Timeout
+        Option->API: Open
+    `);
+    expect(optParticipant?.kind).toBe("sequence");
+    if (optParticipant?.kind === "sequence") {
+      expect(
+        optParticipant.steps.map((s) => (s.kind === "message" ? s.head : "")),
+      ).toEqual(["arrow", "cross", "none"]);
+      expect(optParticipant.participants.map((p) => p.id)).toEqual([
+        "web-app",
+        "API",
+        "Option",
+      ]);
+    }
+
+    // Apostrophes inside labels, --x connectors, class composition/cardinality, and composite state fallback
+    const apostrophe = parseMermaidDiagram(
+      "flowchart LR\n  A[Don't panic] --x B[Done]",
+    );
+    expect(apostrophe?.kind).toBe("flowchart");
+    if (apostrophe?.kind === "flowchart") {
+      expect(apostrophe.nodes.map((n) => n.label)).toEqual([
+        "Don't panic",
+        "Done",
+      ]);
+      expect(apostrophe.edges[0].markerEnd).toBe("cross");
+    }
+
+    const uml = parseMermaidDiagram(
+      'classDiagram\n  Owner "1" *-- "*" Part\n  Impl <|.. Iface\n  A "1" -- B\n  C -- "1" D',
+    );
+    expect(uml?.kind).toBe("class");
+    if (uml?.kind === "class") {
+      expect(uml.edges[0].markerStart).toBe("diamond");
+      expect(uml.edges[0].label).toBe("1..*");
+      expect(uml.edges[1].markerStart).toBe("triangle");
+      expect(uml.edges[1].style).toBe("dashed");
+      expect(uml.edges[2].label).toBe("1..");
+      expect(uml.edges[3].label).toBe("..1");
+    }
+
+    // State diagram [*] sentinel never collides with a user state named __start__
+    const stateSentinel = parseMermaidDiagram(
+      "stateDiagram-v2\n  [*] --> __start__\n  __start__ --> Ready",
+    );
+    expect(stateSentinel?.kind).toBe("state");
+    if (stateSentinel?.kind === "state") {
+      expect(stateSentinel.nodes).toHaveLength(3);
+      expect(stateSentinel.edges[0].from).not.toBe(stateSentinel.edges[0].to);
+    }
+
+    expect(
+      parseMermaidDiagram(
+        "stateDiagram-v2\n  state Active {\n    [*] --> Inner\n  }",
+      ),
+    ).toBeNull();
+
+    // Hyphenated directive-prefixed IDs and inline labels with hyphens/dots still parse cleanly
+    const hyphenated = parseMermaidDiagram(
+      "flowchart LR\n  style-check -- pre-flight --> Deploy\n  Deploy -. v1.2 .-> Done",
+    );
+    expect(hyphenated?.kind).toBe("flowchart");
+    if (hyphenated?.kind === "flowchart") {
+      expect(hyphenated.nodes.map((n) => n.id)).toEqual([
+        "style-check",
+        "Deploy",
+        "Done",
+      ]);
+      expect(hyphenated.edges.map((e) => e.label)).toEqual([
+        "pre-flight",
+        "v1.2",
+      ]);
+    }
+
+    // Adversarial ReDoS & repeated & fan-out inputs must complete quickly without blowing up
+    const t0 = Date.now();
+    parseMermaidDiagram(`flowchart TD\n  A ${"-- ".repeat(10_000)} x`);
+    parseMermaidDiagram(`flowchart TD\n  A ${"-. ".repeat(10_000)} x`);
+    parseMermaidDiagram(`flowchart TD\n  A -- ${" ".repeat(30_000)} x`);
+    parseMermaidDiagram(`flowchart TD\n  A["${"<".repeat(30_000)}"] --> B`);
+    parseMermaidDiagram(`classDiagram\n  ${"-".repeat(30_000)}!`);
+    parseMermaidDiagram(`sequenceDiagram\n  ${"a->".repeat(10_000)}`);
+    parseMermaidDiagram(`sequenceDiagram\n  Note over ${" ".repeat(30_000)} x`);
+    parseMermaidDiagram(`${"%%{".repeat(5_000)}flowchart TD\nA-->B`);
+    const dedupFan = parseMermaidDiagram(
+      `flowchart LR\n  ${Array(500).fill("A").join("&")} --> ${Array(500).fill("B").join("&")}`,
+    );
+    expect(dedupFan?.kind).toBe("flowchart");
+    if (dedupFan?.kind === "flowchart") {
+      expect(dedupFan.edges).toHaveLength(1);
+    }
+    expect(Date.now() - t0).toBeLessThan(2000);
+
+    // Oversized graphs return null so MermaidDiagram falls back to full source instead of truncating silently
+    const hugeLines = ["graph LR"];
+    for (let i = 0; i < MAX_MERMAID_NODES + 25; i += 1) {
+      hugeLines.push(`N${i} --> N${i + 1}`);
+    }
+    expect(parseMermaidDiagram(hugeLines.join("\n"))).toBeNull();
+
+    const manySubgraphs = ["flowchart TD"];
+    for (let i = 0; i < 40; i += 1) {
+      manySubgraphs.push(`subgraph S${i}\n  N${i}\nend`);
+    }
+    expect(parseMermaidDiagram(manySubgraphs.join("\n"))).toBeNull();
+  });
+});
+
+describe("mobile native LaTeX math parser and currency safety", () => {
+  it("detects inline math while refusing currency amounts in prose", () => {
+    expect(findInlineMathAt("Cost is $5 and $10 today.", 8)).toBeNull();
+    expect(findInlineMathAt("Price $100/mo to $200/mo.", 6)).toBeNull();
+    expect(findInlineMathAt("Bad $ x + 1 $ spacing", 4)).toBeNull();
+    expect(findInlineMathAt("Escaped \\$x$ text", 9)).toBeNull();
+    expect(
+      findInlineMathAt("Set $NAME first, then run `X=$VALUE`", 4),
+    ).toBeNull();
+    expect(findInlineMathAt("export PATH=$PATH:$HOME/bin", 12)).toBeNull();
+    expect(findInlineMathAt("See $ref/$id for details", 4)).toBeNull();
+    expect(findInlineMathAt("Path ${A}/${B}", 5)).toBeNull();
+    expect(findInlineMathAt("Run $(pwd)/$(whoami) now", 4)).toBeNull();
+
+    expect(findInlineMathAt("Given $x^2 + y^2 = r^2$, we have", 6)).toEqual({
+      raw: "x^2 + y^2 = r^2",
+      end: 23,
+    });
+    expect(findInlineMathAt("Let \\(\\alpha + \\beta\\) hold.", 4)).toEqual({
+      raw: "\\alpha + \\beta",
+      end: 22,
+    });
+  });
+
+  it("formats inline LaTeX typography and parses display fractions, matrices, and prototype-safe envs", () => {
+    expect(formatLatexInline("x^2 + y_1 \\le \\infty")).toBe("x² + y₁ ≤ ∞");
+    expect(formatLatexInline("\\alpha \\to \\beta \\in \\mathbb{R}")).toBe(
+      "α → β ∈ ℝ",
+    );
+    expect(formatLatexInline("\\sqrt[3]{x + 1}")).toBe("³√(x + 1)");
+    expect(formatLatexInline("\\sqrt{x}")).toBe("√x");
+    expect(formatLatexInline("\\sqrt{ab}")).toBe("√(ab)");
+    expect(formatLatexInline("\\frac{a + b}{c}")).toBe("(a + b)/c");
+    expect(formatLatexInline("\\frac{1}{2x}")).toBe("1/(2x)");
+    expect(formatLatexInline("\\frac{a}{\\frac{b}{c}}")).toBe("a/(b/c)");
+
+    // Prototype keys as environment names must never crash
+    expect(formatLatexInline("\\begin{constructor}x\\end{constructor}")).toBe(
+      "x",
+    );
+    expect(
+      parseLatexDisplayRows("\\begin{toString}1 & 2\\end{toString}"),
+    ).toEqual([[{ kind: "matrix", left: "", right: "", rows: [["1", "2"]] }]]);
+
+    // Fractions nested inside braces stay attached to their exponent instead of splitting out
+    expect(parseLatexDisplayRows("x^{\\frac{1}{2}} + 1")).toEqual([
+      [{ kind: "text", text: "x^(1/2) + 1" }],
+    ]);
+
+    const fracRows = parseLatexDisplayRows(
+      "E = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}",
+    );
+    expect(fracRows).toEqual([
+      [
+        { kind: "text", text: "E =" },
+        { kind: "fraction", num: "-b ± √(b² - 4ac)", den: "2a" },
+      ],
+    ]);
+
+    const matRows = parseLatexDisplayRows(
+      "A = \\begin{bmatrix} \\text{R\\&D} & 2 \\\\ 3 & 4 \\end{bmatrix}",
+    );
+    expect(matRows).toEqual([
+      [
+        { kind: "text", text: "A =" },
+        {
+          kind: "matrix",
+          left: "[",
+          right: "]",
+          rows: [
+            ["R&D", "2"],
+            ["3", "4"],
+          ],
+        },
+      ],
+    ]);
+
+    // Nested matrices keep inner \\ and & inside the inner environment
+    const nestedMat = parseLatexDisplayRows(
+      "\\begin{bmatrix}\\begin{pmatrix}1 & 2 \\\\ 3 & 4\\end{pmatrix} & 5\\end{bmatrix}",
+    );
+    expect(nestedMat).toEqual([
+      [
+        {
+          kind: "matrix",
+          left: "[",
+          right: "]",
+          rows: [["(1, 2; 3, 4)", "5"]],
+        },
+      ],
+    ]);
   });
 });
