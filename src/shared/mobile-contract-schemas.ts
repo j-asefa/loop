@@ -248,7 +248,14 @@ export const PublicUsage = z.object({
 });
 export const PublicSnippets = z.object({
   items: z.array(
-    z.object({ id: ArtifactId, title: Text, content: Text, created_at: Time }),
+    z.object({
+      id: ArtifactId,
+      title: Text,
+      content: Text,
+      created_at: Time,
+      use_count: z.number().int().nonnegative(),
+      last_used_at: z.number().int().nonnegative(),
+    }),
   ),
 });
 export const PublicProjectSummaries = z.object({

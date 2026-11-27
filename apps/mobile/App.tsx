@@ -104,6 +104,7 @@ import {
   loadWorkspaceCache,
   saveWorkspaceCache,
 } from "./src/offline-cache";
+import { sortSnippetsByUsage } from "./src/snippet-usage-codec";
 import { formatScheduledTime } from "./src/schedule-utils";
 import {
   buildSimulatedReply,
@@ -197,6 +198,10 @@ function LoopShell() {
   const [agents, setAgents] = useState<ApiAgent[]>(DEMO_AGENTS);
   const [folders, setFolders] = useState<ApiFolder[]>([]);
   const [snippets, setSnippets] = useState<ApiSnippet[]>([]);
+  const sortedSnippets = useMemo(
+    () => sortSnippetsByUsage(snippets),
+    [snippets],
+  );
   const [connections, setConnections] = useState<ApiConnection[]>([]);
   const [approvals, setApprovals] = useState<ApiApproval[]>([]);
   const [decisions, setDecisions] = useState<ApiNativeDecision[]>([]);
@@ -1844,7 +1849,7 @@ function LoopShell() {
           canPause={openCarouselCanPause}
           liveStream={openCarouselLiveStream}
           client={client}
-          snippets={snippets}
+          snippets={sortedSnippets}
           theme={theme}
           onCancelQueuedRun={handleCancelQueuedRun}
           onReorderQueuedRun={handleReorderQueuedRun}

@@ -125,6 +125,11 @@ import {
   type LoopTheme,
 } from "../apps/mobile/src/theme.js";
 import { getAgentArt, PALETTES } from "../apps/mobile/src/agentArt.js";
+import {
+  computeKeyboardInset,
+  computeQuickSheetLayout,
+  sortSnippetsByUsage,
+} from "../apps/mobile/src/snippet-usage-codec.js";
 import type { ApiFeedItem } from "../apps/mobile/src/api/types.js";
 
 function makeFeedItem(overrides: Partial<ApiFeedItem> = {}): ApiFeedItem {
@@ -3756,5 +3761,129 @@ describe("mobile text selection helpers", () => {
     expect(thread).toContain("new CopySessionTracker()");
     // FilePreviewModal offers in-place selectable text toggle without nested Modal
     expect(preview).toContain("selectTextMode");
+  });
+});
+
+describe("mobile snippet usage sorting and quick-reply keyboard layout", () => {
+  it("puts most used snippets at the top, breaks ties by recency, and preserves server order on equal ties", () => {
+    const snippets = [
+      {
+        id: "s1",
+        title: "Unused newer",
+        content: "Unused",
+        use_count: 0,
+        last_used_at: 0,
+      },
+      {
+        id: "s2",
+        title: "Used once old",
+        content: "Once old",
+        use_count: 1,
+        last_used_at: 400,
+      },
+      {
+        id: "s3",
+        title: "Most used",
+        content: "Top",
+        use_count: 5,
+        last_used_at: 200,
+      },
+      {
+        id: "s4",
+        title: "Used once new",
+        content: "Once new",
+        use_count: 1,
+        last_used_at: 900,
+      },
+      {
+        id: "s5",
+        title: "Unused older",
+        content: "Unused 2",
+        use_count: 0,
+        last_used_at: 0,
+      },
+    ];
+    expect(sortSnippetsByUsage(snippets).map((s) => s.id)).toEqual([
+      "s3",
+      "s4",
+      "s2",
+      "s1",
+      "s5",
+    ]);
+    // Input array is never mutated, and fractional/missing/negative counts are sanitized safely.
+    expect(snippets.map((s) => s.id)).toEqual(["s1", "s2", "s3", "s4", "s5"]);
+    expect(
+      sortSnippetsByUsage([
+        { id: "a", use_count: -1, last_used_at: -5 },
+        { id: "b", use_count: Number.NaN },
+        { id: "c", use_count: 2.8, last_used_at: 10 },
+      ]).map((s) => s.id),
+    ).toEqual(["c", "a", "b"]);
+  });
+
+  it("sizes quick-reply sheet and scrollable area above an open keyboard", () => {
+    const iosInset = computeKeyboardInset(
+      { endCoordinates: { height: 336, screenY: 508 } },
+      844,
+      "ios",
+    );
+    expect(iosInset).toBe(336);
+    expect(
+      computeKeyboardInset(
+        { endCoordinates: { height: 336, screenY: 844 } },
+        844,
+        "ios",
+      ),
+    ).toBe(0);
+
+    // Android adjustResize already shrinks container height to screenY -> inset 0 (no double padding).
+    expect(
+      computeKeyboardInset(
+        { endCoordinates: { height: 300, screenY: 544 } },
+        544,
+        "android",
+      ),
+    ).toBe(0);
+    // Android overlay mode (non-shrinking container) computes exact keyboard height.
+    expect(
+      computeKeyboardInset(
+        { endCoordinates: { height: 300, screenY: 544 } },
+        844,
+        "android",
+      ),
+    ).toBe(300);
+
+    const openLayout = computeQuickSheetLayout({
+      windowHeight: 844,
+      insetTop: 59,
+      insetBottom: 34,
+      keyboardInset: iosInset,
+    });
+    expect(openLayout.maxSheetHeight).toBe(437);
+    expect(openLayout.sheetPaddingBottom).toBe(12);
+    expect(openLayout.maxScrollHeight).toBe(373);
+    expect(openLayout.maxSheetHeight + iosInset + 59).toBeLessThanOrEqual(844);
+
+    // Short landscape / split-screen window never pushes the sheet header above the top inset.
+    const tightLayout = computeQuickSheetLayout({
+      windowHeight: 390,
+      insetTop: 20,
+      insetBottom: 0,
+      keyboardInset: 250,
+    });
+    expect(tightLayout.maxSheetHeight).toBe(108);
+    expect(tightLayout.maxSheetHeight + 250 + 20).toBeLessThanOrEqual(390);
+    expect(tightLayout.maxScrollHeight).toBe(44);
+
+    const closedLayout = computeQuickSheetLayout({
+      windowHeight: 844,
+      insetTop: 59,
+      insetBottom: 34,
+      keyboardInset: 0,
+    });
+    expect(closedLayout.sheetPaddingBottom).toBe(48);
+    expect(closedLayout.maxScrollHeight).toBeGreaterThan(
+      openLayout.maxScrollHeight,
+    );
   });
 });

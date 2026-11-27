@@ -98,6 +98,10 @@ import { AgentAvatar, InlineFormattedText, RichContent } from "./RichContent";
 import { PagerLock } from "../pager-lock";
 import { ScheduleSendSheet } from "./ScheduleSendSheet";
 import { VoiceRecorderButton } from "./VoiceRecorder";
+import {
+  computeKeyboardInset,
+  computeQuickSheetLayout,
+} from "../snippet-usage-codec";
 
 const CARD_GAP = 10;
 const DISMISS_THRESHOLD = 100;
@@ -170,7 +174,7 @@ export function SpotlightCarousel({
   onScheduleReply,
 }: SpotlightCarouselProps) {
   const insets = useSafeAreaInsets();
-  const { width: screenWidth } = useWindowDimensions();
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
 
   const cardWidth = Math.min(Math.round(screenWidth * 0.87), 424);
   const snapInterval = cardWidth + CARD_GAP;
@@ -515,7 +519,27 @@ export function SpotlightCarousel({
     replyToMessageId?: string;
     locked: boolean;
   } | null>(null);
-  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const initialMetrics = Keyboard.metrics?.();
+  const [keyboardCoords, setKeyboardCoords] = useState<{
+    height?: number;
+    screenY?: number;
+  } | null>(() =>
+    initialMetrics && initialMetrics.height > 0
+      ? { height: initialMetrics.height, screenY: initialMetrics.screenY }
+      : null,
+  );
+  const [stageHeight, setStageHeight] = useState(0);
+  const effectiveStageHeight = stageHeight > 0 ? stageHeight : screenHeight;
+  const effectiveStageHeightRef = useRef(effectiveStageHeight);
+  effectiveStageHeightRef.current = effectiveStageHeight;
+  const keyboardInset = keyboardCoords
+    ? computeKeyboardInset(
+        { endCoordinates: keyboardCoords },
+        effectiveStageHeight,
+        Platform.OS,
+      )
+    : 0;
+  const keyboardVisible = Boolean(keyboardCoords);
   const [steerableRunId, setSteerableRunId] = useState<string | null>(null);
   const [deliveryMode, setDeliveryMode] = useState<"steer" | "queue">("steer");
   const [retryModeLocked, setRetryModeLocked] = useState(false);
@@ -598,17 +622,50 @@ export function SpotlightCarousel({
   }, []);
 
   useEffect(() => {
+    const onShow = (e?: {
+      endCoordinates?: { height?: number; screenY?: number };
+    }) => {
+      setKeyboardCoords(
+        e?.endCoordinates
+          ? {
+              height: e.endCoordinates.height,
+              screenY: e.endCoordinates.screenY,
+            }
+          : { height: 0 },
+      );
+    };
+    const onHide = () => {
+      setKeyboardCoords(null);
+    };
     const showSub = Keyboard.addListener(
       Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
-      () => setKeyboardVisible(true),
+      onShow,
     );
     const hideSub = Keyboard.addListener(
       Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
-      () => setKeyboardVisible(false),
+      onHide,
     );
+    const changeSub =
+      Platform.OS === "ios"
+        ? Keyboard.addListener("keyboardWillChangeFrame", (e) => {
+            const screenY = e?.endCoordinates?.screenY;
+            const height = e?.endCoordinates?.height;
+            if (
+              (typeof height === "number" && height <= 0) ||
+              (typeof screenY === "number" &&
+                Number.isFinite(screenY) &&
+                screenY >= effectiveStageHeightRef.current)
+            ) {
+              onHide();
+              return;
+            }
+            onShow(e);
+          })
+        : null;
     return () => {
       showSub.remove();
       hideSub.remove();
+      changeSub?.remove();
     };
   }, []);
 
@@ -1141,6 +1198,12 @@ export function SpotlightCarousel({
     <View
       style={[StyleSheet.absoluteFill, { zIndex: 30 }]}
       pointerEvents="box-none"
+      onLayout={(e) => {
+        const h = e.nativeEvent.layout.height;
+        if (h > 0 && Math.abs(h - stageHeight) >= 1) {
+          setStageHeight(h);
+        }
+      }}
     >
       {/* Frosted blurred Feed backdrop */}
       <Animated.View style={[StyleSheet.absoluteFill, backdropAnimatedStyle]}>
@@ -2573,103 +2636,151 @@ export function SpotlightCarousel({
       </Modal>
 
       {/* Frosted Quick Reply Sheet */}
-      {quickReplyOpen && (
-        <Pressable
-          style={[
-            StyleSheet.absoluteFill,
-            styles.quickSheetOverlay,
-            { backgroundColor: "rgba(0,0,0,0.45)" },
-          ]}
-          onPress={() => setQuickReplyOpen(false)}
-        >
-          <Pressable
-            style={[
-              styles.quickSheet,
-              {
-                backgroundColor: theme.surface,
-                borderColor: theme.line,
-                paddingBottom: Math.max(insets.bottom + 14, 22),
-              },
-            ]}
-            onPress={() => {}}
-          >
-            <View style={styles.quickSheetHead}>
-              <Text style={[styles.quickSheetTitle, { color: theme.text }]}>
-                Quick reply
-              </Text>
+      {quickReplyOpen &&
+        (() => {
+          const quickSheetLayout = computeQuickSheetLayout({
+            windowHeight: effectiveStageHeight,
+            insetTop: insets.top,
+            insetBottom: insets.bottom,
+            keyboardInset,
+          });
+          return (
+            <View
+              style={[
+                StyleSheet.absoluteFill,
+                styles.quickSheetOverlay,
+                { paddingBottom: keyboardInset },
+              ]}
+            >
               <Pressable
-                onPress={() => {
-                  haptics.light();
-                  setQuickReplyOpen(false);
-                }}
+                style={[
+                  StyleSheet.absoluteFill,
+                  { backgroundColor: "rgba(0,0,0,0.45)" },
+                ]}
+                onPress={() => setQuickReplyOpen(false)}
+              />
+              <View
+                style={[
+                  styles.quickSheet,
+                  {
+                    backgroundColor: theme.surface,
+                    borderColor: theme.line,
+                    maxHeight: quickSheetLayout.maxSheetHeight,
+                    paddingBottom: quickSheetLayout.sheetPaddingBottom,
+                  },
+                ]}
               >
-                <X size={18} color={theme.muted} />
-              </Pressable>
+                <View style={styles.quickSheetHead}>
+                  <Text style={[styles.quickSheetTitle, { color: theme.text }]}>
+                    Quick reply
+                  </Text>
+                  <Pressable
+                    accessibilityLabel="Close quick reply"
+                    onPress={() => {
+                      haptics.light();
+                      setQuickReplyOpen(false);
+                    }}
+                  >
+                    <X size={18} color={theme.muted} />
+                  </Pressable>
+                </View>
+                <ScrollView
+                  style={[
+                    styles.quickSheetScroll,
+                    { maxHeight: quickSheetLayout.maxScrollHeight },
+                  ]}
+                  contentContainerStyle={styles.quickSheetList}
+                  keyboardShouldPersistTaps="handled"
+                  showsVerticalScrollIndicator
+                  nestedScrollEnabled
+                  bounces
+                >
+                  {QUICK_REPLIES.map((opt) => (
+                    <Pressable
+                      key={opt.id}
+                      onPress={() => {
+                        haptics.light();
+                        prefillReply(opt.instruction);
+                      }}
+                      style={({ pressed }) => [
+                        styles.quickOption,
+                        {
+                          backgroundColor: pressed
+                            ? theme.attention
+                            : theme.soft,
+                          borderColor: pressed
+                            ? theme.attentionLine
+                            : theme.line,
+                        },
+                      ]}
+                    >
+                      <Zap size={16} color={theme.brassText} />
+                      <View style={styles.quickOptionText}>
+                        <Text
+                          style={[
+                            styles.quickOptionLabel,
+                            { color: theme.text },
+                          ]}
+                        >
+                          {opt.label}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.quickOptionHint,
+                            { color: theme.muted },
+                          ]}
+                        >
+                          {opt.hint}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  ))}
+                  {snippets.map((snip) => (
+                    <Pressable
+                      key={snip.id}
+                      onPress={() => {
+                        haptics.light();
+                        prefillReply(snip.content);
+                      }}
+                      style={({ pressed }) => [
+                        styles.quickOption,
+                        {
+                          backgroundColor: pressed
+                            ? theme.attention
+                            : theme.soft,
+                          borderColor: pressed
+                            ? theme.attentionLine
+                            : theme.line,
+                        },
+                      ]}
+                    >
+                      <Sparkles size={16} color={theme.brassText} />
+                      <View style={styles.quickOptionText}>
+                        <Text
+                          style={[
+                            styles.quickOptionLabel,
+                            { color: theme.text },
+                          ]}
+                        >
+                          /{snip.title}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.quickOptionHint,
+                            { color: theme.muted },
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {snip.content}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
             </View>
-            {QUICK_REPLIES.map((opt) => (
-              <Pressable
-                key={opt.id}
-                onPress={() => {
-                  haptics.light();
-                  prefillReply(opt.instruction);
-                }}
-                style={({ pressed }) => [
-                  styles.quickOption,
-                  {
-                    backgroundColor: pressed ? theme.attention : theme.soft,
-                    borderColor: pressed ? theme.attentionLine : theme.line,
-                  },
-                ]}
-              >
-                <Zap size={16} color={theme.brassText} />
-                <View style={styles.quickOptionText}>
-                  <Text
-                    style={[styles.quickOptionLabel, { color: theme.text }]}
-                  >
-                    {opt.label}
-                  </Text>
-                  <Text
-                    style={[styles.quickOptionHint, { color: theme.muted }]}
-                  >
-                    {opt.hint}
-                  </Text>
-                </View>
-              </Pressable>
-            ))}
-            {snippets.slice(0, 4).map((snip) => (
-              <Pressable
-                key={snip.id}
-                onPress={() => {
-                  haptics.light();
-                  prefillReply(snip.content);
-                }}
-                style={({ pressed }) => [
-                  styles.quickOption,
-                  {
-                    backgroundColor: pressed ? theme.attention : theme.soft,
-                    borderColor: pressed ? theme.attentionLine : theme.line,
-                  },
-                ]}
-              >
-                <Sparkles size={16} color={theme.brassText} />
-                <View style={styles.quickOptionText}>
-                  <Text
-                    style={[styles.quickOptionLabel, { color: theme.text }]}
-                  >
-                    /{snip.title}
-                  </Text>
-                  <Text
-                    style={[styles.quickOptionHint, { color: theme.muted }]}
-                    numberOfLines={1}
-                  >
-                    {snip.content}
-                  </Text>
-                </View>
-              </Pressable>
-            ))}
-          </Pressable>
-        </Pressable>
-      )}
+          );
+        })()}
     </View>
   );
 }
@@ -3734,7 +3845,15 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 24,
     borderWidth: 1,
     borderBottomWidth: 0,
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    gap: 10,
+  },
+  quickSheetScroll: {
+    flexGrow: 0,
+    flexShrink: 1,
+  },
+  quickSheetList: {
     gap: 10,
   },
   quickSheetHead: {

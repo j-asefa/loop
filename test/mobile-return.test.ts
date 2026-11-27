@@ -16,6 +16,7 @@ import {
   PERSONAL_DECISION_RESPONSE_LIMIT,
   PERSONAL_DECISIONS_PAGE_LIMIT,
 } from "../src/shared/personal-decisions";
+import { sortSnippetsByUsage } from "../apps/mobile/src/snippet-usage-codec.js";
 const trace = vi.hoisted(() => ({
   observe: undefined as ((sql: string) => void) | undefined,
 }));
@@ -3432,6 +3433,198 @@ it("lists snippets, searches personal prompts and summarizes projects", async ()
     needs: 0,
     last_activity_at: null,
   });
+});
+
+it("computes isolated per-owner snippet usage counts while preserving newest-first server order for web picker", async () => {
+  const w = workspaceFor(),
+    a = w.agent(),
+    cid = conversation(w.owner, a.id),
+    intruder = workspaceFor(),
+    intruderAgent = intruder.agent(),
+    intruderCid = conversation(intruder.owner, intruderAgent.id);
+
+  await api(w.owner, "/artifacts", "POST", {
+    title: "Snippet: Review PR",
+    content: "Review this PR",
+    metadata: { snippet: true },
+  });
+  await api(w.owner, "/artifacts", "POST", {
+    title: "Snippet: Check CI",
+    content: "Check CI status",
+    metadata: { snippet: true },
+  });
+  await api(w.owner, "/artifacts", "POST", {
+    title: "Snippet: Summarize",
+    content: "Summarize thread",
+    metadata: { snippet: true },
+  });
+
+  // Intruder sends "Summarize thread" many times; owner's counts must stay isolated.
+  for (let i = 0; i < 4; i++) {
+    await api(intruder.owner, "/runs", "POST", {
+      agentId: intruderAgent.id,
+      conversationId: intruderCid,
+      input: "Summarize thread",
+      idempotencyKey: "intr-" + i + "-" + randomBytes(4).toString("hex"),
+      queue: true,
+    });
+  }
+
+  // Owner uses "Review this PR" twice and "Check CI status" once.
+  for (const input of [
+    "Review this PR",
+    "Check CI status",
+    "Review this PR ",
+  ]) {
+    await api(w.owner, "/runs", "POST", {
+      agentId: a.id,
+      conversationId: cid,
+      input,
+      idempotencyKey: "snip-" + randomBytes(6).toString("hex"),
+      queue: true,
+    });
+  }
+
+  // Server keeps newest-first order so newly saved snippets stay first in the web '/' picker.
+  const ordered = (await api(w.owner, "/snippets")).data.items;
+  expect(
+    ordered.map((s: any) => ({ content: s.content, use_count: s.use_count })),
+  ).toEqual([
+    { content: "Summarize thread", use_count: 0 },
+    { content: "Check CI status", use_count: 1 },
+    { content: "Review this PR", use_count: 2 },
+  ]);
+
+  // Mobile client sorts the returned items by usage count then last_used_at.
+  expect(
+    sortSnippetsByUsage(ordered).map((s: any) => ({
+      content: s.content,
+      use_count: s.use_count,
+    })),
+  ).toEqual([
+    { content: "Review this PR", use_count: 2 },
+    { content: "Check CI status", use_count: 1 },
+    { content: "Summarize thread", use_count: 0 },
+  ]);
+
+  // Unrelated messages (imported without run_id, progress, automation, shared) must not count.
+  const existingRun = (
+    db
+      .prepare(
+        "SELECT id FROM runs WHERE owner_id=? AND conversation_id=? LIMIT 1",
+      )
+      .get(w.owner, cid) as { id: string }
+  ).id;
+  const insertMsg = db.prepare(
+    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'user',?,?,?)",
+  );
+  insertMsg.run(
+    id(),
+    w.owner,
+    cid,
+    null,
+    "Summarize thread",
+    JSON.stringify({ personal: true }),
+    now(),
+  );
+  insertMsg.run(
+    id(),
+    w.owner,
+    cid,
+    existingRun,
+    "Summarize thread",
+    JSON.stringify({ personal: true, progress: 1 }),
+    now(),
+  );
+  insertMsg.run(
+    id(),
+    w.owner,
+    cid,
+    existingRun,
+    "Summarize thread",
+    JSON.stringify({ personal: true, automation: { mailId: "m-1" } }),
+    now(),
+  );
+  insertMsg.run(
+    id(),
+    w.owner,
+    cid,
+    existingRun,
+    "Summarize thread",
+    JSON.stringify({ personal: true, shared: true }),
+    now(),
+  );
+  insertMsg.run(
+    id(),
+    w.owner,
+    cid,
+    existingRun,
+    "Summarize thread",
+    JSON.stringify({ personal: false }),
+    now(),
+  );
+  const afterExcluded = (await api(w.owner, "/snippets")).data.items;
+  expect(
+    sortSnippetsByUsage(afterExcluded).map((s: any) => ({
+      content: s.content,
+      use_count: s.use_count,
+    })),
+  ).toEqual([
+    { content: "Review this PR", use_count: 2 },
+    { content: "Check CI status", use_count: 1 },
+    { content: "Summarize thread", use_count: 0 },
+  ]);
+
+  // Tie-breaking on mobile: when both "Review this PR" (server index 2) and "Check CI status"
+  // (server index 1) have equal use_count (3) with "Review this PR" strictly newer,
+  // last_used_at moves "Review this PR" first despite newest-first server order.
+  const latestUsageTs = (
+    db
+      .prepare(
+        "SELECT MAX(created_at) AS ts FROM messages WHERE owner_id=? AND trim(content) IN ('Check CI status', 'Review this PR')",
+      )
+      .get(w.owner) as { ts: number }
+  ).ts;
+  insertMsg.run(
+    id(),
+    w.owner,
+    cid,
+    existingRun,
+    "Check CI status",
+    JSON.stringify({ personal: true }),
+    latestUsageTs + 1,
+  );
+  insertMsg.run(
+    id(),
+    w.owner,
+    cid,
+    existingRun,
+    "Check CI status",
+    JSON.stringify({ personal: true }),
+    latestUsageTs + 2,
+  );
+  insertMsg.run(
+    id(),
+    w.owner,
+    cid,
+    existingRun,
+    "Review this PR",
+    JSON.stringify({ personal: true }),
+    latestUsageTs + 10,
+  );
+  const afterTie = (await api(w.owner, "/snippets")).data.items;
+  expect(
+    afterTie.map((s: any) => ({ content: s.content, use_count: s.use_count })),
+  ).toEqual([
+    { content: "Summarize thread", use_count: 0 },
+    { content: "Check CI status", use_count: 3 },
+    { content: "Review this PR", use_count: 3 },
+  ]);
+  expect(sortSnippetsByUsage(afterTie).map((s: any) => s.content)).toEqual([
+    "Review this PR",
+    "Check CI status",
+    "Summarize thread",
+  ]);
 });
 
 it("keeps your profile per owner, with counts matching your prompt history", async () => {
