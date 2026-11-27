@@ -376,16 +376,27 @@ export class LoopClient {
   }
 
   async uploadFile(
-    file: { uri: string; name: string; mimeType?: string },
+    file: {
+      uri: string;
+      name: string;
+      mimeType?: string;
+      /** Reads the file (see file-bytes.ts); Expo's fetch needs bytes. */
+      bytes: () => Promise<Uint8Array>;
+    },
     opts?: { agentId?: string; folderId?: string | null },
   ): Promise<UploadedAttachment> {
     const form = new FormData();
     if (opts?.agentId) form.append("agentId", opts.agentId);
     if (opts?.folderId) form.append("folderId", opts.folderId);
+    // Expo SDK 58 installs its own fetch globally. Its multipart encoder only
+    // accepts a Blob or an object with bytes(); React Native's { uri, name,
+    // type } part throws "Unsupported FormDataPart implementation", so the
+    // upload never left the phone. Send the picked file's bytes instead and
+    // keep the original name and type for the part headers.
     form.append("file", {
-      uri: file.uri,
       name: file.name || "attachment",
       type: file.mimeType || "application/octet-stream",
+      bytes: file.bytes,
     } as unknown as Blob);
 
     const headers: Record<string, string> = {
