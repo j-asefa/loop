@@ -740,6 +740,7 @@ routes.on(
       req.params.id,
       before,
       anchor,
+      req.query.view,
     );
     let resumed = false;
     if (
@@ -759,6 +760,7 @@ routes.on(
           req.params.id,
           undefined,
           returned.position_message_id,
+          req.query.view,
         );
         resumed = true;
       } catch (error) {

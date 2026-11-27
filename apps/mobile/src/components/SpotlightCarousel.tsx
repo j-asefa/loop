@@ -266,6 +266,8 @@ export function SpotlightCarousel({
   );
   const [loadingMoreHistory, setLoadingMoreHistory] = useState(false);
   const hasLoadedOlderHistoryRef = useRef(false);
+  const loadingOlderRef = useRef(false);
+  const autoLoadedCursorRef = useRef<string | null>(null);
   const [fullBodies, setFullBodies] = useState<Map<string, string>>(
     () => initialHistory?.bodyMap ?? new Map(),
   );
@@ -328,14 +330,16 @@ export function SpotlightCarousel({
       !client ||
       !conversationId ||
       !historyNextCursor ||
-      loadingMoreHistory
+      loadingOlderRef.current
     ) {
       return;
     }
     const cursor = historyNextCursor;
+    loadingOlderRef.current = true;
+    autoLoadedCursorRef.current = cursor;
     setLoadingMoreHistory(true);
     try {
-      const page = await client.conversation(conversationId, cursor);
+      const page = await client.carouselPage(conversationId, cursor);
       const {
         promptMap,
         bodyMap,
@@ -361,9 +365,10 @@ export function SpotlightCarousel({
     } catch {
       // keep existing history
     } finally {
+      loadingOlderRef.current = false;
       setLoadingMoreHistory(false);
     }
-  }, [client, conversationId, historyNextCursor, loadingMoreHistory]);
+  }, [client, conversationId, historyNextCursor]);
 
   const slides = useMemo(() => {
     const ordered: NativeResultCard[] = [];
@@ -424,6 +429,26 @@ export function SpotlightCarousel({
     Math.min(activeIndex, Math.max(0, slides.length - 1)),
   );
   const activeCard = slides[safeIndex];
+
+  useEffect(() => {
+    // Wait until the user moves toward the older end of the loaded cards.
+    if (
+      historyNextCursor &&
+      !loadingMoreHistory &&
+      safeIndex > 0 &&
+      safeIndex >= slides.length - 2 &&
+      autoLoadedCursorRef.current !== historyNextCursor
+    ) {
+      void loadMoreHistory();
+    }
+  }, [
+    historyNextCursor,
+    loadMoreHistory,
+    loadingMoreHistory,
+    safeIndex,
+    slides.length,
+  ]);
+
   const agentName = activeCard?.agentName ?? cards[0]?.agentName ?? "agent";
 
   // Mode-A Live Search Overlay + persistent Prev/Next match chip

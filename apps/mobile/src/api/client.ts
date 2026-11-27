@@ -372,6 +372,15 @@ export class LoopClient {
     );
   }
 
+  carouselPage(id: string, before?: string): Promise<ApiConversationPage> {
+    const query = new URLSearchParams({ view: "carousel" });
+    if (before) query.set("before", before);
+    return this.request<ApiConversationPage>(
+      "GET",
+      `/api/conversations/${encodeURIComponent(id)}?${query}`,
+    );
+  }
+
   // A short-lived snapshot for instant reopen. Only this paired client can
   // see it, and the carousel revalidates it on every open.
   cachedCarouselPage(id: string): ApiConversationPage | undefined {
@@ -384,7 +393,7 @@ export class LoopClient {
   refreshCarouselPage(id: string, version = ""): Promise<ApiConversationPage> {
     const pending = this.carouselRequests.get(id);
     if (pending?.version === version) return pending.request;
-    const request = this.conversation(id)
+    const request = this.carouselPage(id)
       .then((page) => {
         if (this.carouselRequests.get(id)?.request !== request) return page;
         this.carouselPages.delete(id);

@@ -21,6 +21,7 @@ export function conversationMessages(
   conversation: string,
   before?: string,
   anchor?: string,
+  view?: "carousel",
 ) {
   let cursor: Position = [
     Number.MAX_SAFE_INTEGER,
@@ -50,15 +51,27 @@ export function conversationMessages(
     cursor = position(target);
     cursor[2]++;
   }
-  const items = transcriptQueries.page(
-    db,
-    owner,
-    conversation,
-    ...cursor,
-    TRANSCRIPT_PAGE_ITEMS + 1,
-  );
-  const hasMore = items.length > TRANSCRIPT_PAGE_ITEMS;
-  if (hasMore) items.pop();
+  const carousel =
+    view === "carousel"
+      ? transcriptQueries.carouselPage(db, owner, conversation, ...cursor)
+      : undefined;
+  const items = carousel
+    ? carousel.map(({ has_more: _, ...item }) => item)
+    : transcriptQueries.page(
+        db,
+        owner,
+        conversation,
+        ...cursor,
+        TRANSCRIPT_PAGE_ITEMS + 1,
+      );
+  const hasMore = carousel
+    ? carousel[0]?.has_more === 1
+    : items.length > TRANSCRIPT_PAGE_ITEMS;
+  if (!carousel && hasMore) items.pop();
+  const oldest = carousel
+    ? items.findLast((item) => item.role === "assistant")
+    : items.at(-1);
+  const nextPosition = hasMore && oldest ? position(oldest) : null;
   return {
     latest_progress_messages: transcriptQueries
       .latestProgressMessages(db, owner, conversation)
@@ -67,9 +80,9 @@ export function conversationMessages(
         id: entry.id,
         cursor: position(entry),
       })),
-    next: hasMore ? encode(position(items.at(-1)!)) : null,
+    next: nextPosition ? encode(nextPosition) : null,
     range: {
-      from: hasMore ? position(items.at(-1)!) : ([0, 0, 0] as Position),
+      from: nextPosition ?? ([0, 0, 0] as Position),
       before: cursor,
     },
     messages: items

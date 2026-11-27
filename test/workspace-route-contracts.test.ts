@@ -812,3 +812,56 @@ it("projects every approval lifecycle result from the production writers without
     result: "simulated rejection",
   });
 });
+
+it("pages the carousel by three answer cards with the matching prompts", async () => {
+  const { run } = fixture();
+  const conversationId = run.conversation_id!;
+  const message = (
+    role: "user" | "assistant",
+    content: string,
+    order: number,
+  ) => {
+    seedMessage(db, {
+      id: id(),
+      owner_id: owner,
+      conversation_id: conversationId,
+      role,
+      content,
+      created_at: order,
+    });
+  };
+  for (let n = 1; n <= 7; n++) {
+    message("user", `Prompt ${n}`, n * 4);
+    message("assistant", "\n\t ", n * 4 + 1);
+    message("assistant", `Answer ${n}`, n * 4 + 2);
+  }
+  message("user", "Still waiting for an answer", 50);
+  const path = `/conversations/${conversationId}`;
+  const ordinary = workspaceApi.conversation.response.parse(
+    (await request(path)).data,
+  );
+  expect(
+    ordinary.messages.filter(({ content }) => content.startsWith("Answer ")),
+  ).toHaveLength(7);
+  let before: string | null = null;
+  for (const expected of [[5, 6, 7], [2, 3, 4], [1]]) {
+    const query = new URLSearchParams({ view: "carousel" });
+    if (before) query.set("before", before);
+    const response = await request(`${path}?${query}`);
+    expect(response.status).toBe(200);
+    const page = workspaceApi.conversation.response.parse(response.data);
+    expect(page.messages.map(({ content }) => content)).toEqual(
+      expected.flatMap((n) => [`Prompt ${n}`, `Answer ${n}`]),
+    );
+    before = page.next;
+    expect(Boolean(before)).toBe(expected.length === 3);
+  }
+  const foreign = fixture("another-owner");
+  expect(
+    (
+      await request(
+        `/conversations/${foreign.run.conversation_id}?view=carousel`,
+      )
+    ).status,
+  ).toBe(404);
+});

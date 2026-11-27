@@ -3897,20 +3897,20 @@ it("reuses a carousel snapshot within one paired client and coalesces its refres
     pairedAt: 1,
   };
   const client = new LoopClient(session);
-  const page = {
+  const page: import("../apps/mobile/src/api/types.js").ApiConversationPage = {
+    working: false,
     conversation: {
       id: "thread",
       title: "Result",
       agent_id: null,
       project_id: null,
-      created_at: 1,
     },
     messages: [],
     saved: [],
     next: null,
     steerable_run_id: null,
   };
-  const fetchPage = vi.spyOn(client, "conversation").mockResolvedValue(page);
+  const fetchPage = vi.spyOn(client, "carouselPage").mockResolvedValue(page);
   const request = client.refreshCarouselPage("thread");
   expect(client.refreshCarouselPage("thread")).toBe(request);
   expect(await request).toBe(page);

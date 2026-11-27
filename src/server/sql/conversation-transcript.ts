@@ -3,19 +3,51 @@ import { z } from "zod";
 import { QueryRecords } from "../query-records.js";
 import { parseRecord } from "../row-schemas.js";
 import { statement } from "./statement.js";
+import { CAROUSEL_PAGE_CARDS } from "../../shared/done-stack.js";
 import { STARTED_RUN_DISPLAY_STATES } from "../../shared/run-state.js";
 // Order/eligibility is maintained transactionally by migrations 065/073. Materialize
 // only the page before joining content and current run/delivery state.
-export const transcriptPageSql = `WITH page AS MATERIALIZED (
-  SELECT * FROM conversation_transcript
-  WHERE owner_id=? AND conversation_id=? AND (position,phase,ordinal)<(?,?,?)
-  ORDER BY position DESC,phase DESC,ordinal DESC LIMIT ?
-) SELECT m.id,m.owner_id,m.conversation_id,m.run_id,m.role,m.content,
+const projectPageSql = `SELECT m.id,m.owner_id,m.conversation_id,m.run_id,m.role,m.content,
   m.metadata,m.created_at,m.revision,m.run_state,m.run_error,m.run_checkout,m.run_verification,
   p.position,p.phase,p.ordinal
 FROM page p
 JOIN message_projection m ON m.id=p.message_id AND m.owner_id=p.owner_id
 ORDER BY p.position DESC,p.phase DESC,p.ordinal DESC`;
+
+export const transcriptPageSql = `WITH page AS MATERIALIZED (
+  SELECT * FROM conversation_transcript
+  WHERE owner_id=? AND conversation_id=? AND (position,phase,ordinal)<(?,?,?)
+  ORDER BY position DESC,phase DESC,ordinal DESC LIMIT ?
+) ${projectPageSql}`;
+
+const hasCardBody = "length(trim(m.content, char(9,10,11,12,13,32)))>0";
+// Read one extra assistant position for the cursor. Join full message bodies
+// only for the selected cards and the immediately preceding applicable prompts.
+const carouselPageStatement = statement(`WITH candidates AS MATERIALIZED (
+  SELECT t.owner_id,t.conversation_id,t.message_id,t.position,t.phase,t.ordinal
+  FROM conversation_transcript t
+  JOIN messages m ON m.id=t.message_id AND m.owner_id=t.owner_id
+  WHERE t.owner_id=? AND t.conversation_id=? AND (t.position,t.phase,t.ordinal)<(?,?,?)
+    AND m.role='assistant' AND ${hasCardBody}
+  ORDER BY t.position DESC,t.phase DESC,t.ordinal DESC LIMIT ${CAROUSEL_PAGE_CARDS + 1}
+), cards AS (
+  SELECT * FROM candidates ORDER BY position DESC,phase DESC,ordinal DESC LIMIT ${CAROUSEL_PAGE_CARDS}
+), page AS MATERIALIZED (
+  SELECT owner_id,message_id,position,phase,ordinal FROM cards
+  UNION ALL
+  SELECT p.owner_id,p.message_id,p.position,p.phase,p.ordinal
+  FROM cards c JOIN conversation_transcript p ON p.ordinal=(
+    SELECT t.ordinal FROM conversation_transcript t
+    JOIN messages m ON m.id=t.message_id AND m.owner_id=t.owner_id
+    WHERE t.owner_id=c.owner_id AND t.conversation_id=c.conversation_id
+      AND (t.position,t.phase,t.ordinal)<(c.position,c.phase,c.ordinal)
+      AND (m.role='user' OR (m.role='assistant' AND ${hasCardBody}))
+    ORDER BY t.position DESC,t.phase DESC,t.ordinal DESC LIMIT 1
+  )
+  JOIN messages prompt ON prompt.id=p.message_id AND prompt.owner_id=p.owner_id AND prompt.role='user'
+) SELECT projected.*, (SELECT count(*)>${CAROUSEL_PAGE_CARDS} FROM candidates) AS has_more
+FROM (${projectPageSql}) projected
+ORDER BY projected.position DESC,projected.phase DESC,projected.ordinal DESC`);
 
 const positionRow = QueryRecords.conversation_transcript
   .pick({ position: true, phase: true, ordinal: true })
@@ -83,6 +115,22 @@ export function page(
   return pageStatement(db)
     .all(...bindings)
     .map((row) => parseRecord(pageRow, row, "conversation_transcript"));
+}
+
+const carouselPageRow = pageRow.extend({ has_more: z.number() });
+export function carouselPage(
+  db: Database.Database,
+  ...bindings: [
+    owner: string,
+    conversation: string,
+    position: number,
+    phase: number,
+    ordinal: number,
+  ]
+) {
+  return carouselPageStatement(db)
+    .all(...bindings)
+    .map((row) => parseRecord(carouselPageRow, row, "conversation_transcript"));
 }
 
 const latestAgentMessageStatement =
