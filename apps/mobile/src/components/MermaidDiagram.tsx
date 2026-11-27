@@ -28,21 +28,24 @@ import type { LoopTheme } from "../theme";
 function edgeEndpoints(
   from: MermaidFlowNode,
   to: MermaidFlowNode,
-  horizontal: boolean,
+  direction: MermaidFlowLayout["direction"],
 ): { x1: number; y1: number; x2: number; y2: number; isBackEdge: boolean } {
   const fx = from.x + from.width / 2;
   const fy = from.y + from.height / 2;
   const tx = to.x + to.width / 2;
   const ty = to.y + to.height / 2;
+  const horizontal = direction === "LR" || direction === "RL";
+  const reversed = direction === "BT" || direction === "RL";
 
   if (horizontal) {
+    const isForward = reversed ? tx <= fx : tx >= fx;
     if (tx >= fx) {
       return {
         x1: from.x + from.width,
         y1: fy,
         x2: to.x,
         y2: ty,
-        isBackEdge: false,
+        isBackEdge: !isForward,
       };
     }
     return {
@@ -50,17 +53,18 @@ function edgeEndpoints(
       y1: fy,
       x2: to.x + to.width,
       y2: ty,
-      isBackEdge: true,
+      isBackEdge: !isForward,
     };
   }
 
+  const isForward = reversed ? ty <= fy : ty >= fy;
   if (ty >= fy) {
     return {
       x1: fx,
       y1: from.y + from.height,
       x2: tx,
       y2: to.y,
-      isBackEdge: false,
+      isBackEdge: !isForward,
     };
   }
   return {
@@ -68,7 +72,7 @@ function edgeEndpoints(
     y1: from.y,
     x2: tx,
     y2: to.y + to.height,
-    isBackEdge: true,
+    isBackEdge: !isForward,
   };
 }
 
@@ -232,7 +236,7 @@ function FlowchartSvg({
           labelX = rx + 26;
           labelY = ry - 4;
         } else {
-          const pts = edgeEndpoints(from, to, horizontal);
+          const pts = edgeEndpoints(from, to, layout.direction);
           if (pts.isBackEdge) {
             const offset = horizontal ? -34 : 38;
             const cx = (pts.x1 + pts.x2) / 2 + (horizontal ? 0 : offset);

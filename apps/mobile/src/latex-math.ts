@@ -590,7 +590,7 @@ export function formatLatexInline(rawExpr: string, depth = 0): string {
           ? `${toMappedScript(formatLatexInline(opt.content, depth + 1), SUPERSCRIPT_MAP, "^")}√`
           : "√";
         out +=
-          formattedBody.length <= 2
+          formattedBody.length <= 1
             ? `${prefix}${formattedBody}`
             : `${prefix}(${formattedBody})`;
         continue;

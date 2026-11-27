@@ -2652,10 +2652,30 @@ describe("mobile native Mermaid diagram parser and layout", () => {
       ),
     ).toBeNull();
 
+    // Hyphenated directive-prefixed IDs and inline labels with hyphens/dots still parse cleanly
+    const hyphenated = parseMermaidDiagram(
+      "flowchart LR\n  style-check -- pre-flight --> Deploy\n  Deploy -. v1.2 .-> Done",
+    );
+    expect(hyphenated?.kind).toBe("flowchart");
+    if (hyphenated?.kind === "flowchart") {
+      expect(hyphenated.nodes.map((n) => n.id)).toEqual([
+        "style-check",
+        "Deploy",
+        "Done",
+      ]);
+      expect(hyphenated.edges.map((e) => e.label)).toEqual([
+        "pre-flight",
+        "v1.2",
+      ]);
+    }
+
     // Adversarial ReDoS & repeated & fan-out inputs must complete quickly without blowing up
     const t0 = Date.now();
     parseMermaidDiagram(`flowchart TD\n  A ${"-- ".repeat(10_000)} x`);
+    parseMermaidDiagram(`flowchart TD\n  A ${"-. ".repeat(10_000)} x`);
     parseMermaidDiagram(`flowchart TD\n  A -- ${" ".repeat(30_000)} x`);
+    parseMermaidDiagram(`flowchart TD\n  A["${"<".repeat(30_000)}"] --> B`);
+    parseMermaidDiagram(`classDiagram\n  ${"-".repeat(30_000)}!`);
     parseMermaidDiagram(`sequenceDiagram\n  ${"a->".repeat(10_000)}`);
     parseMermaidDiagram(`sequenceDiagram\n  Note over ${" ".repeat(30_000)} x`);
     parseMermaidDiagram(`${"%%{".repeat(5_000)}flowchart TD\nA-->B`);
@@ -2713,6 +2733,8 @@ describe("mobile native LaTeX math parser and currency safety", () => {
       "α → β ∈ ℝ",
     );
     expect(formatLatexInline("\\sqrt[3]{x + 1}")).toBe("³√(x + 1)");
+    expect(formatLatexInline("\\sqrt{x}")).toBe("√x");
+    expect(formatLatexInline("\\sqrt{ab}")).toBe("√(ab)");
     expect(formatLatexInline("\\frac{a + b}{c}")).toBe("(a + b)/c");
     expect(formatLatexInline("\\frac{1}{2x}")).toBe("1/(2x)");
     expect(formatLatexInline("\\frac{a}{\\frac{b}{c}}")).toBe("a/(b/c)");

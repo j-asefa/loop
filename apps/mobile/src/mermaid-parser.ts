@@ -112,7 +112,7 @@ function cleanLabel(raw: string): string {
   }
   return text
     .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
+    .replace(/<[^<>]+>/g, "")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&amp;/g, "&")
@@ -306,13 +306,11 @@ function matchInlineLabeledConnector(
   const specs: Array<{
     open: string;
     style: "solid" | "dashed" | "thick";
-    forbidChar: string;
     closers: Array<{ token: string; arrowEnd: boolean }>;
   }> = [
     {
       open: "--",
       style: "solid",
-      forbidChar: "-",
       closers: [
         { token: "-->", arrowEnd: true },
         { token: "---", arrowEnd: false },
@@ -321,7 +319,6 @@ function matchInlineLabeledConnector(
     {
       open: "-.",
       style: "dashed",
-      forbidChar: ".",
       closers: [
         { token: ".->", arrowEnd: true },
         { token: ".-", arrowEnd: false },
@@ -330,7 +327,6 @@ function matchInlineLabeledConnector(
     {
       open: "==",
       style: "thick",
-      forbidChar: "=",
       closers: [
         { token: "==>", arrowEnd: true },
         { token: "===", arrowEnd: false },
@@ -351,38 +347,41 @@ function matchInlineLabeledConnector(
     }
     if (labelStart >= line.length) continue;
 
-    // Stop at the very first forbidden character: since the label cannot contain
-    // `spec.forbidChar`, any valid closer must start at that exact first occurrence.
-    // This guarantees each character on the line is visited O(1) times overall.
-    const firstForbid = line.indexOf(spec.forbidChar, labelStart);
-    if (firstForbid === -1) continue;
-    let matchedCloser: { token: string; arrowEnd: boolean } | null = null;
-    for (const closer of spec.closers) {
-      if (line.startsWith(closer.token, firstForbid)) {
-        matchedCloser = closer;
-        break;
+    // Single linear scan forward: stop as soon as we hit a closing connector OR
+    // another opener of the same kind (so repeated "-- " never rescans past the next "--").
+    // Single hyphens/dots inside words (e.g. "pre-flight", "v1.2") are preserved.
+    for (let pos = labelStart; pos < line.length; pos += 1) {
+      for (const closer of spec.closers) {
+        if (!line.startsWith(closer.token, pos)) continue;
+        if (
+          pos > labelStart &&
+          (line[pos - 1] === " " || line[pos - 1] === "\t")
+        ) {
+          const rawLabel = line.slice(labelStart, pos).trim();
+          if (rawLabel) {
+            return {
+              index,
+              length: pos + closer.token.length - index,
+              style: spec.style,
+              arrowStart: false,
+              arrowEnd: closer.arrowEnd,
+              label: cleanLabel(rawLabel),
+            };
+          }
+        }
+        return null;
+      }
+      if (line.startsWith(spec.open, pos)) {
+        return null;
       }
     }
-    if (!matchedCloser) continue;
-    if (
-      firstForbid <= labelStart ||
-      (line[firstForbid - 1] !== " " && line[firstForbid - 1] !== "\t")
-    ) {
-      continue;
-    }
-    const rawLabel = line.slice(labelStart, firstForbid).trim();
-    if (!rawLabel) continue;
-    return {
-      index,
-      length: firstForbid + matchedCloser.token.length - index,
-      style: spec.style,
-      arrowStart: false,
-      arrowEnd: matchedCloser.arrowEnd,
-      label: cleanLabel(rawLabel),
-    };
+    return null;
   }
   return null;
 }
+
+const STANDARD_ARROW_STICKY =
+  /(<-->|<-\.->|<==>|x--+x|o--+o|-\.+->|-\.+-|==+>|===+|--+>|--+x|--+o|---+|~~~+)(\s*\|([^|\n]+)\|)?/y;
 function findNextConnector(
   line: string,
   startFrom = 0,
@@ -436,12 +435,10 @@ function findNextConnector(
     const inlineConn = matchInlineLabeledConnector(line, i);
     if (inlineConn) return inlineConn;
 
-    const slice = line.slice(i);
     // Standard connectors (including --x, x--x, --o, o--o, ~~~) with optional |label|
-    const arrowMatch =
-      /^(<-->|<-\.->|<==>|x--+x|o--+o|-\.+->|-\.+-|==+>|===+|--+>|--+x|--+o|---+|~~~+)(\s*\|([^|\n]+)\|)?/.exec(
-        slice,
-      );
+    // Uses sticky regex to avoid per-character string slicing.
+    STANDARD_ARROW_STICKY.lastIndex = i;
+    const arrowMatch = STANDARD_ARROW_STICKY.exec(line);
     if (arrowMatch) {
       const sym = arrowMatch[1];
       const style: "solid" | "dashed" | "thick" | "invisible" = sym.startsWith(
@@ -755,7 +752,11 @@ function parseFlowchart(lines: string[]): MermaidFlowLayout | null {
     for (const rawStmt of splitTopLevelDelimiter(lines[i], ";")) {
       const line = rawStmt.trim();
       if (!line) continue;
-      if (/^(?:classDef|class|style|linkStyle|click|direction)\b/i.test(line)) {
+      if (
+        /^(?:classDef|class|style|linkStyle|click|direction)(?:\s|$)/i.test(
+          line,
+        )
+      ) {
         continue;
       }
       const sgMatch = /^subgraph\s+(.+)$/i.exec(line);
@@ -1039,9 +1040,19 @@ function parseSequence(lines: string[]): MermaidSequenceLayout | null {
   });
 
   const lifelineBottom = Math.max(PAD + HEADER_H + 54, cursorY + 8);
+  // Ensure self-messages on right-most participants have enough room for their label
+  let maxRight = cursorX - COL_GAP + PAD;
+  const xByParticipant = new Map(participants.map((p) => [p.id, p.x]));
+  for (const step of steps) {
+    if (step.kind === "message" && step.from === step.to) {
+      const px = xByParticipant.get(step.from) ?? 0;
+      const labelW = Math.min(22, step.label.length) * 7 + 52;
+      maxRight = Math.max(maxRight, px + labelW + PAD);
+    }
+  }
   return {
     kind: "sequence",
-    width: Math.max(240, Math.round(cursorX - COL_GAP + PAD)),
+    width: Math.max(240, Math.round(maxRight)),
     height: Math.round(lifelineBottom + PAD),
     headerHeight: HEADER_H,
     lifelineBottom,
@@ -1218,7 +1229,7 @@ function parseClassDiagram(lines: string[]): MermaidFlowLayout | null {
     }
 
     const relMatch =
-      /^([A-Za-z0-9_.-]+)(?:\s+"([^"]*)")?\s*(<\|\.\.|<\|--|--\|>|\*--|o--|--\*|--o|-->|<--|\.\.>|\.\.\|>|--|\.\.)\s*(?:"([^"]*)"\s+)?([A-Za-z0-9_.-]+)(?:\s*:\s*(.+))?$/.exec(
+      /^([A-Za-z0-9_]+(?:[.-][A-Za-z0-9_]+)*)(?:\s+"([^"]*)")?\s*(<\|\.\.|<\|--|--\|>|\.\.\|>|\*--|o--|--\*|--o|-->|<--|\.\.>|--|\.\.)\s*(?:"([^"]*)"\s+)?([A-Za-z0-9_]+(?:[.-][A-Za-z0-9_]+)*)(?:\s*:\s*(.+))?$/.exec(
         line,
       );
     if (relMatch) {
