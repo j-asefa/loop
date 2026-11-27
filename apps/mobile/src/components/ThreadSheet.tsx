@@ -150,6 +150,7 @@ export function ThreadSheet({
     idempotencyKey: string;
     sendAt: number;
     attachmentIds: string[];
+    locked: boolean;
   } | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
@@ -160,6 +161,7 @@ export function ThreadSheet({
     idempotencyKey: string;
     sendAt: number;
     attachmentIds: string[];
+    locked: boolean;
   } | null>(null);
   const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
   const pendingSendRef = useRef<{
@@ -187,6 +189,7 @@ export function ThreadSheet({
             idempotencyKey: entry.pendingSchedule.key,
             sendAt: entry.pendingSchedule.sendAt,
             attachmentIds: entry.pendingSchedule.attachmentIds ?? [],
+            locked: true,
           };
         }
         setDraft(entry.text);
@@ -472,11 +475,12 @@ export function ThreadSheet({
       idempotencyKey: randomUuid(),
       sendAt,
       attachmentIds: readyIds,
+      locked: false,
     };
     setPendingSchedule(nextPending);
     setScheduleBusy(true);
     setScheduleError("");
-    saveDraft(client?.origin, draftScope, draft || finalText, {
+    saveDraft(client?.origin, draftScope, trimmed || finalText, {
       schedule: {
         key: nextPending.idempotencyKey,
         sendAt: nextPending.sendAt,
@@ -501,7 +505,9 @@ export function ThreadSheet({
       setDraft("");
       clearAttachments();
     } catch (err) {
-      if (!isUncertainOutcomeError(err)) {
+      if (isUncertainOutcomeError(err)) {
+        setPendingSchedule({ ...nextPending, locked: true });
+      } else {
         setPendingSchedule(null);
         if (draft.trim()) saveDraft(client?.origin, draftScope, draft);
         else clearDraft(client?.origin, draftScope);
@@ -1193,7 +1199,7 @@ export function ThreadSheet({
         }
         busy={scheduleBusy}
         error={scheduleError}
-        lockedSendAt={pendingSchedule?.sendAt ?? null}
+        lockedSendAt={pendingSchedule?.locked ? pendingSchedule.sendAt : null}
         onClose={() => setScheduleOpen(false)}
         onConfirm={(sendAt) => void handleSchedule(sendAt)}
       />

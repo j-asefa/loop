@@ -169,8 +169,8 @@ export function ScheduleSendSheet({
               </Text>
               <Text style={[styles.lockedHint, { color: theme.muted }]}>
                 The previous request did not finish cleanly. Retry with the same
-                time to avoid scheduling a duplicate, or edit your draft to pick
-                a new time.
+                time to confirm without scheduling a duplicate, or check Profile
+                → Scheduled first.
               </Text>
               <Pressable
                 accessibilityRole="button"

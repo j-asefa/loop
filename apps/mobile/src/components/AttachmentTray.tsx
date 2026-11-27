@@ -120,6 +120,9 @@ export function useAttachments(
         [...prev, ...pending].slice(0, MAX_ATTACHMENTS),
       );
       if (!client) {
+        for (const src of batch) {
+          if (src.deleteAfterUpload) deleteTempUploadFile(src.uri);
+        }
         haptics.light();
         return;
       }

@@ -454,6 +454,7 @@ export function SpotlightCarousel({
     sendAt: number;
     attachmentIds: string[];
     replyToMessageId?: string;
+    locked: boolean;
   } | null>(null);
   const [sending, setSending] = useState(false);
 
@@ -478,6 +479,7 @@ export function SpotlightCarousel({
             sendAt: entry.pendingSchedule.sendAt,
             attachmentIds: entry.pendingSchedule.attachmentIds ?? [],
             replyToMessageId: entry.pendingSchedule.replyToMessageId,
+            locked: true,
           };
         }
         setDraft(entry.text);
@@ -496,6 +498,7 @@ export function SpotlightCarousel({
     sendAt: number;
     attachmentIds: string[];
     replyToMessageId?: string;
+    locked: boolean;
   } | null>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [steerableRunId, setSteerableRunId] = useState<string | null>(null);
@@ -973,6 +976,7 @@ export function SpotlightCarousel({
         sendAt,
         attachmentIds: readyIds,
         replyToMessageId: activeCard.messageId,
+        locked: false,
       };
       const targetCard =
         nextPending.replyToMessageId === activeCard.messageId
@@ -982,7 +986,7 @@ export function SpotlightCarousel({
       setScheduleBusy(true);
       setScheduleError("");
       if (draftScope) {
-        saveDraft(client?.origin, draftScope, draft || finalPrompt, {
+        saveDraft(client?.origin, draftScope, trimmed || finalPrompt, {
           schedule: {
             key: nextPending.idempotencyKey,
             sendAt: nextPending.sendAt,
@@ -1010,7 +1014,9 @@ export function SpotlightCarousel({
         clearAttachments();
         Keyboard.dismiss();
       } catch (err) {
-        if (!isUncertainOutcomeError(err)) {
+        if (isUncertainOutcomeError(err)) {
+          setPendingSchedule({ ...nextPending, locked: true });
+        } else {
           setPendingSchedule(null);
           if (draftScope) {
             if (draft.trim()) saveDraft(client?.origin, draftScope, draft);
@@ -2031,7 +2037,7 @@ export function SpotlightCarousel({
         }
         busy={scheduleBusy}
         error={scheduleError}
-        lockedSendAt={pendingSchedule?.sendAt ?? null}
+        lockedSendAt={pendingSchedule?.locked ? pendingSchedule.sendAt : null}
         onClose={() => setScheduleOpen(false)}
         onConfirm={(sendAt) => void submitScheduledReply(sendAt)}
       />

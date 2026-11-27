@@ -112,6 +112,7 @@ export function ComposeSheet({
     idempotencyKey: string;
     sendAt: number;
     attachmentIds: string[];
+    locked: boolean;
   } | null>(null);
   const draftScope = useMemo(
     () => draftScopeForCompose(agent?.id, folderId),
@@ -123,6 +124,7 @@ export function ComposeSheet({
     idempotencyKey: string;
     sendAt: number;
     attachmentIds: string[];
+    locked: boolean;
   } | null>(null);
 
   useEffect(() => {
@@ -136,6 +138,7 @@ export function ComposeSheet({
               idempotencyKey: entry.pendingSchedule.key,
               sendAt: entry.pendingSchedule.sendAt,
               attachmentIds: entry.pendingSchedule.attachmentIds ?? [],
+              locked: true,
             }
           : null;
         setText(entry.text);
@@ -185,7 +188,14 @@ export function ComposeSheet({
     }
     sendKeyRef.current = null;
     setHasPendingSend(false);
-  }, [text, connection?.id, attSig]);
+  }, [text, attSig]);
+
+  // Only new-agent creation depends on connection?.id; existing-agent schedules must not reset on connection list refreshes.
+  useEffect(() => {
+    if (agent) return;
+    sendKeyRef.current = null;
+    setHasPendingSend(false);
+  }, [agent, connection?.id]);
 
   const ready = agent
     ? true
@@ -229,13 +239,14 @@ export function ComposeSheet({
       idempotencyKey: randomUuid(),
       sendAt,
       attachmentIds: readyIds,
+      locked: false,
     };
     setPendingSchedule(nextPending);
     setScheduleBusy(true);
     setScheduleError("");
     // Record durable schedule identity + payload metadata before dispatch so app
     // kills or uncertain timeouts never replay under a second key or lose attachments.
-    saveDraft(client?.origin, draftScope, text || finalText, {
+    saveDraft(client?.origin, draftScope, trimmed || finalText, {
       schedule: {
         key: nextPending.idempotencyKey,
         sendAt: nextPending.sendAt,
@@ -257,7 +268,9 @@ export function ComposeSheet({
       clearAttachments();
       onClose();
     } catch (err) {
-      if (!isUncertainOutcomeError(err)) {
+      if (isUncertainOutcomeError(err)) {
+        setPendingSchedule({ ...nextPending, locked: true });
+      } else {
         setPendingSchedule(null);
         if (text.trim()) saveDraft(client?.origin, draftScope, text);
         else clearDraft(client?.origin, draftScope);
@@ -585,7 +598,7 @@ export function ComposeSheet({
           }
           busy={scheduleBusy}
           error={scheduleError}
-          lockedSendAt={pendingSchedule?.sendAt ?? null}
+          lockedSendAt={pendingSchedule?.locked ? pendingSchedule.sendAt : null}
           onClose={() => setScheduleOpen(false)}
           onConfirm={(sendAt) => void handleSchedule(sendAt)}
         />
