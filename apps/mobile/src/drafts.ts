@@ -9,6 +9,7 @@ import {
   setDraftInStore,
   type DraftEntry,
   type DraftMap,
+  type DraftPendingMeta,
 } from "./drafts-codec";
 
 export {
@@ -16,13 +17,15 @@ export {
   draftScopeForCompose,
   draftScopeForThread,
   type DraftEntry,
+  type DraftPendingMeta,
+  type PendingScheduleDraft,
 } from "./drafts-codec";
 
 const WRITE_DEBOUNCE_MS = 350;
 
 type PendingSaveOp = {
   text: string;
-  pending?: { key?: string; queue?: boolean };
+  pending?: DraftPendingMeta;
 };
 
 type PendingOps = {
@@ -162,7 +165,7 @@ export function saveDraft(
   origin: string | null | undefined,
   scope: string,
   text: string,
-  pending?: { key?: string; queue?: boolean },
+  pending?: DraftPendingMeta,
 ): void {
   const bucket = draftWorkspaceBucket(origin);
   if (!loadedBuckets.has(bucket)) {
@@ -180,7 +183,7 @@ export function saveDraft(
   const current = memoryBuckets.get(bucket) ?? createEmptyDraftMap();
   const next = setDraftInStore(current, scope, text, Date.now(), pending);
   memoryBuckets.set(bucket, next);
-  if (pending?.key) {
+  if (pending?.key || pending?.schedule) {
     flushBucketNow(bucket);
   } else {
     scheduleBucketFlush(bucket);

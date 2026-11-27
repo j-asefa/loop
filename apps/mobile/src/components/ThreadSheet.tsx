@@ -146,6 +146,10 @@ export function ThreadSheet({
     idempotencyKey: string;
     queue?: boolean;
   } | null>(null);
+  const restoredPendingScheduleRef = useRef<{
+    idempotencyKey: string;
+    sendAt: number;
+  } | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [scheduleOpen, setScheduleOpen] = useState(false);
@@ -175,6 +179,12 @@ export function ThreadSheet({
           if (entry.pendingQueue !== undefined) {
             setDeliveryMode(entry.pendingQueue ? "queue" : "steer");
           }
+        }
+        if (entry.pendingSchedule) {
+          restoredPendingScheduleRef.current = {
+            idempotencyKey: entry.pendingSchedule.key,
+            sendAt: entry.pendingSchedule.sendAt,
+          };
         }
         setDraft(entry.text);
       }
@@ -206,8 +216,13 @@ export function ThreadSheet({
 
   const attSig = replyAttachments.readyIds.join(",");
   useEffect(() => {
-    setPendingSchedule(null);
     setScheduleError("");
+    if (restoredPendingScheduleRef.current) {
+      setPendingSchedule(restoredPendingScheduleRef.current);
+      restoredPendingScheduleRef.current = null;
+    } else {
+      setPendingSchedule(null);
+    }
     if (restoredPendingRef.current) {
       pendingSendRef.current = restoredPendingRef.current;
       restoredPendingRef.current = null;
@@ -474,7 +489,14 @@ export function ThreadSheet({
       setDraft("");
       clearAttachments();
     } catch (err) {
-      if (!isUncertainOutcomeError(err)) {
+      if (isUncertainOutcomeError(err)) {
+        saveDraft(client?.origin, draftScope, draft || finalText, {
+          schedule: {
+            key: nextPending.idempotencyKey,
+            sendAt: nextPending.sendAt,
+          },
+        });
+      } else {
         setPendingSchedule(null);
       }
       haptics.warning();

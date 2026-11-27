@@ -1,3 +1,15 @@
+export type PendingScheduleDraft = {
+  key: string;
+  sendAt: number;
+  replyToMessageId?: string;
+};
+
+export type DraftPendingMeta = {
+  key?: string;
+  queue?: boolean;
+  schedule?: PendingScheduleDraft;
+};
+
 export type DraftEntry = {
   text: string;
   updatedAt: number;
@@ -5,7 +17,36 @@ export type DraftEntry = {
   pendingKey?: string;
   /** Original queue delivery flag paired with `pendingKey` so retries never mutate semantics. */
   pendingQueue?: boolean;
+  /** Durable schedule identity + timestamp persisted after an uncertain schedule timeout. */
+  pendingSchedule?: PendingScheduleDraft;
 };
+
+function sanitizePendingSchedule(
+  raw: unknown,
+): PendingScheduleDraft | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const item = raw as {
+    key?: unknown;
+    sendAt?: unknown;
+    replyToMessageId?: unknown;
+  };
+  if (
+    typeof item.key !== "string" ||
+    item.key.length < 8 ||
+    typeof item.sendAt !== "number" ||
+    !Number.isInteger(item.sendAt) ||
+    item.sendAt <= 0
+  ) {
+    return undefined;
+  }
+  return {
+    key: item.key,
+    sendAt: item.sendAt,
+    ...(typeof item.replyToMessageId === "string" && item.replyToMessageId
+      ? { replyToMessageId: item.replyToMessageId }
+      : {}),
+  };
+}
 
 export type DraftMap = Record<string, DraftEntry>;
 
@@ -81,6 +122,9 @@ export function pruneDraftStore(input: DraftMap, now = Date.now()): DraftMap {
         ...(typeof entry.pendingQueue === "boolean"
           ? { pendingQueue: entry.pendingQueue }
           : {}),
+        ...(sanitizePendingSchedule(entry.pendingSchedule)
+          ? { pendingSchedule: sanitizePendingSchedule(entry.pendingSchedule) }
+          : {}),
       },
     ]);
   }
@@ -112,6 +156,7 @@ export function parseDraftStore(raw: string, now = Date.now()): DraftMap {
         updatedAt?: unknown;
         pendingKey?: unknown;
         pendingQueue?: unknown;
+        pendingSchedule?: unknown;
       };
       if (
         item &&
@@ -119,6 +164,7 @@ export function parseDraftStore(raw: string, now = Date.now()): DraftMap {
         typeof item.text === "string" &&
         typeof item.updatedAt === "number"
       ) {
+        const pendingSchedule = sanitizePendingSchedule(item.pendingSchedule);
         loaded[key] = {
           text: item.text,
           updatedAt: item.updatedAt,
@@ -128,6 +174,7 @@ export function parseDraftStore(raw: string, now = Date.now()): DraftMap {
           ...(typeof item.pendingQueue === "boolean"
             ? { pendingQueue: item.pendingQueue }
             : {}),
+          ...(pendingSchedule ? { pendingSchedule } : {}),
         };
       }
     }
@@ -147,18 +194,20 @@ export function setDraftInStore(
   scope: string,
   text: string,
   now = Date.now(),
-  pending?: { key?: string; queue?: boolean },
+  pending?: DraftPendingMeta,
 ): DraftMap {
   const next = Object.assign(createEmptyDraftMap(), map);
   if (!text.trim()) {
     delete next[scope];
     return pruneDraftStore(next, now);
   }
+  const pendingSchedule = sanitizePendingSchedule(pending?.schedule);
   next[scope] = {
     text: text.length > MAX_DRAFT_CHARS ? text.slice(0, MAX_DRAFT_CHARS) : text,
     updatedAt: now,
     ...(pending?.key ? { pendingKey: pending.key } : {}),
     ...(pending?.queue !== undefined ? { pendingQueue: pending.queue } : {}),
+    ...(pendingSchedule ? { pendingSchedule } : {}),
   };
   return pruneDraftStore(next, now);
 }

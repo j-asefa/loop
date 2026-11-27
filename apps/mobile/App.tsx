@@ -862,7 +862,7 @@ function LoopShell() {
       }
       await client.createScheduledSend({
         agentId: agent.id,
-        ...(agent.folder_id ? { folderId: agent.folder_id } : {}),
+        folderId: agent.folder_id ?? null,
         input: input.text,
         attachmentIds: input.attachmentIds ?? [],
         idempotencyKey: input.idempotencyKey,

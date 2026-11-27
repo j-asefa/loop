@@ -2388,4 +2388,44 @@ describe("mobile voice recording and scheduled send helpers", () => {
     expect(retried.run?.id).toBe("run-99");
     expect(retried.row.state).toBe("submitted");
   });
+
+  it("persists and clears uncertain pendingSchedule identities in the draft store", () => {
+    const now = 1_770_000_000_000;
+    const sendAt = now + 3_600_000;
+    const scope = draftScopeForCarousel("conv-sched-1");
+    let store = setDraftInStore(
+      createEmptyDraftMap(),
+      scope,
+      "Follow up tomorrow",
+      now,
+      {
+        schedule: {
+          key: "idem-sched-persist-1",
+          sendAt,
+          replyToMessageId: "msg-42",
+        },
+      },
+    );
+    const roundTripped = parseDraftStore(serializeDraftStore(store, now), now);
+    expect(readDraftEntryFromStore(roundTripped, scope, now)).toEqual({
+      text: "Follow up tomorrow",
+      updatedAt: now,
+      pendingSchedule: {
+        key: "idem-sched-persist-1",
+        sendAt,
+        replyToMessageId: "msg-42",
+      },
+    });
+
+    // Editing the draft without pending schedule metadata clears the locked schedule identity
+    store = setDraftInStore(
+      roundTripped,
+      scope,
+      "Follow up tomorrow with logs",
+      now + 1000,
+    );
+    expect(
+      readDraftEntryFromStore(store, scope, now + 1000)?.pendingSchedule,
+    ).toBeUndefined();
+  });
 });

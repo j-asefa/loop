@@ -6,6 +6,7 @@ import {
   setAudioModeAsync,
   useAudioRecorder,
 } from "expo-audio";
+import { File as ExpoFile } from "expo-file-system";
 import { Check, Mic, X } from "lucide-react-native";
 import { haptics } from "../haptics";
 import {
@@ -16,6 +17,16 @@ import type { LoopTheme } from "../theme";
 import type { PickedFile } from "./AttachmentTray";
 
 const MAX_RECORDING_SECONDS = 300; // 5 minutes keeps .m4a well below the 25 MB upload limit.
+
+function deleteTempAudio(uri: string | null | undefined): void {
+  if (!uri) return;
+  try {
+    const file = new ExpoFile(uri);
+    if (file.exists) file.delete();
+  } catch {
+    // Best-effort temp cleanup.
+  }
+}
 
 export function VoiceRecorderButton({
   theme,
@@ -37,8 +48,10 @@ export function VoiceRecorderButton({
   const startedAtRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
+  const disabledRef = useRef(Boolean(disabled));
   const onRecordedRef = useRef(onRecorded);
   const onErrorRef = useRef(onError);
+  disabledRef.current = Boolean(disabled);
   onRecordedRef.current = onRecorded;
   onErrorRef.current = onError;
 
@@ -59,6 +72,7 @@ export function VoiceRecorderButton({
   const finishRecording = useCallback(
     async (attach: boolean) => {
       if (busyRef.current || !recordingRef.current) return;
+      if (attach && disabledRef.current) return;
       busyRef.current = true;
       recordingRef.current = false;
       stopTimer();
@@ -70,23 +84,26 @@ export function VoiceRecorderButton({
         await recorder.stop();
         const uri = recorder.uri;
         resetAudioMode();
-        if (attach) {
-          if (!uri) {
-            onErrorRef.current?.("Could not save voice recording.");
-          } else {
-            haptics.success();
-            onRecordedRef.current({
-              uri,
-              name: buildVoiceRecordingFilename(),
-              mime: "audio/mp4",
-            });
+        if (!mountedRef.current || !attach || disabledRef.current) {
+          deleteTempAudio(uri);
+          if (!attach && mountedRef.current) {
+            haptics.light();
           }
+          return;
+        }
+        if (!uri) {
+          onErrorRef.current?.("Could not save voice recording.");
         } else {
-          haptics.light();
+          haptics.success();
+          onRecordedRef.current({
+            uri,
+            name: buildVoiceRecordingFilename(),
+            mime: "audio/mp4",
+          });
         }
       } catch (err) {
         resetAudioMode();
-        if (attach) {
+        if (attach && mountedRef.current) {
           haptics.warning();
           onErrorRef.current?.(
             err instanceof Error
@@ -111,15 +128,28 @@ export function VoiceRecorderButton({
       stopTimer();
       if (recordingRef.current) {
         recordingRef.current = false;
-        void recorder
-          .stop()
-          .catch(() => {})
-          .finally(() => {
-            void setAudioModeAsync({
-              allowsRecording: false,
-              playsInSilentMode: true,
-            }).catch(() => {});
-          });
+        try {
+          void Promise.resolve(recorder.stop())
+            .then(() => {
+              try {
+                deleteTempAudio(recorder.uri);
+              } catch {
+                // Ignore freed recorder property reads on unmount.
+              }
+            })
+            .catch(() => {})
+            .finally(() => {
+              void setAudioModeAsync({
+                allowsRecording: false,
+                playsInSilentMode: true,
+              }).catch(() => {});
+            });
+        } catch {
+          void setAudioModeAsync({
+            allowsRecording: false,
+            playsInSilentMode: true,
+          }).catch(() => {});
+        }
       }
     };
   }, [recorder, stopTimer]);
@@ -208,9 +238,13 @@ export function VoiceRecorderButton({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Attach voice note"
+          disabled={disabled}
           onPress={() => void finishRecording(true)}
           hitSlop={6}
-          style={[styles.miniAction, { backgroundColor: theme.orange }]}
+          style={[
+            styles.miniAction,
+            { backgroundColor: theme.orange, opacity: disabled ? 0.4 : 1 },
+          ]}
         >
           <Check size={13} color="#ffffff" strokeWidth={2.6} />
         </Pressable>

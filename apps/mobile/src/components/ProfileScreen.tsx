@@ -686,13 +686,12 @@ export function ProfileScreen({
                                     );
                                   }
                                 } finally {
-                                  if (gen === loadGenRef.current) {
-                                    setBusyScheduledIds((prev) => {
-                                      const next = new Set(prev);
-                                      next.delete(s.id);
-                                      return next;
-                                    });
-                                  }
+                                  setBusyScheduledIds((prev) => {
+                                    if (!prev.has(s.id)) return prev;
+                                    const next = new Set(prev);
+                                    next.delete(s.id);
+                                    return next;
+                                  });
                                 }
                               }}
                               style={[
@@ -761,13 +760,12 @@ export function ProfileScreen({
                                   }
                                 }
                               } finally {
-                                if (gen === loadGenRef.current) {
-                                  setBusyScheduledIds((prev) => {
-                                    const next = new Set(prev);
-                                    next.delete(s.id);
-                                    return next;
-                                  });
-                                }
+                                setBusyScheduledIds((prev) => {
+                                  if (!prev.has(s.id)) return prev;
+                                  const next = new Set(prev);
+                                  next.delete(s.id);
+                                  return next;
+                                });
                               }
                             }}
                             style={isBusy ? { opacity: 0.45 } : undefined}

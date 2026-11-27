@@ -117,6 +117,10 @@ export function ComposeSheet({
   );
   const draftTouchedRef = useRef(false);
   const restoredPendingKeyRef = useRef<string | null>(null);
+  const restoredPendingScheduleRef = useRef<{
+    idempotencyKey: string;
+    sendAt: number;
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -124,6 +128,12 @@ export function ComposeSheet({
     void loadDraftEntry(client?.origin, draftScope).then((entry) => {
       if (!cancelled && !draftTouchedRef.current && entry?.text) {
         restoredPendingKeyRef.current = entry.pendingKey ?? null;
+        restoredPendingScheduleRef.current = entry.pendingSchedule
+          ? {
+              idempotencyKey: entry.pendingSchedule.key,
+              sendAt: entry.pendingSchedule.sendAt,
+            }
+          : null;
         setText(entry.text);
       }
     });
@@ -156,8 +166,13 @@ export function ComposeSheet({
 
   const attSig = composeAttachments.readyIds.join(",");
   useEffect(() => {
-    setPendingSchedule(null);
     setScheduleError("");
+    if (restoredPendingScheduleRef.current) {
+      setPendingSchedule(restoredPendingScheduleRef.current);
+      restoredPendingScheduleRef.current = null;
+    } else {
+      setPendingSchedule(null);
+    }
     if (restoredPendingKeyRef.current) {
       sendKeyRef.current = restoredPendingKeyRef.current;
       restoredPendingKeyRef.current = null;
@@ -222,7 +237,14 @@ export function ComposeSheet({
       clearAttachments();
       onClose();
     } catch (err) {
-      if (!isUncertainOutcomeError(err)) {
+      if (isUncertainOutcomeError(err)) {
+        saveDraft(client?.origin, draftScope, text || finalText, {
+          schedule: {
+            key: nextPending.idempotencyKey,
+            sendAt: nextPending.sendAt,
+          },
+        });
+      } else {
         setPendingSchedule(null);
       }
       haptics.warning();
@@ -348,13 +370,19 @@ export function ComposeSheet({
                 ) : null}
               </View>
               <Pressable
+                disabled={busy || scheduleBusy}
                 onPress={() => {
+                  if (busy || scheduleBusy) return;
                   haptics.light();
                   onClose();
                 }}
                 style={[
                   styles.closeBtn,
-                  { backgroundColor: theme.soft, borderColor: theme.line },
+                  {
+                    backgroundColor: theme.soft,
+                    borderColor: theme.line,
+                    opacity: busy || scheduleBusy ? 0.4 : 1,
+                  },
                 ]}
               >
                 <X size={16} color={theme.text} />

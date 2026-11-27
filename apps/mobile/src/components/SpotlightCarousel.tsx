@@ -449,6 +449,11 @@ export function SpotlightCarousel({
     idempotencyKey: string;
     queue?: boolean;
   } | null>(null);
+  const restoredPendingScheduleRef = useRef<{
+    idempotencyKey: string;
+    sendAt: number;
+    replyToMessageId?: string;
+  } | null>(null);
   const [sending, setSending] = useState(false);
 
   useEffect(() => {
@@ -465,6 +470,13 @@ export function SpotlightCarousel({
           if (entry.pendingQueue !== undefined) {
             setDeliveryMode(entry.pendingQueue ? "queue" : "steer");
           }
+        }
+        if (entry.pendingSchedule) {
+          restoredPendingScheduleRef.current = {
+            idempotencyKey: entry.pendingSchedule.key,
+            sendAt: entry.pendingSchedule.sendAt,
+            replyToMessageId: entry.pendingSchedule.replyToMessageId,
+          };
         }
         setDraft(entry.text);
       }
@@ -510,8 +522,13 @@ export function SpotlightCarousel({
   // toggling Steer/Queue after an uncertain timeout is locked so the chip matches the pending retry.
   const attachmentKeySig = replyAttachments.readyIds.join(",");
   useEffect(() => {
-    setPendingSchedule(null);
     setScheduleError("");
+    if (restoredPendingScheduleRef.current) {
+      setPendingSchedule(restoredPendingScheduleRef.current);
+      restoredPendingScheduleRef.current = null;
+    } else {
+      setPendingSchedule(null);
+    }
     if (restoredPendingReplyRef.current) {
       pendingReplyRef.current = {
         idempotencyKey: restoredPendingReplyRef.current.idempotencyKey,
@@ -973,7 +990,19 @@ export function SpotlightCarousel({
         clearAttachments();
         Keyboard.dismiss();
       } catch (err) {
-        if (!isUncertainOutcomeError(err)) {
+        if (isUncertainOutcomeError(err)) {
+          if (draftScope) {
+            saveDraft(client?.origin, draftScope, draft || finalPrompt, {
+              schedule: {
+                key: nextPending.idempotencyKey,
+                sendAt: nextPending.sendAt,
+                ...(nextPending.replyToMessageId
+                  ? { replyToMessageId: nextPending.replyToMessageId }
+                  : {}),
+              },
+            });
+          }
+        } else {
           setPendingSchedule(null);
         }
         haptics.warning();
