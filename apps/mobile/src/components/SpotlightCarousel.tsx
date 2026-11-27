@@ -80,6 +80,7 @@ import type { AgentRunSummary } from "./AgentProfileSheet";
 import { PublishedFilesStrip } from "./FilePreviewModal";
 import {
   carouselCardKey,
+  keepsCarouselReplyTarget,
   mergeCarouselHistoryPage,
   openingCarouselCardIds,
   reconcileCarouselSaves,
@@ -304,6 +305,7 @@ export function SpotlightCarousel({
   const [historyLoaded, setHistoryLoaded] = useState(Boolean(initialHistory));
   const [historyRetry, setHistoryRetry] = useState<string>();
   const [serverSaved, setServerSaved] = useState(initialHistory?.saved);
+  const lastSavedReadRef = useRef(initialHistory?.saved.startedAt ?? -Infinity);
   const [savedEdits, setSavedEdits] = useState(
     new Map<string, CarouselSaveEdit>(),
   );
@@ -326,6 +328,18 @@ export function SpotlightCarousel({
   const baseCardRef = useRef(cards[0]);
   baseCardRef.current = cards[0];
 
+  const applySavedRead = useCallback(
+    (saved: string[], startedAt: number, requestRevision: number) => {
+      if (startedAt < lastSavedReadRef.current) return;
+      lastSavedReadRef.current = startedAt;
+      setServerSaved({ ids: new Set(saved), startedAt });
+      setSavedEdits((prev) =>
+        reconcileCarouselSaves(prev, saved, requestRevision),
+      );
+    },
+    [],
+  );
+
   useEffect(() => {
     if (!client || !conversationId) return;
     let cancelled = false;
@@ -342,11 +356,7 @@ export function SpotlightCarousel({
       )
       .then(({ page, startedAt }) => {
         if (cancelled) return;
-        setHistoryUnavailable(false);
-        setServerSaved({ ids: new Set(page.saved), startedAt });
-        setSavedEdits((prev) =>
-          reconcileCarouselSaves(prev, page.saved, requestRevision),
-        );
+        applySavedRead(page.saved, startedAt, requestRevision);
         setFetchedHistory(page);
         setSteerableRunId(page.steerable_run_id ?? null);
       })
@@ -363,6 +373,7 @@ export function SpotlightCarousel({
     activeRun?.state,
     historyRetry,
     topCardId,
+    applySavedRead,
   ]);
 
   const loadMoreHistory = useCallback(async () => {
@@ -375,11 +386,14 @@ export function SpotlightCarousel({
       return;
     }
     const cursor = historyNextCursor;
+    const startedAt = performance.now();
+    const requestRevision = saveRevisionRef.current;
     loadingOlderRef.current = true;
     autoLoadedCursorRef.current = cursor;
     setLoadingMoreHistory(true);
     try {
       const page = await client.carouselPage(conversationId, cursor);
+      applySavedRead(page.saved, startedAt, requestRevision);
       const {
         promptMap,
         bodyMap,
@@ -409,7 +423,7 @@ export function SpotlightCarousel({
       loadingOlderRef.current = false;
       setLoadingMoreHistory(false);
     }
-  }, [client, conversationId, historyNextCursor]);
+  }, [client, conversationId, historyNextCursor, applySavedRead]);
 
   const displayedCardSaved = useCallback(
     (card: NativeResultCard) => {
@@ -668,8 +682,7 @@ export function SpotlightCarousel({
   const holdSelection =
     holdHistoryUpdates ||
     draft.trim().length > 0 ||
-    replyAttachments.attachments.length > 0 ||
-    Boolean(replyError);
+    replyAttachments.attachments.length > 0;
   useEffect(() => {
     const page = fetchedHistory;
     if (
@@ -689,15 +702,31 @@ export function SpotlightCarousel({
       loadingOlderRef.current || hasLoadedOlderHistoryRef.current;
     const incoming = { cards: extra, next: page.next ?? null };
     const mode = keepOlder ? "refresh" : "replace";
-    const protectedKey =
-      holdSelection && activeCard ? carouselCardKey(activeCard) : undefined;
+    const protectedCard = holdSelection ? activeCard : undefined;
+    const protectedKey = protectedCard && carouselCardKey(protectedCard);
+    const next = mergeCarouselHistoryPage(
+      history,
+      incoming,
+      mode,
+      protectedKey,
+    );
+    const pinnedCards = pinnedIds.flatMap((id) => {
+      const card = cardsById.get(id);
+      return card ? [card] : [];
+    });
     if (
-      mergeCarouselHistoryPage(history, incoming, mode, protectedKey) ===
-      history
+      next === history ||
+      !keepsCarouselReplyTarget(
+        next,
+        pinnedCards.length ? pinnedCards : recentCards,
+        protectedCard,
+        historyUnavailable || (historyLoaded && !history.next),
+      )
     )
       return;
     appliedHistoryRef.current = page;
     setHistoryLoaded(true);
+    setHistoryUnavailable(false);
     setHistoryPrompts((prev) =>
       keepOlder ? new Map([...prev, ...promptMap]) : promptMap,
     );
@@ -716,6 +745,10 @@ export function SpotlightCarousel({
     holdSelection,
     activeCard,
     history,
+    historyUnavailable,
+    pinnedIds,
+    cardsById,
+    recentCards,
   ]);
 
   // Authoritative server capability: only show Steer/Queue toggle when the server reports
@@ -1153,7 +1186,18 @@ export function SpotlightCarousel({
       };
       void Promise.resolve()
         .then(() => onToggleSaved({ ...target, saved: !optimistic.saved }))
-        .then((outcome) => settle(optimistic.saved, outcome === "uncertain"))
+        .then((outcome) => {
+          if (outcome !== "stale") {
+            settle(optimistic.saved, outcome === "uncertain");
+            return;
+          }
+          setSavedEdits((prev) => {
+            if (prev.get(key) !== optimistic) return prev;
+            const next = new Map(prev);
+            next.delete(key);
+            return next;
+          });
+        })
         .catch((err) => {
           if (retrying || isUncertainOutcomeError(err))
             settle(optimistic.saved, true);

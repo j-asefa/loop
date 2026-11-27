@@ -78,6 +78,7 @@ import {
   feedPreviewText,
   getCardDismissTargets,
   mergeCarouselCards,
+  keepsCarouselReplyTarget,
   mergeCarouselHistoryPage,
   openingCarouselCardIds,
   reconcileCarouselSaves,
@@ -4096,6 +4097,25 @@ it("keeps the reply's selected history card through a non-overlapping refresh", 
   expect(mergeCarouselHistoryPage(prior, newer, "refresh", "B")).toBe(prior);
   expect(mergeCarouselHistoryPage(prior, newer, "replace", "B")).toBe(prior);
   expect(mergeCarouselHistoryPage(prior, newer, "refresh")).toBe(newer);
+});
+
+it("keeps a selected fallback feed card while history retries", () => {
+  const fallback = { id: "older", messageId: "older" } as NativeResultCard;
+  const pinned = { id: "latest", messageId: "latest" } as NativeResultCard;
+  const page = { cards: [pinned], next: "older-cursor" };
+  expect(keepsCarouselReplyTarget(page, [pinned], fallback, true)).toBe(false);
+  expect(keepsCarouselReplyTarget(page, [pinned], fallback, false)).toBe(true);
+  expect(
+    keepsCarouselReplyTarget(
+      { ...page, cards: [pinned, fallback] },
+      [pinned],
+      fallback,
+      true,
+    ),
+  ).toBe(true);
+  expect(
+    keepsCarouselReplyTarget({ ...page, next: null }, [pinned], fallback, true),
+  ).toBe(true);
 });
 
 it("rejects unreadable draft stores without treating them as empty", () => {

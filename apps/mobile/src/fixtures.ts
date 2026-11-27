@@ -307,6 +307,19 @@ export type CarouselHistoryPage = {
   next: string | null;
 };
 
+export function keepsCarouselReplyTarget(
+  page: CarouselHistoryPage,
+  pinned: NativeResultCard[],
+  protect: NativeResultCard | undefined,
+  showingFallback: boolean,
+): boolean {
+  if (!protect || !page.next || !showingFallback) return true;
+  const key = carouselCardKey(protect);
+  return [...pinned, ...page.cards].some(
+    (card) => carouselCardKey(card) === key,
+  );
+}
+
 export function mergeCarouselHistoryPage(
   current: CarouselHistoryPage,
   incoming: CarouselHistoryPage,
