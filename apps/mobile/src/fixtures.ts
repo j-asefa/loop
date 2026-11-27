@@ -455,13 +455,13 @@ export function createInitialCards(now = Date.now()): NativeResultCard[] {
       agentName: "fern",
       projectName: "Loop Mobile",
       model: "claude-sonnet-4",
-      prompt: "Should swipe-left on a Feed card toggle Save or open Remind?",
-      fallbackTitle: "Feed card swipe-left action",
+      prompt: "Should swipe-right on a Feed card toggle Save or open Remind?",
+      fallbackTitle: "Feed card swipe-right action",
       body:
         "I mocked both options for single-handed thumb use:\n\n" +
-        "- **Swipe right → Mark Done / Read** (highest-frequency triage action)\n" +
-        "- **Swipe left → Toggle Save** (instant bookmark without opening a second sheet)\n\n" +
-        "Want to keep Save on swipe-left, or swap it to Remind?",
+        "- **Swipe left → Mark Done / Read** (highest-frequency triage action)\n" +
+        "- **Swipe right → Toggle Save** (instant bookmark without opening a second sheet)\n\n" +
+        "Want to keep Save on swipe-right, or swap it to Remind?",
       createdAt: now - 18 * MINUTE,
       saved: false,
       unread: true,

@@ -636,7 +636,7 @@ export function FeedScreen({
 
         {stacks.length > 0 && !isLive && (
           <Text style={[styles.gestureHint, { color: theme.muted }]}>
-            Tap a stack for carousel · Swipe right for Done · Swipe left to Save
+            Tap a stack for carousel · Swipe left for Done · Swipe right to Save
           </Text>
         )}
 
@@ -783,9 +783,9 @@ const SwipeableStackCard = React.memo(function SwipeableStackCard({
             mass: 0.85,
           });
           if (finalDir === 1) {
-            runOnJS(fireDone)();
-          } else if (finalDir === -1) {
             runOnJS(fireSave)();
+          } else if (finalDir === -1) {
+            runOnJS(fireDone)();
           }
         })
         .onFinalize(() => {
@@ -853,26 +853,10 @@ const SwipeableStackCard = React.memo(function SwipeableStackCard({
             style={[
               styles.swipeBadge,
               {
-                backgroundColor: theme.greenSoft,
-                borderColor: theme.green,
-              },
-              rightActionStyle,
-            ]}
-          >
-            <Check size={16} color={theme.green} />
-            <Text style={[styles.swipeBadgeText, { color: theme.green }]}>
-              Done
-            </Text>
-          </Animated.View>
-
-          <Animated.View
-            style={[
-              styles.swipeBadge,
-              {
                 backgroundColor: theme.attention,
                 borderColor: theme.attentionLine,
               },
-              leftActionStyle,
+              rightActionStyle,
             ]}
           >
             {item.saved ? (
@@ -882,6 +866,22 @@ const SwipeableStackCard = React.memo(function SwipeableStackCard({
             )}
             <Text style={[styles.swipeBadgeText, { color: theme.brassText }]}>
               {item.saved ? "Unsave" : "Save"}
+            </Text>
+          </Animated.View>
+
+          <Animated.View
+            style={[
+              styles.swipeBadge,
+              {
+                backgroundColor: theme.greenSoft,
+                borderColor: theme.green,
+              },
+              leftActionStyle,
+            ]}
+          >
+            <Check size={16} color={theme.green} />
+            <Text style={[styles.swipeBadgeText, { color: theme.green }]}>
+              Done
             </Text>
           </Animated.View>
         </View>
