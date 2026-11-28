@@ -23,7 +23,7 @@ import {
 const routes = registrar("beads");
 export const beads = routes.mount;
 
-async function work<T>(operation: () => Promise<T>) {
+async function work<T>(operation: () => T | Promise<T>) {
   try {
     return await operation();
   } catch (error) {
@@ -41,8 +41,10 @@ routes.on(workspaceApi.projectWorkEnable, async ({ params }, res) =>
     await work(() => enableProjectWork(res.locals.owner, params.project)),
   ),
 );
-routes.on(workspaceApi.projectBeadAgents, ({ params }, res) =>
-  res.json(eligibleBeadAgents(res.locals.owner, params.project)),
+routes.on(workspaceApi.projectBeadAgents, async ({ params }, res) =>
+  res.json(
+    await work(() => eligibleBeadAgents(res.locals.owner, params.project)),
+  ),
 );
 routes.on(workspaceApi.projectBead, async ({ params }, res) =>
   res.json(

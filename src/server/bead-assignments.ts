@@ -164,10 +164,10 @@ function dispatchStart(row: Assignment, project: string, title: string) {
         return assignmentsQueries.byRequest(db, row.owner_id, row.request_id)!;
       // submit only inserts queued Loop work. The normal worker owns execution
       // and its native receipt. The queue item and association commit together.
-      eligibleAgent(row.owner_id, project, row.agent_id);
+      const agent = eligibleAgent(row.owner_id, project, row.agent_id);
       const run = submit(row.owner_id, {
         agentId: row.agent_id,
-        folderId: project,
+        folderId: agent.folder_id,
         idempotencyKey: "bead-start:" + row.generation,
         mailScope: "direct",
         personal: true,
@@ -322,7 +322,7 @@ export async function changeBeadAssignment(
       409,
       "The previous run has not been confirmed ended or unsent.",
     );
-  const reserved = db
+  const { reserved, beforeRelease } = db
     .transaction(() => {
       const current = assignmentsQueries.active(db, owner, store.id, beadId);
       if (current?.generation !== row.generation || !mayRelease(current))
@@ -331,7 +331,10 @@ export async function changeBeadAssignment(
         current.state === "prepared" ? "released" : "releasing";
       const attempt = next === "releasing" ? randomUUID() : null;
       assignmentsQueries.transition(db, current, next, current.run_id, attempt);
-      return { ...current, state: next, release_attempt: attempt };
+      return {
+        reserved: { ...current, state: next, release_attempt: attempt },
+        beforeRelease: current,
+      };
     })
     .immediate();
   if (reserved.state === "releasing" && reserved.release_attempt) {
@@ -358,8 +361,8 @@ export async function changeBeadAssignment(
         assignmentsQueries.transition(
           db,
           reserved,
-          row.state,
-          row.run_id,
+          beforeRelease.state,
+          beforeRelease.run_id,
           null,
         );
         return publicAssignment(
@@ -371,9 +374,15 @@ export async function changeBeadAssignment(
         const next =
           current.status === "in_progress" &&
           current.assignee === claimActor(row)
-            ? row.state
+            ? beforeRelease.state
             : "released";
-        assignmentsQueries.transition(db, reserved, next, row.run_id, null);
+        assignmentsQueries.transition(
+          db,
+          reserved,
+          next,
+          beforeRelease.run_id,
+          null,
+        );
         return publicAssignment(
           assignmentsQueries.byRequest(db, owner, row.request_id)!,
         );

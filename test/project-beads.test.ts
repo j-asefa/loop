@@ -225,9 +225,33 @@ it.skipIf(!realBeads)(
     } finally {
       unavailableDependency.mockRestore();
     }
-    expect(
-      (await request(dependencyRoute, "POST", dependency)).body.status,
-    ).toBe("committed");
+    const readBeforeDispatch = function (
+      this: BeadsStore,
+      args: readonly string[],
+    ) {
+      return readBead.call(this, args);
+    };
+    const dependencyConfirmation = vi
+      .spyOn(BeadsStore.prototype, "read")
+      .mockImplementationOnce(readBeforeDispatch)
+      .mockImplementationOnce(readBeforeDispatch)
+      .mockRejectedValueOnce(new BeadsNotStarted());
+    const dependencyWrites = vi.spyOn(BeadsStore.prototype, "write");
+    try {
+      expect(
+        (await request(dependencyRoute, "POST", dependency)).body.status,
+      ).toBe("unknown");
+      expect(
+        receipts.byRequest(db, owner, dependency.requestId)?.completed_at,
+      ).toBeNull();
+      expect(
+        (await request(dependencyRoute, "POST", dependency)).body.status,
+      ).toBe("committed");
+      expect(dependencyWrites).toHaveBeenCalledOnce();
+    } finally {
+      dependencyConfirmation.mockRestore();
+      dependencyWrites.mockRestore();
+    }
     expect((await request(route + "/" + target)).body).toMatchObject({
       status: "blocked",
       blockedBy: [blocker],
@@ -357,8 +381,26 @@ it.skipIf(!realBeads)(
     } finally {
       unavailableClose.mockRestore();
     }
-    const close = await request(closeRoute, "POST", closing);
-    expect(close.body.status).toBe("committed");
+    const closeConfirmation = vi
+      .spyOn(BeadsStore.prototype, "read")
+      .mockImplementationOnce(readBeforeDispatch)
+      .mockRejectedValueOnce(new BeadsNotStarted());
+    const closeWrites = vi.spyOn(BeadsStore.prototype, "write");
+    try {
+      expect((await request(closeRoute, "POST", closing)).body.status).toBe(
+        "unknown",
+      );
+      expect(
+        receipts.byRequest(db, owner, closing.requestId)?.completed_at,
+      ).toBeNull();
+      expect((await request(closeRoute, "POST", closing)).body.status).toBe(
+        "committed",
+      );
+      expect(closeWrites).toHaveBeenCalledOnce();
+    } finally {
+      closeConfirmation.mockRestore();
+      closeWrites.mockRestore();
+    }
     expect((await request(route + "/" + target)).body.status).toBe("ready");
 
     const source = await request(route, "POST", {
@@ -559,6 +601,28 @@ it.skipIf(!realBeads)(
     await expect(
       invokeProjectWork(leasedSharedRun, "list", { action: "list" }),
     ).rejects.toThrow(/disabled/);
+    expect(transition(sharedRun, "cancelled")).toBe(true);
+
+    for (const automation of [
+      { kind: "github_watch", watchId: id() },
+      { kind: "feed_digest", digestId: id() },
+    ] as const) {
+      const automated = submit(owner, {
+        agentId: agents[0].id,
+        folderId: project,
+        input: "Automation fixture carrying another author's text",
+        idempotencyKey: randomUUID(),
+        automation,
+      });
+      const leased = claim("beads-fixture")!;
+      expect(leased.id).toBe(automated.id);
+      const current = ownedRun(leased.id, owner);
+      expect(projectWorkAvailable(current)).toBe(false);
+      await expect(
+        invokeProjectWork(current, "list", { action: "list" }),
+      ).rejects.toThrow(/disabled/);
+      expect(transition(leased, "cancelled")).toBe(true);
+    }
   },
   100_000,
 );

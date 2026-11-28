@@ -259,7 +259,7 @@ async function mutate(
     },
     effect: async () => {
       try {
-        return (await perform(marker)) ? committed(beadId) : unknown(beadId);
+        if (await perform(marker)) return committed(beadId);
       } catch (error) {
         if (
           error instanceof BeadsPreconditionFailed ||
@@ -268,6 +268,11 @@ async function mutate(
           return { status: "refused", beadId };
         return unknown(beadId);
       }
+      // A read failure after dispatch cannot establish that the write did
+      // not start. Retain the reserved identity for later reconciliation.
+      return (await reconcile(beadId, marker).catch(() => false))
+        ? committed(beadId)
+        : unknown(beadId);
     },
     complete: (outcome) => {
       if (outcome.status === "committed")
@@ -415,7 +420,7 @@ export async function linkBeadDependency(
       if (alreadyLinked === undefined) throw new BeadsPreconditionFailed();
       if (alreadyLinked) return true;
       await store.write(["dep", "add", bead, body.blocker, "--type", "blocks"]);
-      return dependencyStored();
+      return false;
     },
     dependencyStored,
   );
@@ -486,7 +491,7 @@ export async function closeProjectBead(
           },
         },
       );
-      return recorded(bead, marker);
+      return false;
     },
     recorded,
   );

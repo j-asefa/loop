@@ -117,6 +117,9 @@ export function ProjectWork({
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState<BeadWorkItem["status"]>("ready");
   const [opened, setOpened] = useState(target?.beadId || "");
+  useEffect(() => {
+    if (target?.beadId) setOpened(target.beadId);
+  }, [target]);
   const [adding, setAdding] = useState(!!target?.sourceMessageId);
   const [sourceMessage, setSourceMessage] = useState(target?.sourceMessageId);
   const [title, setTitle] = useState(
@@ -850,6 +853,10 @@ function WorkDetail({
                           if (assignment.state === "refused")
                             throw new Error(
                               "This bead is no longer ready to start.",
+                            );
+                          if (assignment.state === "released")
+                            throw new Error(
+                              "The previous assignment was released. Start again to make a new assignment.",
                             );
                         })
                       }

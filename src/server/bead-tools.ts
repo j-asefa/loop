@@ -16,6 +16,7 @@ import {
 } from "./project-beads.js";
 import * as assignmentsQueries from "./sql/bead-assignments.js";
 import * as foldersQueries from "./sql/folders.js";
+import * as messagesQueries from "./sql/messages.js";
 import * as storesQueries from "./sql/project-bead-stores.js";
 
 export const projectWorkTool = z.object({
@@ -50,9 +51,13 @@ const command = z.discriminatedUnion("action", [
 ]);
 
 function runWorkScope(run: Run) {
-  // Work exposes similarly private context and mutations. A shared prompt
-  // or Fleet-mail conversation cannot exercise that authority.
-  if (!canUseMemorySearch(run)) return undefined;
+  // Watched PR updates, digests, shared input and Fleet mail can carry
+  // instructions the workspace owner did not type.
+  if (
+    !messagesQueries.hasPersonalPrompt(db, run.id, run.owner_id) ||
+    !canUseMemorySearch(run)
+  )
+    return undefined;
   const project = foldersQueries.projectFor(db, {
     owner: run.owner_id,
     folder: run.payload.folderId ?? null,

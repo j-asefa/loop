@@ -47,6 +47,13 @@ export function ProjectWork({ project }: { project: ProjectId }) {
     source,
     project,
   ]);
+  const createLinkKey = selectionKey + ":source-result";
+  const [incomingMessage] = useState(
+    () =>
+      (nav.get("projectView") === project && nav.get("beadFromMessage")) ||
+      sessionStorage.getItem(createLinkKey) ||
+      undefined,
+  );
   const [work, setWork] = useState<BeadWorkState>();
   const [filter, setFilter] = useState<BeadWorkItem["status"]>("ready");
   const [selected, setSelected] = useState(
@@ -55,7 +62,7 @@ export function ProjectWork({ project }: { project: ProjectId }) {
   const [detail, setDetail] = useState<BeadDetail>();
   const [agents, setAgents] = useState<{ id: string; name: string }[]>([]);
   const [agent, setAgent] = useState("");
-  const [adding, setAdding] = useState(nav.has("beadFromMessage"));
+  const [adding, setAdding] = useState(!!incomingMessage);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [reason, setReason] = useState("");
@@ -72,9 +79,7 @@ export function ProjectWork({ project }: { project: ProjectId }) {
     draft: ReturnType<typeof storedDraft>;
   }>();
   const [createPending, setCreatePending] = useState(false);
-  const [sourceMessageId, setSourceMessageId] = useState(
-    nav.get("beadFromMessage") || undefined,
-  );
+  const [sourceMessageId, setSourceMessageId] = useState(incomingMessage);
   const passage = useRef<HTMLDivElement>(null);
   const bead = detail?.id === selected ? detail : undefined;
   const draftKey = bead
@@ -112,6 +117,16 @@ export function ProjectWork({ project }: { project: ProjectId }) {
     url.searchParams.delete("bead");
     history.replaceState(history.state, "", url);
   }, [nav, selectionKey]);
+
+  useEffect(() => {
+    const target = nav.get("beadFromMessage");
+    if (!target || nav.get("projectView") !== project) return;
+    const url = new URL(location.href);
+    if (url.searchParams.get("beadFromMessage") !== target) return;
+    sessionStorage.setItem(createLinkKey, target);
+    url.searchParams.delete("beadFromMessage");
+    history.replaceState(history.state, "", url);
+  }, [nav, project, createLinkKey]);
 
   useEffect(() => {
     if (!createKey) return;
@@ -329,16 +344,11 @@ export function ProjectWork({ project }: { project: ProjectId }) {
                   setTitle("");
                   setDescription("");
                   setSourceMessageId(undefined);
-                  if (draft.sourceMessageId) {
-                    const url = new URL(location.href);
-                    if (
-                      url.searchParams.get("beadFromMessage") ===
-                      draft.sourceMessageId
-                    ) {
-                      url.searchParams.delete("beadFromMessage");
-                      history.replaceState(history.state, "", url);
-                    }
-                  }
+                  if (
+                    sessionStorage.getItem(createLinkKey) ===
+                    draft.sourceMessageId
+                  )
+                    sessionStorage.removeItem(createLinkKey);
                 });
               }}
             >
@@ -545,6 +555,10 @@ export function ProjectWork({ project }: { project: ProjectId }) {
                           if (assignment.state === "refused")
                             throw new Error(
                               "This bead is no longer ready to start.",
+                            );
+                          if (assignment.state === "released")
+                            throw new Error(
+                              "The previous assignment was released. Start again to make a new assignment.",
                             );
                         })
                       }
