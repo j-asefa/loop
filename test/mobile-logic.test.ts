@@ -3831,6 +3831,25 @@ describe("mobile agent profile taglines", () => {
   });
 });
 
+describe("queued messages sheet", () => {
+  it("expands a queued message to its full text on tap", () => {
+    const carousel = readFileSync(
+      "apps/mobile/src/components/SpotlightCarousel.tsx",
+      "utf8",
+    );
+    const sheet = carousel.slice(
+      carousel.indexOf("Queued Messages Sheet"),
+      carousel.indexOf("Long-press Card Actions Sheet"),
+    );
+    expect(sheet).toContain("setExpandedQueuedRunId(expanded ? null : run.id)");
+    expect(sheet).toContain("accessibilityState={{ expanded }}");
+    expect(sheet).toMatch(
+      /numberOfLines=\{expanded \? undefined : 3\}\s*>\s*\{run\.input/,
+    );
+    expect(sheet).not.toMatch(/numberOfLines=\{3\}/);
+  });
+});
+
 describe("mobile snippet usage sorting and quick-reply keyboard layout", () => {
   it("puts most used snippets at the top, breaks ties by recency, and preserves server order on equal ties", () => {
     const snippets = [

@@ -557,6 +557,9 @@ export function SpotlightCarousel({
   const [committedQuery, setCommittedQuery] = useState("");
   const [quickReplyOpen, setQuickReplyOpen] = useState(false);
   const [queuedSheetOpen, setQueuedSheetOpen] = useState(false);
+  const [expandedQueuedRunId, setExpandedQueuedRunId] = useState<string | null>(
+    null,
+  );
 
   // Detached floating Reply composer + long-press card action sheet
   const [actionSheetCard, setActionSheetCard] =
@@ -1972,6 +1975,7 @@ export function SpotlightCarousel({
               <Pressable
                 onPress={() => {
                   haptics.light();
+                  setExpandedQueuedRunId(null);
                   setQueuedSheetOpen(true);
                 }}
                 style={({ pressed }) => [
@@ -2675,112 +2679,136 @@ export function SpotlightCarousel({
                 <X size={18} color={theme.muted} />
               </Pressable>
             </View>
-            <ScrollView style={{ maxHeight: 320 }}>
+            <ScrollView
+              style={{ maxHeight: Math.max(320, screenHeight * 0.6) }}
+            >
               <View style={{ gap: 8 }}>
-                {queuedRuns.map((run, idx) => (
-                  <View
-                    key={run.id}
-                    style={[
-                      styles.quickOption,
-                      {
-                        backgroundColor: theme.soft,
-                        borderColor: theme.line,
-                      },
-                    ]}
-                  >
-                    <Text
+                {queuedRuns.map((run, idx) => {
+                  const expanded = expandedQueuedRunId === run.id;
+                  return (
+                    <View
+                      key={run.id}
                       style={[
-                        styles.hitIndex,
-                        { color: theme.brassText, marginTop: 1 },
+                        styles.quickOption,
+                        {
+                          backgroundColor: theme.soft,
+                          borderColor: theme.line,
+                        },
                       ]}
                     >
-                      #{idx + 1}
-                    </Text>
-                    <View style={styles.quickOptionText}>
                       <Text
-                        style={[styles.quickOptionLabel, { color: theme.text }]}
-                        numberOfLines={3}
+                        style={[
+                          styles.hitIndex,
+                          { color: theme.brassText, marginTop: 1 },
+                        ]}
                       >
-                        {run.input || "Queued task"}
+                        #{idx + 1}
                       </Text>
-                      <Text
-                        style={[styles.quickOptionHint, { color: theme.muted }]}
-                        numberOfLines={1}
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityState={{ expanded }}
+                        accessibilityLabel={
+                          expanded
+                            ? "Collapse queued message"
+                            : "Expand queued message"
+                        }
+                        onPress={() => {
+                          haptics.selection();
+                          setExpandedQueuedRunId(expanded ? null : run.id);
+                        }}
+                        style={styles.quickOptionText}
                       >
-                        {run.threadTitle
-                          ? `${run.threadTitle} · ${relativeTime(run.created_at)}`
-                          : `Queued ${relativeTime(run.created_at)}`}
-                      </Text>
-                    </View>
-                    <View style={styles.queuedActions}>
-                      {onReorderQueuedRun &&
-                        (run.can_move_up || run.can_move_down) && (
-                          <>
-                            <Pressable
-                              accessibilityLabel="Move queued message up"
-                              disabled={!run.can_move_up}
-                              hitSlop={6}
-                              onPress={() => {
-                                haptics.selection();
-                                onReorderQueuedRun(run.id, "up");
-                              }}
-                              style={[
-                                styles.controlsCollapseBtn,
-                                {
-                                  backgroundColor: theme.raised,
-                                  borderColor: theme.line,
-                                  opacity: run.can_move_up ? 1 : 0.35,
-                                },
-                              ]}
-                            >
-                              <ChevronUp size={14} color={theme.text} />
-                            </Pressable>
-                            <Pressable
-                              accessibilityLabel="Move queued message down"
-                              disabled={!run.can_move_down}
-                              hitSlop={6}
-                              onPress={() => {
-                                haptics.selection();
-                                onReorderQueuedRun(run.id, "down");
-                              }}
-                              style={[
-                                styles.controlsCollapseBtn,
-                                {
-                                  backgroundColor: theme.raised,
-                                  borderColor: theme.line,
-                                  opacity: run.can_move_down ? 1 : 0.35,
-                                },
-                              ]}
-                            >
-                              <ChevronDown size={14} color={theme.text} />
-                            </Pressable>
-                          </>
-                        )}
-                      {onCancelQueuedRun && (
-                        <Pressable
-                          accessibilityLabel="Cancel queued message"
-                          hitSlop={8}
-                          onPress={() => {
-                            haptics.warning();
-                            onCancelQueuedRun(run.id);
-                            if (queuedRuns.length <= 1) {
-                              setQueuedSheetOpen(false);
-                            }
-                          }}
+                        <Text
                           style={[
-                            styles.controlsCollapseBtn,
-                            {
-                              backgroundColor: theme.raised,
-                              borderColor: theme.line,
-                            },
+                            styles.quickOptionLabel,
+                            { color: theme.text },
                           ]}
+                          numberOfLines={expanded ? undefined : 3}
                         >
-                          <X size={14} color={theme.muted} />
-                        </Pressable>
-                      )}
+                          {run.input || "Queued task"}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.quickOptionHint,
+                            { color: theme.muted },
+                          ]}
+                          numberOfLines={expanded ? undefined : 1}
+                        >
+                          {run.threadTitle
+                            ? `${run.threadTitle} · ${relativeTime(run.created_at)}`
+                            : `Queued ${relativeTime(run.created_at)}`}
+                        </Text>
+                      </Pressable>
+                      <View style={styles.queuedActions}>
+                        {onReorderQueuedRun &&
+                          (run.can_move_up || run.can_move_down) && (
+                            <>
+                              <Pressable
+                                accessibilityLabel="Move queued message up"
+                                disabled={!run.can_move_up}
+                                hitSlop={6}
+                                onPress={() => {
+                                  haptics.selection();
+                                  onReorderQueuedRun(run.id, "up");
+                                }}
+                                style={[
+                                  styles.controlsCollapseBtn,
+                                  {
+                                    backgroundColor: theme.raised,
+                                    borderColor: theme.line,
+                                    opacity: run.can_move_up ? 1 : 0.35,
+                                  },
+                                ]}
+                              >
+                                <ChevronUp size={14} color={theme.text} />
+                              </Pressable>
+                              <Pressable
+                                accessibilityLabel="Move queued message down"
+                                disabled={!run.can_move_down}
+                                hitSlop={6}
+                                onPress={() => {
+                                  haptics.selection();
+                                  onReorderQueuedRun(run.id, "down");
+                                }}
+                                style={[
+                                  styles.controlsCollapseBtn,
+                                  {
+                                    backgroundColor: theme.raised,
+                                    borderColor: theme.line,
+                                    opacity: run.can_move_down ? 1 : 0.35,
+                                  },
+                                ]}
+                              >
+                                <ChevronDown size={14} color={theme.text} />
+                              </Pressable>
+                            </>
+                          )}
+                        {onCancelQueuedRun && (
+                          <Pressable
+                            accessibilityLabel="Cancel queued message"
+                            hitSlop={8}
+                            onPress={() => {
+                              haptics.warning();
+                              onCancelQueuedRun(run.id);
+                              if (queuedRuns.length <= 1) {
+                                setQueuedSheetOpen(false);
+                              }
+                            }}
+                            style={[
+                              styles.controlsCollapseBtn,
+                              {
+                                backgroundColor: theme.raised,
+                                borderColor: theme.line,
+                              },
+                            ]}
+                          >
+                            <X size={14} color={theme.muted} />
+                          </Pressable>
+                        )}
+                      </View>
                     </View>
-                  </View>
-                ))}
+                  );
+                })}
               </View>
             </ScrollView>
           </Pressable>
