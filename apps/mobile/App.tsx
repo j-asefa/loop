@@ -85,7 +85,8 @@ import {
   type ComposeSubmit,
   type ComposeTarget,
 } from "./src/components/ComposeSheet";
-import { FeedScreen, FeedVisibilityContext } from "./src/components/FeedScreen";
+import { FeedScreen } from "./src/components/FeedScreen";
+import { FeedVisibilityContext } from "./src/components/FeedVisibility";
 import { FilePreviewModal } from "./src/components/FilePreviewModal";
 import { PairingModal } from "./src/components/PairingModal";
 import { ProfileScreen } from "./src/components/ProfileScreen";
@@ -98,6 +99,8 @@ import {
   useIncomingShareIntake,
 } from "./src/components/ShareInboxSheet";
 import { SpotlightCarousel } from "./src/components/SpotlightCarousel";
+import { decisionDelivered } from "./src/native-decision";
+import { LAYERS } from "./src/layers";
 import { ThreadSheet } from "./src/components/ThreadSheet";
 import { clearWorkspaceDrafts } from "./src/drafts";
 import { draftWorkspaceBucket } from "./src/drafts-codec";
@@ -1241,12 +1244,18 @@ function LoopShell() {
       setDecisions((prev) => prev.filter((d) => d.id !== id));
       void client
         .answerNativeDecision(id, answer, commandId)
-        .then(() => {
-          if (gen === workspaceGenRef.current) {
-            actionKeysRef.current.delete(scopeKey);
-            showToast("Response sent");
-            scheduleSilentRefresh(400, gen);
+        .then((response) => {
+          if (gen !== workspaceGenRef.current) return;
+          if (!decisionDelivered(response)) {
+            // Keep the command ID: delivery is uncertain and must not be
+            // sent again automatically.
+            showToast("Delivery uncertain — check the conversation");
+            scheduleSilentRefresh(600, gen);
+            return;
           }
+          actionKeysRef.current.delete(scopeKey);
+          showToast("Response sent");
+          scheduleSilentRefresh(400, gen);
         })
         .catch((err) => {
           if (gen !== workspaceGenRef.current) return;
@@ -1791,6 +1800,16 @@ function LoopShell() {
           if (selectedTabRef.current === "feed") {
             handleAnswerDecision(id, answer);
           }
+        }}
+        onOpenDecisionThread={(conversationId, agentName) => {
+          if (selectedTabRef.current !== "feed") return;
+          setOpenConversationId(null);
+          setCarouselOverrideCards(null);
+          setThreadOverlay({
+            conversationId,
+            title: "Decision needed",
+            agentName,
+          });
         }}
       />
     ),
@@ -2394,7 +2413,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    zIndex: 15,
+    zIndex: LAYERS.tabDock,
   },
   tabDockBackdrop: {
     ...StyleSheet.absoluteFill,
@@ -2454,7 +2473,7 @@ const styles = StyleSheet.create({
     left: 20,
     right: 20,
     alignItems: "center",
-    zIndex: 70,
+    zIndex: LAYERS.toast,
   },
   toastPill: {
     flexDirection: "row",

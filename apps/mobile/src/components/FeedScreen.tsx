@@ -1,5 +1,4 @@
 import React, {
-  createContext,
   useCallback,
   useContext,
   useLayoutEffect,
@@ -23,7 +22,6 @@ import Animated, {
   withSpring,
 } from "react-native-reanimated";
 import {
-  AlertTriangle,
   Bookmark,
   BookmarkCheck,
   Check,
@@ -48,8 +46,10 @@ import type {
 } from "../api/types";
 import { agentModelLabel } from "../models";
 import type { AgentRunSummary } from "./AgentProfileSheet";
-import { relativeTime, type NativeResultCard } from "../fixtures";
+import type { NativeResultCard } from "../fixtures";
 import { haptics } from "../haptics";
+import { FeedTime, FeedVisibilityContext } from "./FeedVisibility";
+import { NativeDecisionCard } from "./NativeDecisionCard";
 import type { LoopTheme } from "../theme";
 import {
   AgentAvatar,
@@ -90,6 +90,7 @@ type FeedScreenProps = {
   onSwipeSave: (card: NativeResultCard) => void;
   onDecideApproval: (id: string, decision: "approve" | "reject") => void;
   onAnswerDecision: (id: string, answer: Record<string, unknown>) => void;
+  onOpenDecisionThread: (conversationId: string, agentName: string) => void;
 };
 
 const WORKING_STATES = new Set(["running", "pausing", "waiting_children"]);
@@ -100,23 +101,9 @@ const NEEDS_STATES = new Set([
   "paused",
 ]);
 
-export const FeedVisibilityContext = createContext(true);
-
 function FeedScrollView(props: React.ComponentPropsWithRef<typeof ScrollView>) {
   const visible = useContext(FeedVisibilityContext);
   return <ScrollView {...props} scrollsToTop={visible} />;
-}
-
-function FeedTime({
-  timestamp,
-  prefix = "",
-}: {
-  timestamp: number;
-  prefix?: string;
-}) {
-  // A tab change refreshes the label without rendering the surrounding card.
-  useContext(FeedVisibilityContext);
-  return prefix + relativeTime(timestamp);
 }
 
 export function FeedScreen({
@@ -147,6 +134,7 @@ export function FeedScreen({
   onSwipeSave,
   onDecideApproval,
   onAnswerDecision,
+  onOpenDecisionThread,
 }: FeedScreenProps) {
   const insets = useSafeAreaInsets();
 
@@ -358,6 +346,7 @@ export function FeedScreen({
           </Text>
           <ScrollView
             horizontal
+            scrollsToTop={false}
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.agentsStripRow}
           >
@@ -602,60 +591,13 @@ export function FeedScreen({
             ))}
 
             {pendingDecisions.slice(0, 2).map((dec) => (
-              <View
+              <NativeDecisionCard
                 key={dec.id}
-                style={[
-                  styles.needsCard,
-                  {
-                    backgroundColor: theme.surface,
-                    borderColor: theme.attentionLine,
-                  },
-                ]}
-              >
-                <View style={styles.cardMetaRow}>
-                  <View style={styles.rowLeft}>
-                    <AlertTriangle size={14} color={theme.brassText} />
-                    <Text style={[styles.needsAgent, { color: theme.text }]}>
-                      {dec.title || "Decision needed"}
-                    </Text>
-                  </View>
-                </View>
-                <Text style={[styles.needsBody, { color: theme.muted }]}>
-                  {dec.question || dec.prompt || "Choose an option to continue"}
-                </Text>
-                {Array.isArray(dec.options) && dec.options.length > 0 && (
-                  <View style={styles.decisionOpts}>
-                    {dec.options.map((opt, idx) => (
-                      <Pressable
-                        key={opt.id || idx}
-                        onPress={() => {
-                          haptics.success();
-                          onAnswerDecision(dec.id, {
-                            optionId: opt.id ?? opt.label,
-                            label: opt.label,
-                          });
-                        }}
-                        style={[
-                          styles.decisionPill,
-                          {
-                            backgroundColor: theme.attention,
-                            borderColor: theme.attentionLine,
-                          },
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.decisionPillText,
-                            { color: theme.brassText },
-                          ]}
-                        >
-                          {opt.label}
-                        </Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                )}
-              </View>
+                decision={dec}
+                theme={theme}
+                onAnswer={onAnswerDecision}
+                onOpenThread={onOpenDecisionThread}
+              />
             ))}
           </View>
         )}
@@ -1362,26 +1304,6 @@ const styles = StyleSheet.create({
   needsDenyText: {
     fontSize: 13.5,
     fontWeight: "600",
-  },
-  decisionOpts: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 7,
-  },
-  decisionPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 999,
-    borderWidth: 1,
-  },
-  decisionPillText: {
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  rowLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
   },
   gestureHint: {
     fontSize: 12,

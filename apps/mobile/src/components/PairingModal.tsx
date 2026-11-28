@@ -28,6 +28,7 @@ import {
   tryParsePairingLink,
 } from "../api/pairing";
 import type { PairedSession } from "../api/types";
+import { LAYERS } from "../layers";
 import { haptics } from "../haptics";
 import type { LoopTheme } from "../theme";
 
@@ -179,7 +180,7 @@ export function PairingModal({
   }
 
   return (
-    <View style={StyleSheet.absoluteFill}>
+    <View style={[StyleSheet.absoluteFill, { zIndex: LAYERS.pairing }]}>
       <BlurView
         intensity={72}
         tint={theme.blurTint}
