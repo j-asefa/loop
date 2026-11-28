@@ -73,3 +73,35 @@ const shouldDeferStatement = statement(`SELECT r.id FROM runs r
 export function shouldDefer(db: Database.Database, run: string, owner: string) {
   return shouldDeferStatement(db).get(run, owner) !== undefined;
 }
+
+const pendingForReviewStatement = statement(`SELECT r.id,r.owner_id
+ FROM review_continuations rc
+ JOIN runs r ON r.id=rc.run_id AND r.owner_id=rc.owner_id
+ WHERE rc.owner_id=@owner
+   AND rc.review_id=@reviewId
+   AND r.agent_id=@agentId
+   AND r.conversation_id=@conversationId
+   AND r.id<>@excludeRunId
+   AND r.state IN ('queued','paused')
+   AND NOT EXISTS(SELECT 1 FROM native_dispatch d WHERE d.run_id=r.id)
+   AND NOT EXISTS(SELECT 1 FROM agent_checkpoints c WHERE c.run_id=r.id)`);
+export function pendingForReview(
+  db: Database.Database,
+  params: {
+    owner: string;
+    reviewId: string;
+    agentId: string;
+    conversationId: string;
+    excludeRunId: string;
+  },
+) {
+  return pendingForReviewStatement(db)
+    .all(params)
+    .map((row) =>
+      parseRecord(
+        QueryRecords.runs.pick({ id: true, owner_id: true }),
+        row,
+        "runs",
+      ),
+    );
+}

@@ -6,6 +6,7 @@ import {
 import type Database from "better-sqlite3";
 import { answerPredicate } from "./feed-answers.js";
 import { FOLDER_PROJECT } from "./sql/folders.js";
+import { INTERNAL_QUEUED_RUN_SQL } from "./sql/runs.js";
 import { ResultDefectKindSchema } from "../shared/result.js";
 import type { FeedRow } from "./feed-card-display.js";
 
@@ -17,7 +18,7 @@ const stateSql = `state_base AS MATERIALIZED (
   COALESCE((SELECT r.id FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id
     AND r.state IN ('running','pausing','paused','awaiting_approval') ORDER BY +r.created_at DESC,r.rowid DESC LIMIT 1),
     (SELECT r.id FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id ORDER BY r.created_at DESC,r.rowid DESC LIMIT 1)) feed_run_id,
-  (SELECT count(*) FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id AND r.state='queued') feed_queued,
+  (SELECT count(*) FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id AND r.state='queued' AND NOT ${INTERNAL_QUEUED_RUN_SQL("r")}) feed_queued,
   (SELECT r.id FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id AND r.state='completed' ORDER BY r.updated_at DESC,r.rowid DESC LIMIT 1) feed_done_run_id,
   (SELECT r.updated_at FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id AND r.state='completed' ORDER BY r.updated_at DESC,r.rowid DESC LIMIT 1) feed_done_at,
   max(c.created_at,COALESCE((SELECT max(m.created_at) FROM messages m WHERE m.owner_id=c.owner_id AND m.conversation_id=c.id),0),
@@ -44,11 +45,14 @@ export type SourceRow = FeedRow & {
   has_queued: number;
   hidden: number;
   hide_results: number;
+  hide_internal: number;
 };
 
+const MAIL_AUTOMATION_KINDS_SQL =
+  "('agent_message','agent_result','agent_ping')";
 const assistantAnswer = (run: string) =>
   `(SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id AND m.run_id=${run} AND ${answerPredicate("m")} ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1)`;
-const cardSql = (doneOnly = false) => `
+const cardSql = (doneOnly = false, resultMode = false) => `
 page_run AS MATERIALIZED (
   SELECT p.*,CASE WHEN @mode='done' THEN p.done_run_id ELSE p.run_id END card_run FROM page p
 ),
@@ -124,7 +128,29 @@ SELECT k.*,
   -- Finding kinds this build presents; a newer build's are not shown.
   CASE WHEN res.sealed=1 THEN (SELECT json_group_array(f.defect) FROM (SELECT df.defect FROM result_defects df
     WHERE df.owner_id=@owner AND df.result_id=res.id AND df.defect IN (${ResultDefectKindSchema.options.map((kind) => `'${kind}'`).join(",")})
-    ORDER BY df.defect) f) END result_findings
+    ORDER BY df.defect) f) END result_findings,
+  ${
+    resultMode
+      ? `CASE
+    WHEN k.internal_thread=1 THEN 1
+    WHEN COALESCE(json_extract(res.stimulus,'$.automationKind'),json_extract(t.metadata,'$.automation.kind')) IN ${MAIL_AUTOMATION_KINDS_SQL} THEN 1
+    WHEN k.card_run IS NOT NULL AND EXISTS(
+      SELECT 1 FROM review_continuations rc
+      JOIN runs next_run ON next_run.id=rc.run_id AND next_run.owner_id=rc.owner_id
+      WHERE rc.owner_id=@owner AND rc.parent_run_id=k.card_run AND next_run.state<>'cancelled'
+        AND (
+          COALESCE(json_extract(res.stimulus,'$.automationKind'),json_extract(t.metadata,'$.automation.kind'))='review_continuation'
+          OR EXISTS(
+            SELECT 1 FROM results next_res
+            WHERE next_res.owner_id=@owner AND next_res.run_id=next_run.id
+              AND next_res.sealed=1 AND next_res.kind IN ('run_answer','imported_answer')
+          )
+        )
+    ) THEN 1
+    ELSE 0
+  END`
+      : "k.internal_thread"
+  } hide_internal
 FROM chosen k
 LEFT JOIN agents g ON g.id=k.agent_id AND g.owner_id=@owner
 LEFT JOIN folder_project fp ON fp.id IS k.folder_id
@@ -208,7 +234,27 @@ export function sourceCards(
       COALESCE(c.run_state IN ('awaiting_approval','paused') OR (c.raw_state IN ('failed','interrupted') AND c.attention_dismissed_at IS NULL),0) needs_run,
       COALESCE(c.run_state IN ${WORKING_RUN_DISPLAY_STATES_SQL},0) is_working,
       COALESCE(c.raw_state='completed',0) is_done,
-      EXISTS(SELECT 1 FROM teams t WHERE t.id=c.team_id AND t.owner_id=@owner AND t.deleted_at IS NULL AND t.hide_results_from_feed=1) hide_results
+      EXISTS(SELECT 1 FROM teams t WHERE t.id=c.team_id AND t.owner_id=@owner AND t.deleted_at IS NULL AND t.hide_results_from_feed=1) hide_results,
+      COALESCE((
+        (
+          EXISTS(SELECT 1 FROM agent_mail m WHERE m.owner_id=c.owner_id AND m.recipient_conversation_id=c.id)
+          OR EXISTS(SELECT 1 FROM messages m WHERE m.owner_id=c.owner_id AND m.conversation_id=c.id AND m.role='user' AND json_extract(m.metadata,'$.automation.kind') IN ${MAIL_AUTOMATION_KINDS_SQL})
+        )
+        AND NOT EXISTS(
+          SELECT 1 FROM messages m
+          WHERE m.owner_id=c.owner_id AND m.conversation_id=c.id AND m.role='user'
+            AND COALESCE(json_extract(m.metadata,'$.automation.kind'), '') NOT IN ${MAIL_AUTOMATION_KINDS_SQL}
+        )
+        AND NOT EXISTS(
+          SELECT 1 FROM runs r
+          WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id
+            AND NOT (
+              json_extract(r.payload,'$.mailId') IS NOT NULL
+              OR EXISTS(SELECT 1 FROM agent_mail m WHERE m.owner_id=r.owner_id AND ((m.run_id=r.id AND m.steering_id IS NULL) OR m.requeued_run_id=r.id))
+              OR EXISTS(SELECT 1 FROM messages m WHERE m.owner_id=r.owner_id AND m.run_id=r.id AND m.role='user' AND json_extract(m.metadata,'$.automation.kind') IN ${MAIL_AUTOMATION_KINDS_SQL})
+            )
+        )
+      ),0) internal_thread
     FROM state c ${results ? "CROSS JOIN completed_results completed" : ""}
     LEFT JOIN conversation_positions cp ON cp.owner_id=c.owner_id AND cp.conversation_id=c.id WHERE c.feed_visible=1
   ), page AS MATERIALIZED (
@@ -224,7 +270,7 @@ export function sourceCards(
     } sort_at,
       EXISTS(SELECT 1 FROM done_card_dismissals d WHERE d.owner_id=@owner AND d.conversation_id=flagged.conversation_id AND d.card_key=flagged.done_card_key) hidden
     FROM flagged
-  ),${cardSql(expanded)}`;
+  ),${cardSql(expanded, results)}`;
   const statement = db.prepare(query);
   prepared.set(kind, statement);
   return statement.all(params) as SourceRow[];

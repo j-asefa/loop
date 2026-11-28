@@ -79,8 +79,8 @@ export function projectFeed(db: Database.Database, emit: Emit) {
   }
   const insert =
     db.prepare(`INSERT INTO feed_cards(owner_id,conversation_id,kind,card_key,folder_id,agent_id,team_id,sort_at,
-    needs_run,approval_until,working,queued,snoozed,completed,hidden,hide_results,payload,unread)
-    VALUES(@owner,@conversation,@kind,@key,@folder_id,@agent_id,@team_id,@sort_at,@needs_run,@approval_until,@working,@queued,@snoozed,@completed,@hidden,@hide_results,@payload,@unread)
+    needs_run,approval_until,working,queued,snoozed,completed,hidden,hide_results,hide_internal,payload,unread)
+    VALUES(@owner,@conversation,@kind,@key,@folder_id,@agent_id,@team_id,@sort_at,@needs_run,@approval_until,@working,@queued,@snoozed,@completed,@hidden,@hide_results,@hide_internal,@payload,@unread)
 `);
   for (const { owner, conversation, keys } of groups.values()) {
     const subject = { kind: "collection" as const, id: "feed" };
@@ -136,6 +136,7 @@ export function projectFeed(db: Database.Database, emit: Emit) {
         completed: r.is_done,
         hidden: r.hidden,
         hide_results: r.hide_results,
+        hide_internal: r.hide_internal,
         payload: JSON.stringify(stored),
 
         // Only a result is read; its read time stays in done_card_reads.
@@ -219,12 +220,27 @@ export function projectFeed(db: Database.Database, emit: Emit) {
     });
     // A reminder change can lift or drop any of the conversation's results
     // (there are few), so it re-projects them all.
-    const selected =
+    let selected =
       keys.has("*") || keys.has("later")
         ? null
         : [...keys].filter(
             (key) => key.startsWith("run:") || key.startsWith("message:"),
           );
+    // Completing or cancelling a review continuation can supersede or restore
+    // its parent run's result card in the same conversation, so re-project all
+    // results for conversations that participate in review continuations.
+    if (
+      selected?.length &&
+      db
+        .prepare(
+          `SELECT 1 FROM review_continuations rc
+           JOIN runs r ON r.id=rc.run_id AND r.owner_id=rc.owner_id
+           WHERE rc.owner_id=? AND r.conversation_id=? LIMIT 1`,
+        )
+        .get(owner, conversation)
+    ) {
+      selected = null;
+    }
     // While a surfaced reminder lifts this conversation's newest result, a
     // result write may make another result the newest: re-project the two
     // top result cards too, so the lifted one drops back. Without such a

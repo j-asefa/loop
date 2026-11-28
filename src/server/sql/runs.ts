@@ -308,8 +308,17 @@ export function hasActive(db: Database.Database, owner: string | null) {
   return row === undefined ? undefined : parseRecord(hasActiveRow, row, "runs");
 }
 
+/**
+ * Runs queued by internal agent-to-agent mail, review team snapshots, or
+ * deferred review continuations rather than direct owner prompts. Excluded
+ * from user-facing Queued counts and queued-message lists while still claimed
+ * and executed by the queue.
+ */
+export const INTERNAL_QUEUED_RUN_SQL = (run: string) =>
+  `(json_extract(${run}.payload,'$.mailId') IS NOT NULL OR json_extract(${run}.payload,'$.reviewId') IS NOT NULL OR EXISTS(SELECT 1 FROM review_continuations rc WHERE rc.run_id=${run}.id AND rc.owner_id=${run}.owner_id) OR EXISTS(SELECT 1 FROM agent_mail m WHERE m.owner_id=${run}.owner_id AND ((m.run_id=${run}.id AND m.steering_id IS NULL) OR m.requeued_run_id=${run}.id)))`;
+
 const queuedInConversationStatement = statement(
-  "SELECT * FROM runs WHERE owner_id=? AND conversation_id=? AND state='queued' ORDER BY COALESCE(queue_rank,created_at),rowid LIMIT 5",
+  `SELECT * FROM runs WHERE owner_id=? AND conversation_id=? AND state='queued' AND NOT ${INTERNAL_QUEUED_RUN_SQL("runs")} ORDER BY COALESCE(queue_rank,created_at),rowid LIMIT 5`,
 );
 
 export function queuedInConversation(
