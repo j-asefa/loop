@@ -2,9 +2,11 @@
 import fcntl
 import hashlib
 import json
-import subprocess
 import os
+import stat
+import subprocess
 import sys
+import tempfile
 import time
 import uuid
 
@@ -28,11 +30,16 @@ def acquire():
 def installed(destination, expected):
     digest = hashlib.sha256()
     try:
-        with open(destination, "rb") as binary:
+        fd = os.open(destination, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            os.close(fd)
+            return False
+        with os.fdopen(fd, "rb") as binary:
             for chunk in iter(lambda: binary.read(1024 * 1024), b""):
                 digest.update(chunk)
             return digest.hexdigest() == expected
-    except FileNotFoundError:
+    except OSError:
+        # Invalid or unreadable cache entries are replaced only from verified staging.
         return False
 
 
@@ -43,6 +50,11 @@ def publish(source, destination, expected):
         if not os.stat(destination).st_mode & 0o100:
             os.chmod(destination, 0o700)
     elif source:
+        if os.path.isdir(destination) and not os.path.islink(destination):
+            # Preserve unexpected directory contents. A file cannot replace a
+            # directory, so move it aside under the same publication lock.
+            rejected = tempfile.mkdtemp(prefix=".rejected-bd-", dir=os.path.dirname(destination))
+            os.rename(destination, os.path.join(rejected, "bd"))
         os.replace(source, destination)
     else:
         sys.exit("LOOP_BEADS_NOT_STARTED")

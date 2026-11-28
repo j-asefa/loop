@@ -58,6 +58,18 @@ if (rootArg) {
     const original = await beadsBinary(assetRoot);
     // Exercise the desktop cache even when a verified image asset seeded it.
     delete process.env.LOOP_BAKED_BEADS;
+    const concurrentRoot = join(root, "concurrent");
+    const published = join(concurrentRoot, "beads-runtime", beadsRelease, "bd");
+    const fetchRelease = globalThis.fetch;
+    try {
+      globalThis.fetch = async () => {
+        await copyFile(original, published);
+        throw new Error("Simulated failed download after another publication");
+      };
+      assert.equal(await beadsBinary(concurrentRoot), published);
+    } finally {
+      globalThis.fetch = fetchRelease;
+    }
     await mkdir(resolve(installed, ".."), { recursive: true });
     await copyFile(original, installed);
     const store = new BeadsStore(root, scope);

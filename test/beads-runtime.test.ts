@@ -8,13 +8,19 @@ import {
   readdir,
   rm,
   stat,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, it, vi } from "vitest";
-import { beadsBinary, beadsRelease } from "../src/beads-runtime.js";
+import {
+  BeadsNotStarted,
+  BeadsStore,
+  beadsBinary,
+  beadsRelease,
+} from "../src/beads-runtime.js";
 
 const lock = fileURLToPath(
   new URL("../deployment/beads-locked.py", import.meta.url),
@@ -113,6 +119,31 @@ it("marks lock-open failures before executing the helper", async () => {
   }
 });
 
+it("fails before dispatch when the installed Python executable cannot run the launcher", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "loop-beads-python-"));
+  try {
+    await writeFile(join(directory, "python3"), "#!/bin/sh\nexit 1\n", {
+      mode: 0o700,
+    });
+    vi.stubEnv("PATH", directory);
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    const store = new BeadsStore(directory, {
+      ownerId: "owner",
+      profile: "companion",
+      projectId: "project",
+    });
+    await expect(store.write(["update", "loop-test"])).rejects.toBeInstanceOf(
+      BeadsNotStarted,
+    );
+    expect(fetch).not.toHaveBeenCalled();
+  } finally {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 it("keeps the first verified binary when independent installers publish together", async () => {
   const directory = await mkdtemp(join(tmpdir(), "loop-beads-publish-"));
   try {
@@ -149,6 +180,71 @@ it("keeps the first verified binary when independent installers publish together
     ).toHaveLength(1);
     expect(await readFile(destination, "utf8")).toBe(content);
   } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+it("repairs damaged cache entries and preserves an unexpected directory", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "loop-beads-damaged-cache-"));
+  const cache = join(directory, "beads-runtime", beadsRelease);
+  const destination = join(cache, "bd");
+  const candidate = join(cache, "candidate");
+  const content = "verified candidate";
+  const expected = createHash("sha256").update(content).digest("hex");
+  try {
+    await mkdir(cache, { recursive: true });
+    await writeFile(destination, "unreadable helper", { mode: 0 });
+    await writeFile(candidate, content, { mode: 0o700 });
+    const publish = () =>
+      once(
+        spawn(
+          "python3",
+          [lock, "--install", candidate, destination, expected],
+          {
+            cwd: cache,
+            stdio: "ignore",
+            timeout: 1000,
+          },
+        ),
+        "close",
+      );
+    expect(await publish()).toEqual([0, null]);
+    expect(await readFile(destination, "utf8")).toBe(content);
+
+    await rm(destination);
+    expect(await once(spawn("mkfifo", [destination]), "close")).toEqual([
+      0,
+      null,
+    ]);
+    vi.stubGlobal("fetch", async () => new Response("bad archive"));
+    await expect(beadsBinary(directory)).rejects.toThrow(
+      "Beads archive integrity check failed",
+    );
+    await writeFile(candidate, content, { mode: 0o700 });
+    expect(await publish()).toEqual([0, null]);
+    expect(await readFile(destination, "utf8")).toBe(content);
+
+    await rm(destination);
+    await symlink("bd", destination);
+    await writeFile(candidate, content, { mode: 0o700 });
+    expect(await publish()).toEqual([0, null]);
+    expect(await readFile(destination, "utf8")).toBe(content);
+
+    await rm(destination);
+    await mkdir(destination);
+    await writeFile(join(destination, "existing.txt"), "keep this");
+    await writeFile(candidate, content, { mode: 0o700 });
+    expect(await publish()).toEqual([0, null]);
+    expect(await readFile(destination, "utf8")).toBe(content);
+    const rejected = (await readdir(cache)).find((name) =>
+      name.startsWith(".rejected-bd-"),
+    );
+    expect(rejected).toBeDefined();
+    expect(
+      await readFile(join(cache, rejected!, "bd", "existing.txt"), "utf8"),
+    ).toBe("keep this");
+  } finally {
+    vi.unstubAllGlobals();
     await rm(directory, { recursive: true, force: true });
   }
 });
