@@ -81,7 +81,9 @@ completion writes keep their normal timeout ([busy-wait.ts](../src/server/busy-w
 
 The companion's pinned Beads runtime supports Linux and macOS on x64 and
 arm64. The runtime requires Python 3, Git, tar and access to the upstream
-release for the first download of a new pin.
+release for the first download of a new pin. Run the smoke from a source
+checkout. The stock companion image lacks the Python 3 launcher required by
+this runtime.
 
 Run `npm run smoke:beads` to exercise the pinned Beads CLI with a disposable
 embedded Dolt store. It uses the platform release archive, launches competing
