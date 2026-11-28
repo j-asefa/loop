@@ -65,28 +65,31 @@ const insert = statement(
 );
 export function prepare(
   db: Database.Database,
-  input: Omit<BeadAssignment, "state" | "run_id">,
+  input: Omit<BeadAssignment, "state" | "run_id" | "release_attempt">,
 ) {
   insert(db).run(input);
 }
 
 const update = statement(
-  "UPDATE bead_assignments SET state=?,run_id=? WHERE owner_id=? AND request_id=? AND generation=? AND state=?",
+  "UPDATE bead_assignments SET state=?,run_id=?,release_attempt=? WHERE owner_id=? AND request_id=? AND generation=? AND state=? AND release_attempt IS ?",
 );
 export function transition(
   db: Database.Database,
   row: BeadAssignment,
   state: BeadAssignment["state"],
   runId = row.run_id,
+  releaseAttempt = row.release_attempt,
 ) {
   return (
     update(db).run(
       state,
       runId,
+      releaseAttempt,
       row.owner_id,
       row.request_id,
       row.generation,
       row.state,
+      row.release_attempt,
     ).changes === 1
   );
 }

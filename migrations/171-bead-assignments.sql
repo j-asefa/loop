@@ -7,6 +7,7 @@ CREATE TABLE bead_assignments (
   agent_id TEXT NOT NULL,
   state TEXT NOT NULL CHECK(state IN ('prepared','claiming','claimed','started','releasing','released','refused')),
   run_id TEXT,
+  release_attempt TEXT,
   created_at INTEGER NOT NULL,
   PRIMARY KEY(owner_id,request_id)
 );

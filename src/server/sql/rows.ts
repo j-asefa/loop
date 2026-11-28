@@ -1236,6 +1236,7 @@ export const QueryRecords = {
       "refused",
     ]),
     run_id: z.string().nullable(),
+    release_attempt: z.string().nullable(),
     created_at: z.number(),
   }),
   bead_write_receipts: z.object({

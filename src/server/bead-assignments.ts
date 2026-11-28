@@ -105,18 +105,34 @@ function publicAssignment(row: Assignment): BeadAssignmentView {
 }
 
 const claimOutcome = z.enum(["claimed", "unsent", "refused"]);
+const releaseOutcome = z.enum(["released", "unsent"]);
 
 /** Recover the claim or fence its old generation before offering a resume. */
 async function reconcile(store: BeadsStore, row: Assignment, fence = false) {
   if (row.state !== "claiming" && row.state !== "releasing") return row;
   if (row.state === "claiming" && fence) {
     const result = claimOutcome.safeParse(
-      await store.settleClaim(row.bead_id, row.generation),
+      await store.settleWork(row.bead_id, row.generation),
     );
     if (!result.success) throw new BeadsUnavailable({ cause: result.error });
     if (result.data === "unsent")
       assignmentsQueries.resetFencedClaim(db, row, randomUUID());
     else assignmentsQueries.transition(db, row, result.data);
+  } else if (row.state === "releasing" && fence && row.release_attempt) {
+    const result = releaseOutcome.safeParse(
+      await store.settleWork(row.bead_id, row.generation, row.release_attempt),
+    );
+    if (!result.success) throw new BeadsUnavailable({ cause: result.error });
+    if (result.data === "released")
+      assignmentsQueries.transition(db, row, "released");
+    else
+      assignmentsQueries.transition(
+        db,
+        row,
+        row.run_id ? "started" : "claimed",
+        row.run_id,
+        null,
+      );
   } else {
     const bead = await issue(store, row.bead_id);
     if (
@@ -127,7 +143,8 @@ async function reconcile(store: BeadsStore, row: Assignment, fence = false) {
       assignmentsQueries.transition(db, row, "claimed");
     if (
       row.state === "releasing" &&
-      bead.metadata?.loop_release === row.generation
+      row.release_attempt &&
+      bead.metadata?.loop_release === row.release_attempt
     )
       assignmentsQueries.transition(db, row, "released");
   }
@@ -295,6 +312,8 @@ export async function changeBeadAssignment(
   }
   const row = await reconcile(store, active, input.action === "recover");
   if (input.action === "recover") return publicAssignment(row);
+  if (row.generation !== input.generation)
+    throw new Problem(409, "This assignment changed. Reopen the bead.");
   if (input.action === "resume") return claimAndStart(store, row, project);
   if (row.state === "releasing" || row.state === "released")
     return publicAssignment(row);
@@ -310,30 +329,42 @@ export async function changeBeadAssignment(
         throw new Problem(409, "This assignment is no longer releasable.");
       const next: Assignment["state"] =
         current.state === "prepared" ? "released" : "releasing";
-      assignmentsQueries.transition(db, current, next);
-      return { ...current, state: next };
+      const attempt = next === "releasing" ? randomUUID() : null;
+      assignmentsQueries.transition(db, current, next, current.run_id, attempt);
+      return { ...current, state: next, release_attempt: attempt };
     })
     .immediate();
-  if (reserved.state === "releasing") {
+  if (reserved.state === "releasing" && reserved.release_attempt) {
     try {
-      await store.write([
-        "update",
-        beadId,
-        "--if-status",
-        "in_progress",
-        "--if-assignee",
-        claimActor(reserved),
-        "--status",
-        "open",
-        "--assignee",
-        "",
-        "--set-metadata",
-        "loop_release=" + reserved.generation,
-      ]);
+      await store.write(
+        [
+          "update",
+          beadId,
+          "--if-status",
+          "in_progress",
+          "--if-assignee",
+          claimActor(reserved),
+          "--status",
+          "open",
+          "--assignee",
+          "",
+          "--set-metadata",
+          "loop_release=" + reserved.release_attempt,
+        ],
+        { release: reserved.release_attempt },
+      );
     } catch (error) {
       if (error instanceof BeadsNotStarted) {
-        assignmentsQueries.transition(db, reserved, row.state);
-        return publicAssignment(row);
+        assignmentsQueries.transition(
+          db,
+          reserved,
+          row.state,
+          row.run_id,
+          null,
+        );
+        return publicAssignment(
+          assignmentsQueries.byRequest(db, owner, row.request_id)!,
+        );
       }
       if (error instanceof BeadsPreconditionFailed) {
         const current = await issue(store, beadId);
@@ -342,7 +373,7 @@ export async function changeBeadAssignment(
           current.assignee === claimActor(row)
             ? row.state
             : "released";
-        assignmentsQueries.transition(db, reserved, next);
+        assignmentsQueries.transition(db, reserved, next, row.run_id, null);
         return publicAssignment(
           assignmentsQueries.byRequest(db, owner, row.request_id)!,
         );

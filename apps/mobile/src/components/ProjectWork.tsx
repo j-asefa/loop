@@ -818,12 +818,20 @@ function WorkDetail({
                             agent.id,
                             { key: requestId },
                           );
-                          await client.startBead(project, bead, {
-                            storeId: detail.storeId,
-                            agentId: agent.id,
-                            requestId,
-                          });
+                          const assignment = await client.startBead(
+                            project,
+                            bead,
+                            {
+                              storeId: detail.storeId,
+                              agentId: agent.id,
+                              requestId,
+                            },
+                          );
                           clearDraft(client.localDataScope, key);
+                          if (assignment.state === "refused")
+                            throw new Error(
+                              "This bead is no longer ready to start.",
+                            );
                         })
                       }
                     />
@@ -958,8 +966,12 @@ function WorkDetail({
                       );
                       if (result.status === "refused") unlock();
                       checkWrite(result);
-                      clearDraft(client.localDataScope, attempt.scope);
-                      setDraft({ text: "" });
+                      const settlement = settlePendingReplyDraft(
+                        client.localDataScope,
+                        attempt.scope,
+                        attempt.draft.requestId,
+                      );
+                      if (settlement === "settled") setDraft({ text: "" });
                     } catch (error) {
                       if (
                         error instanceof LoopApiError &&

@@ -60,35 +60,44 @@ def read(args, operation, environment, fd):
     return json.loads(result.stdout)
 
 
-def claim_fence(identifier):
-    return os.path.join(".loop-claim-fences", str(uuid.UUID(identifier)))
+def work_fence(identifier):
+    return os.path.join(".loop-work-fences", str(uuid.UUID(identifier)))
 
 
-def settle_claim(args, expected, environment, fd):
-    [bead] = read(args, ["show", expected["bead"]], environment, fd)
-    if bead["id"] != expected["bead"]:
-        raise ValueError("unexpected bead")
-    assignee = bead.get("assignee") or None
-    generation = expected["generation"]
-    if assignee == "loop-start-" + generation and bead["status"] == "in_progress":
-        return "claimed"
-
-    # A delayed launch with this generation must lose after this locked read.
-    # A later explicit resume uses a fresh generation of the same request.
-    path = claim_fence(generation)
+def fence_attempt(identifier):
+    # Any delayed launcher with this attempt ID will stop before the write.
+    path = work_fence(identifier)
     parent = os.path.dirname(path)
     os.makedirs(parent, mode=0o700, exist_ok=True)
-    fence = os.open(path, os.O_CREAT | os.O_WRONLY, 0o600)
+    fd = os.open(path, os.O_CREAT | os.O_WRONLY, 0o600)
     try:
-        os.fsync(fence)
+        os.fsync(fd)
     finally:
-        os.close(fence)
+        os.close(fd)
     for directory in (parent, "."):
         entry = os.open(directory, os.O_RDONLY)
         try:
             os.fsync(entry)
         finally:
             os.close(entry)
+
+
+def settle(args, expected, environment, fd):
+    [bead] = read(args, ["show", expected["bead"]], environment, fd)
+    if bead["id"] != expected["bead"]:
+        raise ValueError("unexpected bead")
+    assignee = bead.get("assignee") or None
+    current_claim = assignee == "loop-start-" + expected["generation"] and bead["status"] == "in_progress"
+    release = expected.get("release")
+    if release:
+        metadata = bead.get("metadata") or {}
+        if metadata.get("loop_release") == release:
+            return "released"
+        fence_attempt(release)
+        return "unsent" if current_claim else "released"
+    if current_claim:
+        return "claimed"
+    fence_attempt(expected["generation"])
     return "unsent" if bead["status"] == "open" and assignee is None else "refused"
 
 
@@ -122,18 +131,22 @@ def run():
         }
         if actual != expected:
             sys.exit(13)
-    elif args[0] == "--settle-claim":
+    elif args[0] == "--settle":
         expected = json.loads(args[1])
-        print(json.dumps(settle_claim(args[2:], expected, environment, fd)))
+        print(json.dumps(settle(args[2:], expected, environment, fd)))
         return
     elif args[0] == "--ready":
         expected = json.loads(args[1])
         args = args[2:]
-        if os.path.exists(claim_fence(expected["generation"])):
-            sys.exit("LOOP_BEADS_FENCED_CLAIM")
+        if os.path.exists(work_fence(expected["generation"])):
+            sys.exit("LOOP_BEADS_FENCED")
         ready = read(args, ["ready", "--limit", "0", "--max-rows", "50000"], environment, fd)
         if not any(issue["id"] == expected["bead"] for issue in ready):
             sys.exit(13)
+    elif args[0] == "--release":
+        if os.path.exists(work_fence(args[1])):
+            sys.exit("LOOP_BEADS_FENCED")
+        args = args[2:]
     os.set_inheritable(fd, True)
     os.execve(args[0], args, environment)
 

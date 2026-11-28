@@ -388,6 +388,11 @@ export async function linkBeadDependency(
   const store = enabledStore(owner, project, body.storeId);
   if (bead === body.blocker)
     throw new Problem(400, "A bead cannot block itself.");
+  const hasDependency = (result: Awaited<ReturnType<typeof issue>>) =>
+    (result.dependencies ?? []).some(
+      ({ depends_on_id, id }) => (depends_on_id ?? id) === body.blocker,
+    );
+  let alreadyLinked: boolean | undefined;
   if (!receiptsQueries.byRequest(db, owner, body.requestId)) {
     const blockers = await read(
       store,
@@ -396,13 +401,9 @@ export async function linkBeadDependency(
     );
     if (!blockers.some(({ id }) => id === body.blocker))
       throw new Problem(404, "Blocking bead not found.");
+    alreadyLinked = hasDependency(await issue(store, bead));
   }
-  const dependencyStored = async () => {
-    const result = await issue(store, bead);
-    return (result.dependencies ?? []).some(
-      ({ depends_on_id, id }) => (depends_on_id ?? id) === body.blocker,
-    );
-  };
+  const dependencyStored = async () => hasDependency(await issue(store, bead));
   return mutate(
     owner,
     store,
@@ -411,7 +412,8 @@ export async function linkBeadDependency(
     bead,
     null,
     async () => {
-      if (await dependencyStored()) return true;
+      if (alreadyLinked === undefined) throw new BeadsPreconditionFailed();
+      if (alreadyLinked) return true;
       await store.write(["dep", "add", bead, body.blocker, "--type", "blocks"]);
       return dependencyStored();
     },
@@ -436,6 +438,7 @@ export async function closeProjectBead(
     (active?.run_id !== assignedRun || active.state !== "started")
   )
     throw new Problem(403, "An agent can only close its own assigned bead.");
+  const current = previous ? undefined : await issue(store, bead);
   const recorded = async (id: string, marker: string) => {
     const current = await issue(store, id);
     return (
@@ -451,8 +454,8 @@ export async function closeProjectBead(
     bead,
     null,
     async (marker) => {
-      const current = await issue(store, bead);
-      if (current.status === "closed") throw new BeadsPreconditionFailed();
+      if (!current || current.status === "closed")
+        throw new BeadsPreconditionFailed();
       const assignment = assignmentsQueries.active(db, owner, store.id, bead);
       if (
         (assignment?.generation ?? null) !== body.generation ||

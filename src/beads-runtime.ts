@@ -229,6 +229,7 @@ export class BeadsPreconditionFailed extends Error {
 
 type BeadsGuard =
   | { ready: { bead: string; generation: string } }
+  | { release: string }
   | { current: { id: string; status: string; assignee: string | null } };
 
 export class BeadsStore {
@@ -262,10 +263,14 @@ export class BeadsStore {
     return this.json(["--readonly", ...args]);
   }
 
-  async settleClaim(bead: string, generation: string): Promise<unknown> {
+  async settleWork(
+    bead: string,
+    generation: string,
+    release?: string,
+  ): Promise<unknown> {
     return this.json(
       [],
-      ["--settle-claim", JSON.stringify({ bead, generation })],
+      ["--settle", JSON.stringify({ bead, generation, release })],
     );
   }
 
@@ -273,7 +278,9 @@ export class BeadsStore {
     const check = guard
       ? "ready" in guard
         ? ["--ready", JSON.stringify(guard.ready)]
-        : ["--current", JSON.stringify(guard.current)]
+        : "release" in guard
+          ? ["--release", guard.release]
+          : ["--current", JSON.stringify(guard.current)]
       : [];
     try {
       return JSON.parse(await this.execute(args, check)) as unknown;
@@ -341,7 +348,7 @@ export class BeadsStore {
         (("code" in cause &&
           ["ENOENT", "ENOTDIR", "EACCES"].includes(String(cause.code))) ||
           ("stderr" in cause &&
-            ["LOOP_BEADS_NOT_STARTED\n", "LOOP_BEADS_FENCED_CLAIM\n"].includes(
+            ["LOOP_BEADS_NOT_STARTED\n", "LOOP_BEADS_FENCED\n"].includes(
               String(cause.stderr),
             )))
       )

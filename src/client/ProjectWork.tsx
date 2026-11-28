@@ -177,6 +177,16 @@ export function ProjectWork({ project }: { project: ProjectId }) {
     localStorage.setItem(draftKey, JSON.stringify(next));
     setComment({ key: draftKey, draft: next });
   }
+  function settleComment(requestId: string, next?: typeof comment) {
+    if (storedDraft(draftKey).requestId !== requestId) return;
+    if (next) localStorage.setItem(draftKey, JSON.stringify(next));
+    else localStorage.removeItem(draftKey);
+    setComment((current) =>
+      current?.key === draftKey && current.draft.requestId === requestId
+        ? { key: draftKey, draft: next ?? { text: "" } }
+        : current,
+    );
+  }
   function quoteSelection() {
     const range = document.getSelection();
     if (
@@ -277,6 +287,16 @@ export function ProjectWork({ project }: { project: ProjectId }) {
                   setTitle("");
                   setDescription("");
                   setSourceMessageId(undefined);
+                  if (draft.sourceMessageId) {
+                    const url = new URL(location.href);
+                    if (
+                      url.searchParams.get("beadFromMessage") ===
+                      draft.sourceMessageId
+                    ) {
+                      url.searchParams.delete("beadFromMessage");
+                      history.replaceState(history.state, "", url);
+                    }
+                  }
                 });
               }}
             >
@@ -467,7 +487,7 @@ export function ProjectWork({ project }: { project: ProjectId }) {
                           const requestId =
                             localStorage.getItem(key) || crypto.randomUUID();
                           localStorage.setItem(key, requestId);
-                          await callRoute(
+                          const assignment = await callRoute(
                             workspaceApi.projectBeadStart,
                             {
                               params: { project, bead: bead.id },
@@ -480,6 +500,10 @@ export function ProjectWork({ project }: { project: ProjectId }) {
                             source,
                           );
                           localStorage.removeItem(key);
+                          if (assignment.state === "refused")
+                            throw new Error(
+                              "This bead is no longer ready to start.",
+                            );
                         })
                       }
                     >
@@ -559,25 +583,13 @@ export function ProjectWork({ project }: { project: ProjectId }) {
                         },
                         source,
                       );
-                      if (result.status === "refused") {
-                        const editable = { ...draft, requestId: undefined };
-                        localStorage.setItem(
-                          draftKey,
-                          JSON.stringify(editable),
-                        );
-                        setComment((current) =>
-                          current?.key === draftKey
-                            ? { key: draftKey, draft: editable }
-                            : current,
-                        );
-                      }
+                      if (result.status === "refused")
+                        settleComment(draft.requestId, {
+                          ...draft,
+                          requestId: undefined,
+                        });
                       checkWrite(result);
-                      localStorage.removeItem(draftKey);
-                      setComment((current) =>
-                        current?.key === draftKey
-                          ? { key: draftKey, draft: { text: "" } }
-                          : current,
-                      );
+                      settleComment(draft.requestId);
                     } catch (error) {
                       const response = error as {
                         status?: number;
@@ -586,18 +598,11 @@ export function ProjectWork({ project }: { project: ProjectId }) {
                       if (
                         [400, 404, 409, 422].includes(response.status || 0) &&
                         response.executionOutcome !== "unknown"
-                      ) {
-                        const editable = { ...draft, requestId: undefined };
-                        localStorage.setItem(
-                          draftKey,
-                          JSON.stringify(editable),
-                        );
-                        setComment((current) =>
-                          current?.key === draftKey
-                            ? { key: draftKey, draft: editable }
-                            : current,
-                        );
-                      }
+                      )
+                        settleComment(draft.requestId, {
+                          ...draft,
+                          requestId: undefined,
+                        });
                       throw error;
                     }
                   });

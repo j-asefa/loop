@@ -4,7 +4,11 @@ import type { AddressInfo } from "node:net";
 import { promisify } from "node:util";
 import { afterAll, expect, it, vi } from "vitest";
 import { testDirectory } from "./helpers/test-workspace.js";
-import { BeadsNotStarted, BeadsStore } from "../src/beads-runtime.js";
+import {
+  BeadsNotStarted,
+  BeadsStore,
+  BeadsUnavailable,
+} from "../src/beads-runtime.js";
 
 const data = testDirectory();
 const realBeads = process.env.LOOP_TEST_BEADS_ROOT;
@@ -192,6 +196,7 @@ it.skipIf(!realBeads)(
     };
     const blocker = await create("Blocker");
     const target = await create("Target");
+    const receipts = await import("../src/server/sql/bead-write-receipts.js");
     expect(
       (
         await request(route + "/" + target + "/dependencies", "POST", {
@@ -201,14 +206,27 @@ it.skipIf(!realBeads)(
         })
       ).status,
     ).toBe(404);
+    const dependency = { storeId, requestId: randomUUID(), blocker };
+    const dependencyRoute = route + "/" + target + "/dependencies";
+    const readBead = BeadsStore.prototype.read;
+    const unavailableDependency = vi
+      .spyOn(BeadsStore.prototype, "read")
+      .mockImplementationOnce(function (this: BeadsStore, args) {
+        return readBead.call(this, args);
+      })
+      .mockRejectedValueOnce(new BeadsUnavailable());
+    try {
+      expect((await request(dependencyRoute, "POST", dependency)).status).toBe(
+        503,
+      );
+      expect(
+        receipts.byRequest(db, owner, dependency.requestId),
+      ).toBeUndefined();
+    } finally {
+      unavailableDependency.mockRestore();
+    }
     expect(
-      (
-        await request(route + "/" + target + "/dependencies", "POST", {
-          storeId,
-          requestId: randomUUID(),
-          blocker,
-        })
-      ).body.status,
+      (await request(dependencyRoute, "POST", dependency)).body.status,
     ).toBe("committed");
     expect((await request(route + "/" + target)).body).toMatchObject({
       status: "blocked",
@@ -323,12 +341,23 @@ it.skipIf(!realBeads)(
     );
     expect(JSON.parse(reopened.stdout).linkedRuns).toEqual(link.linkedRuns);
     expect((await request(route + "/" + target)).body.status).toBe("blocked");
-    const close = await request(route + "/" + blocker + "/close", "POST", {
+    const closeRoute = route + "/" + blocker + "/close";
+    const closing = {
       storeId,
       requestId: randomUUID(),
       reason: "Verified acceptance criteria.",
       generation: winner.generation,
-    });
+    };
+    const unavailableClose = vi
+      .spyOn(BeadsStore.prototype, "read")
+      .mockRejectedValueOnce(new BeadsUnavailable());
+    try {
+      expect((await request(closeRoute, "POST", closing)).status).toBe(503);
+      expect(receipts.byRequest(db, owner, closing.requestId)).toBeUndefined();
+    } finally {
+      unavailableClose.mockRestore();
+    }
+    const close = await request(closeRoute, "POST", closing);
     expect(close.body.status).toBe("committed");
     expect((await request(route + "/" + target)).body.status).toBe("ready");
 
@@ -402,6 +431,28 @@ it.skipIf(!realBeads)(
     const resumedRun = claim("beads-fixture")!;
     expect(resumedRun.conversation_id).toBe(resumed.body.conversationId);
     expect(transition(resumedRun, "cancelled")).toBe(true);
+    const interruptedRelease = randomUUID();
+    const started = byRequest(db, owner, requestId)!;
+    expect(
+      move(db, started, "releasing", started.run_id, interruptedRelease),
+    ).toBe(true);
+    expect(
+      (
+        await request(resume, "POST", {
+          storeId,
+          generation,
+          action: "recover",
+        })
+      ).body,
+    ).toMatchObject({ state: "started", canRelease: true });
+    await expect(
+      store.write(["update", recovery, "--status", "open", "--assignee", ""], {
+        release: interruptedRelease,
+      }),
+    ).rejects.toBeInstanceOf(BeadsNotStarted);
+    expect((await request(route + "/" + recovery)).body.status).toBe(
+      "in_progress",
+    );
     const refused = vi
       .spyOn(BeadsStore.prototype, "write")
       .mockRejectedValueOnce(new BeadsNotStarted());
@@ -444,13 +495,35 @@ it.skipIf(!realBeads)(
     expect((await request(route + "/" + recovery)).body.assignment.state).toBe(
       "claiming",
     );
-    const fenced = (
-      await request(resume, "POST", {
-        storeId,
-        generation: oldGeneration,
-        action: "recover",
-      })
-    ).body;
+    const intercepted = Promise.withResolvers<void>();
+    const continueRead = Promise.withResolvers<void>();
+    const waitForRecovery = vi
+      .spyOn(BeadsStore.prototype, "read")
+      .mockImplementationOnce(async function (this: BeadsStore, args) {
+        intercepted.resolve();
+        await continueRead.promise;
+        return readBead.call(this, args);
+      });
+    const stale = request(resume, "POST", {
+      storeId,
+      generation: oldGeneration,
+      action: "resume",
+    });
+    let fenced;
+    try {
+      await intercepted.promise;
+      fenced = (
+        await request(resume, "POST", {
+          storeId,
+          generation: oldGeneration,
+          action: "recover",
+        })
+      ).body;
+    } finally {
+      continueRead.resolve();
+      waitForRecovery.mockRestore();
+    }
+    expect((await stale).status).toBe(409);
     expect(fenced).toMatchObject({
       state: "prepared",
       requestId: unsent,
