@@ -1,3 +1,4 @@
+import type { WorkResult, WorkTarget } from "./src/components/ProjectWork";
 import React, {
   useCallback,
   useEffect,
@@ -223,6 +224,7 @@ function LoopShell() {
 
   // Navigation
   const [appTab, setAppTab] = useState<AppTab>("feed");
+  const [workTarget, setWorkTarget] = useState<WorkTarget | null>(null);
   const selectedTabRef = useRef(appTab);
   const feedScrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
   const feedAgentsScrollRef =
@@ -1556,6 +1558,67 @@ function LoopShell() {
     await signOut;
   }, [client, session, showToast]);
 
+  const openWorkTarget = useCallback((target: WorkTarget) => {
+    setOpenConversationId(null);
+    setCarouselOverrideCards(null);
+    setWorkTarget(target);
+    setAppTab("projects");
+  }, []);
+
+  const openWorkResult = useCallback(
+    async (target: WorkResult) => {
+      if (!client) return;
+      const generation = workspaceGenRef.current;
+      try {
+        const page = await client.conversation(target.conversationId);
+        if (generation !== workspaceGenRef.current) return;
+        const agent = agents.find(
+          ({ id }) => id === page.conversation.agent_id,
+        );
+        if (!target.messageId) {
+          setThreadOverlay({
+            title: target.title,
+            conversationId: target.conversationId,
+            agentId: page.conversation.agent_id,
+            agentName: agent?.name || "agent",
+          });
+          return;
+        }
+        const message = await client.messageDetail(target.messageId);
+        if (generation !== workspaceGenRef.current) return;
+        const result: NativeResultCard = {
+          id: message.id,
+          messageId: message.id,
+          conversationId: target.conversationId,
+          agentId: page.conversation.agent_id || undefined,
+          agentName: agent?.name || "agent",
+          projectName:
+            folders.find(({ id }) => id === page.conversation.project_id)
+              ?.name || "Workspace",
+          model: agent?.model || "",
+          prompt: target.title,
+          fallbackTitle: target.title,
+          body: message.content,
+          createdAt: message.created_at,
+          tab: "done",
+          saved: page.saved.includes(message.id),
+          unread: false,
+          runId: message.run_id || undefined,
+        };
+        setCarouselOverrideCards([result]);
+        setOpenConversationId(target.conversationId);
+      } catch (error) {
+        if (generation === workspaceGenRef.current)
+          showToast(
+            error instanceof Error
+              ? error.message
+              : "Linked answer unavailable",
+          );
+      }
+    },
+    [agents, client, folders, showToast],
+  );
+
   const openAgentByName = useCallback(
     (agentId: string | null | undefined, agentName: string) => {
       const cleanName = agentName.replace(/^@/, "");
@@ -1944,6 +2007,9 @@ function LoopShell() {
           theme={theme}
           onOpenConversation={(conv) => setThreadOverlay(conv)}
           onOpenAgent={(agent) => setProfileAgent(agent)}
+          workTarget={workTarget}
+          onWorkTargetConsumed={() => setWorkTarget(null)}
+          onOpenWorkResult={(target) => void openWorkResult(target)}
           onNewTaskInProject={(folderId) =>
             setComposeTarget({
               kind: "new",
@@ -2108,6 +2174,7 @@ function LoopShell() {
           }}
           onOpenFile={handleOpenFile}
           onOpenFileTarget={handleOpenFileTarget}
+          onProjectWork={openWorkTarget}
           onMarkRead={handleMarkRead}
           onToggleSaved={handleToggleSaved}
           onRemind={(card) => setRemindCard(card)}

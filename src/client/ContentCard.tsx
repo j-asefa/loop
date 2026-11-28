@@ -1,4 +1,6 @@
-import { useId, useState, type ReactNode } from "react";
+import { readRoute } from "./api";
+import { workspaceApi } from "../shared/workspace-api";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import {
   AlarmClock,
   Archive,
@@ -210,6 +212,42 @@ export function ContentCard({
 }) {
   const source = useSourceId();
   const [menu, setMenu] = useState(false);
+  const [workTarget, setWorkTarget] = useState<{
+    projectId: string;
+    beadId: string | null;
+  } | null>(null);
+  const resultMessage = card.type === "result" ? card.source.message_id : null;
+  useEffect(() => {
+    if (!menu || !resultMessage) return;
+    const controller = new AbortController();
+    void readRoute(
+      workspaceApi.resultWork,
+      {
+        params: { message: resultMessage },
+      },
+      source,
+      controller.signal,
+    )
+      .then((target) => {
+        if (!controller.signal.aborted) setWorkTarget(target);
+      })
+      .catch(() => {});
+    return () => {
+      controller.abort();
+      setWorkTarget(null);
+    };
+  }, [menu, resultMessage, source]);
+  const openWork = (fromResult: boolean) => {
+    if (!workTarget || !resultMessage) return;
+    const url = new URL(location.pathname, location.origin);
+    url.searchParams.set("page", "projects");
+    url.searchParams.set("projectView", workTarget.projectId);
+    url.searchParams.set("projectTab", "work");
+    if (source) url.searchParams.set("source", source);
+    if (fromResult) url.searchParams.set("beadFromMessage", resultMessage);
+    else if (workTarget.beadId) url.searchParams.set("bead", workTarget.beadId);
+    location.assign(url.href);
+  };
   const swipe = useSwipe({ onLeft: onArchive, onRight: onSave });
   const press = useLongPress(() => setMenu(true));
   const merged = (name: string) => (event: any) => {
@@ -243,6 +281,26 @@ export function ContentCard({
             icon: <MessageSquare size={18} />,
             onSelect: onReply,
           },
+        ]
+      : []),
+    ...(workTarget
+      ? [
+          {
+            id: "create-bead",
+            label: "Create bead from result",
+            icon: <FolderInput size={18} />,
+            onSelect: () => openWork(true),
+          },
+          ...(workTarget.beadId
+            ? [
+                {
+                  id: "open-bead",
+                  label: "Open linked bead",
+                  icon: <ArrowUpRight size={18} />,
+                  onSelect: () => openWork(false),
+                },
+              ]
+            : []),
         ]
       : []),
     ...(onSave

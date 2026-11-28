@@ -1,3 +1,4 @@
+import { ProjectWork, type WorkTarget, type WorkResult } from "./ProjectWork";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -32,6 +33,9 @@ export function ProjectsScreen({
   onOpenConversation,
   onOpenAgent,
   onNewTaskInProject,
+  onOpenWorkResult,
+  workTarget,
+  onWorkTargetConsumed,
 }: {
   client: LoopClient | null;
   folders: ApiFolder[];
@@ -46,6 +50,9 @@ export function ProjectsScreen({
   }) => void;
   onOpenAgent: (agent: ApiAgent) => void;
   onNewTaskInProject: (folderId: string) => void;
+  onOpenWorkResult: (target: WorkResult) => void;
+  workTarget?: WorkTarget | null;
+  onWorkTargetConsumed: () => void;
 }) {
   const insets = useSafeAreaInsets();
   const [summaries, setSummaries] = useState<ApiProjectSummary[]>([]);
@@ -155,6 +162,18 @@ export function ProjectsScreen({
     [client, localCards],
   );
 
+  const [view, setView] = useState<"results" | "work">("results");
+  const [intent, setIntent] = useState<WorkTarget | undefined>();
+  useEffect(() => {
+    if (!workTarget || !client) return;
+    const folder = folders.find(({ id }) => id === workTarget.projectId);
+    if (!folder) return;
+    setIntent(workTarget);
+    setView("work");
+    void openProject({ id: folder.id, name: folder.name });
+    onWorkTargetConsumed();
+  }, [workTarget, client, folders, openProject, onWorkTargetConsumed]);
+
   const projectAgents = useMemo(() => {
     if (!selectedProject) return [];
     return agents.filter(
@@ -178,6 +197,8 @@ export function ProjectsScreen({
             onPress={() => {
               haptics.light();
               setSelectedProject(null);
+              setView("results");
+              setIntent(undefined);
             }}
             style={[
               styles.iconBtn,
@@ -215,94 +236,139 @@ export function ProjectsScreen({
             { paddingBottom: Math.max(insets.bottom + 96, 110) },
           ]}
         >
-          {projectAgents.length > 0 && (
-            <View style={styles.section}>
+          {client && (
+            <View style={styles.projectViews}>
+              {(["results", "work"] as const).map((tab) => (
+                <Pressable
+                  key={tab}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: view === tab }}
+                  onPress={() => setView(tab)}
+                  style={[
+                    styles.viewButton,
+                    {
+                      borderColor: theme.line,
+                      backgroundColor:
+                        view === tab ? theme.attention : theme.surface,
+                    },
+                  ]}
+                >
+                  <Text style={{ color: theme.text }}>
+                    {tab === "work" ? "Work" : "Results"}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
+          {view === "work" && client ? (
+            <ProjectWork
+              key={
+                selectedProject.id +
+                ":" +
+                (intent?.beadId || intent?.sourceMessageId || "")
+              }
+              client={client}
+              project={selectedProject.id}
+              theme={theme}
+              target={
+                intent?.projectId === selectedProject.id ? intent : undefined
+              }
+              onOpenResult={onOpenWorkResult}
+            />
+          ) : (
+            <>
+              {projectAgents.length > 0 && (
+                <View style={styles.section}>
+                  <Text style={[styles.sectionLabel, { color: theme.muted }]}>
+                    AGENTS
+                  </Text>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{ gap: 8 }}
+                  >
+                    {projectAgents.map((a) => (
+                      <Pressable
+                        key={a.id}
+                        onPress={() => {
+                          haptics.light();
+                          onOpenAgent(a);
+                        }}
+                        style={[
+                          styles.agentChip,
+                          {
+                            backgroundColor: theme.surface,
+                            borderColor: theme.line,
+                          },
+                        ]}
+                      >
+                        <AgentAvatar name={a.name} size={22} />
+                        <Text
+                          style={[styles.agentChipName, { color: theme.text }]}
+                        >
+                          @{a.name}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
+
               <Text style={[styles.sectionLabel, { color: theme.muted }]}>
-                AGENTS
+                RECENT RESULTS
               </Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ gap: 8 }}
-              >
-                {projectAgents.map((a) => (
+              {loading ? (
+                <ActivityIndicator
+                  color={theme.brassText}
+                  style={{ marginTop: 24 }}
+                />
+              ) : projectThreads.length === 0 ? (
+                <Text style={[styles.emptyHint, { color: theme.muted }]}>
+                  No results in this project yet.
+                </Text>
+              ) : (
+                projectThreads.map((t, idx) => (
                   <Pressable
-                    key={a.id}
+                    key={`${t.conversationId}-${idx}`}
                     onPress={() => {
                       haptics.light();
-                      onOpenAgent(a);
+                      onOpenConversation(t);
                     }}
-                    style={[
-                      styles.agentChip,
+                    style={({ pressed }) => [
+                      styles.card,
                       {
                         backgroundColor: theme.surface,
                         borderColor: theme.line,
+                        opacity: pressed ? 0.85 : 1,
                       },
                     ]}
                   >
-                    <AgentAvatar name={a.name} size={22} />
-                    <Text style={[styles.agentChipName, { color: theme.text }]}>
-                      @{a.name}
+                    <View style={styles.cardTop}>
+                      <View style={styles.rowLeft}>
+                        <AgentAvatar name={t.agentName} size={22} />
+                        <Text style={[styles.agentText, { color: theme.text }]}>
+                          @{t.agentName}
+                        </Text>
+                      </View>
+                      <Text style={[styles.timeText, { color: theme.muted }]}>
+                        {relativeTime(t.updatedAt)}
+                      </Text>
+                    </View>
+                    <Text style={[styles.cardTitle, { color: theme.text }]}>
+                      {t.title}
                     </Text>
+                    {t.preview ? (
+                      <Text
+                        style={[styles.cardSub, { color: theme.muted }]}
+                        numberOfLines={2}
+                      >
+                        {t.preview}
+                      </Text>
+                    ) : null}
                   </Pressable>
-                ))}
-              </ScrollView>
-            </View>
-          )}
-
-          <Text style={[styles.sectionLabel, { color: theme.muted }]}>
-            RECENT RESULTS
-          </Text>
-          {loading ? (
-            <ActivityIndicator
-              color={theme.brassText}
-              style={{ marginTop: 24 }}
-            />
-          ) : projectThreads.length === 0 ? (
-            <Text style={[styles.emptyHint, { color: theme.muted }]}>
-              No results in this project yet.
-            </Text>
-          ) : (
-            projectThreads.map((t, idx) => (
-              <Pressable
-                key={`${t.conversationId}-${idx}`}
-                onPress={() => {
-                  haptics.light();
-                  onOpenConversation(t);
-                }}
-                style={({ pressed }) => [
-                  styles.card,
-                  {
-                    backgroundColor: theme.surface,
-                    borderColor: theme.line,
-                    opacity: pressed ? 0.85 : 1,
-                  },
-                ]}
-              >
-                <View style={styles.cardTop}>
-                  <View style={styles.rowLeft}>
-                    <AgentAvatar name={t.agentName} size={22} />
-                    <Text style={[styles.agentText, { color: theme.text }]}>
-                      @{t.agentName}
-                    </Text>
-                  </View>
-                  <Text style={[styles.timeText, { color: theme.muted }]}>
-                    {relativeTime(t.updatedAt)}
-                  </Text>
-                </View>
-                <Text style={[styles.cardTitle, { color: theme.text }]}>
-                  {t.title}
-                </Text>
-                {t.preview ? (
-                  <Text
-                    style={[styles.cardSub, { color: theme.muted }]}
-                    numberOfLines={2}
-                  >
-                    {t.preview}
-                  </Text>
-                ) : null}
-              </Pressable>
-            ))
+                ))
+              )}
+            </>
           )}
         </ScrollView>
       </View>
@@ -399,6 +465,13 @@ export function ProjectsScreen({
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  projectViews: { flexDirection: "row", gap: 8 },
+  viewButton: {
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingVertical: 9,
+    paddingHorizontal: 14,
+  },
   header: {
     flexDirection: "row",
     alignItems: "center",

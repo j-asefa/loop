@@ -219,6 +219,16 @@ export class BeadsWriteUnknown extends Error {
 /** Installer or launcher failed before the executable could mutate its store. */
 export class BeadsNotStarted extends BeadsUnavailable {}
 
+export class BeadsPreconditionFailed extends Error {
+  constructor() {
+    super("The bead changed before this request could be applied.");
+  }
+}
+
+type BeadsGuard =
+  | { ready: string }
+  | { current: { id: string; status: string; assignee: string | null } };
+
 export class BeadsStore {
   readonly id: string;
   private readonly directory: string;
@@ -250,16 +260,24 @@ export class BeadsStore {
     return this.json(["--readonly", ...args]);
   }
 
-  async write(args: readonly string[]): Promise<unknown> {
+  async write(args: readonly string[], guard?: BeadsGuard): Promise<unknown> {
     try {
-      return await this.json(args);
+      return JSON.parse(await this.execute(args, guard)) as unknown;
     } catch (error) {
       if (error instanceof BeadsNotStarted) throw error;
+      const reason = error instanceof BeadsUnavailable ? error.cause : error;
+      // Pinned bd update uses exit 13 for a failed compare-and-set, as does
+      // the lock wrapper when the authoritative ready query loses its guard.
+      if (
+        typeof reason === "object" &&
+        reason !== null &&
+        "code" in reason &&
+        reason.code === 13
+      )
+        throw new BeadsPreconditionFailed();
       // The caller owns the durable receipt and must inspect Beads for its
       // operation identity before doing anything with an uncertain write.
-      throw new BeadsWriteUnknown({
-        cause: error instanceof BeadsUnavailable ? error.cause : error,
-      });
+      throw new BeadsWriteUnknown({ cause: reason });
     }
   }
 
@@ -274,7 +292,7 @@ export class BeadsStore {
 
   // The callers supply structured arguments. The lock survives the Loop
   // process exiting because bd inherits the descriptor via exec.
-  private async execute(args: readonly string[]) {
+  private async execute(args: readonly string[], guard?: BeadsGuard) {
     let binary: string;
     try {
       await access(lock);
@@ -282,10 +300,15 @@ export class BeadsStore {
     } catch (cause) {
       throw new BeadsNotStarted({ cause });
     }
+    const check = guard
+      ? "ready" in guard
+        ? ["--ready", guard.ready]
+        : ["--current", JSON.stringify(guard.current)]
+      : [];
     try {
       const { stdout } = await exec(
         "python3",
-        ["-I", lock, binary, "--sandbox", "--json", ...args],
+        ["-I", lock, ...check, binary, "--sandbox", "--json", ...args],
         {
           cwd: this.directory,
           timeout: 45_000,

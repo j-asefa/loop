@@ -1,3 +1,9 @@
+import type {
+  BeadAssignmentView,
+  BeadDetail,
+  BeadWorkState,
+  BeadWriteStatus,
+} from "../../../../src/shared/bead-schemas";
 import type { AgentModelSelection } from "../models";
 import {
   parseArtifactFileMetadata,
@@ -877,6 +883,119 @@ export class LoopClient {
         commandId: commandId ?? randomUuid(),
         answer,
       },
+    );
+  }
+
+  private workPath(project: string, bead?: string) {
+    const path = "/api/projects/" + encodeURIComponent(project) + "/work";
+    return bead ? path + "/" + encodeURIComponent(bead) : path;
+  }
+
+  projectWork(project: string) {
+    return this.request<BeadWorkState>("GET", this.workPath(project));
+  }
+
+  enableProjectWork(project: string) {
+    return this.request<{ storeId: string }>(
+      "PUT",
+      this.workPath(project),
+      {},
+      150_000,
+    );
+  }
+
+  projectBead(project: string, bead: string) {
+    return this.request<BeadDetail>("GET", this.workPath(project, bead));
+  }
+
+  projectBeadAgents(project: string) {
+    return this.request<{ id: string; name: string }[]>(
+      "GET",
+      this.workPath(project) + "/agents",
+    );
+  }
+
+  createProjectBead(
+    project: string,
+    body: {
+      storeId: string;
+      requestId: string;
+      title: string;
+      description: string;
+      sourceMessageId?: string;
+    },
+  ) {
+    return this.request<BeadWriteStatus>("POST", this.workPath(project), body);
+  }
+
+  commentOnBead(
+    project: string,
+    bead: string,
+    body: {
+      storeId: string;
+      requestId: string;
+      text: string;
+      excerpt?: string;
+    },
+  ) {
+    return this.request<BeadWriteStatus>(
+      "POST",
+      this.workPath(project, bead) + "/comments",
+      body,
+    );
+  }
+
+  startBead(
+    project: string,
+    bead: string,
+    body: { storeId: string; requestId: string; agentId: string },
+  ) {
+    return this.request<BeadAssignmentView>(
+      "POST",
+      this.workPath(project, bead) + "/start",
+      body,
+      RUN_REQUEST_TIMEOUT_MS,
+    );
+  }
+
+  changeBeadAssignment(
+    project: string,
+    bead: string,
+    body: {
+      storeId: string;
+      generation: string;
+      action: "resume" | "release";
+    },
+  ) {
+    return this.request<BeadAssignmentView>(
+      "POST",
+      this.workPath(project, bead) + "/assignment",
+      body,
+      RUN_REQUEST_TIMEOUT_MS,
+    );
+  }
+
+  closeBead(
+    project: string,
+    bead: string,
+    body: {
+      storeId: string;
+      requestId: string;
+      generation: string | null;
+      reason: string;
+    },
+  ) {
+    return this.request<BeadWriteStatus>(
+      "POST",
+      this.workPath(project, bead) + "/close",
+      body,
+    );
+  }
+
+  resultWork(message: string) {
+    return this.request<{ projectId: string; beadId: string | null } | null>(
+      "GET",
+      "/api/result-work/" + encodeURIComponent(message),
     );
   }
 

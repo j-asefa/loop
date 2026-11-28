@@ -1,3 +1,4 @@
+import type { WorkTarget } from "./ProjectWork";
 import React, {
   useCallback,
   useEffect,
@@ -23,11 +24,7 @@ import {
 } from "react-native";
 import { BlurView } from "expo-blur";
 import * as Clipboard from "expo-clipboard";
-import {
-  Gesture,
-  GestureDetector,
-  useNativeGesture,
-} from "react-native-gesture-handler";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   Extrapolation,
   interpolate,
@@ -116,7 +113,7 @@ import {
   useAttachments,
 } from "./AttachmentTray";
 import { AgentAvatar, InlineFormattedText, RichContent } from "./RichContent";
-import { PagerGesture } from "../pager-gesture";
+import { SpotlightTrack, spotlightGeometry } from "./SpotlightTrack";
 import { ScheduleSendSheet } from "./ScheduleSendSheet";
 import { VoiceRecorderButton } from "./VoiceRecorder";
 import {
@@ -124,7 +121,6 @@ import {
   computeQuickSheetLayout,
 } from "../snippet-usage-codec";
 
-const CARD_GAP = 10;
 const DISMISS_THRESHOLD = 100;
 const EMPTY_PUBLISHED_FILES: PublishedFileItem[] = [];
 
@@ -147,6 +143,7 @@ type SpotlightCarouselProps = {
   ) => void;
   onOpenAgent?: (agentId: string | null | undefined, agentName: string) => void;
   onOpenThread?: (card: NativeResultCard) => void;
+  onProjectWork?: (target: WorkTarget) => void;
   onOpenFile?: (file: PublishedFileItem) => void;
   onOpenFileTarget?: (target: LoopFileTarget, label?: string) => void;
   onMarkRead: (card: NativeResultCard) => void;
@@ -237,6 +234,7 @@ export function SpotlightCarousel({
   onOpenAgent,
   onOpenThread,
   onOpenFile,
+  onProjectWork,
   onOpenFileTarget,
   onMarkRead,
   onToggleSaved,
@@ -249,9 +247,8 @@ export function SpotlightCarousel({
   const insets = useSafeAreaInsets();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
 
-  const cardWidth = Math.min(Math.round(screenWidth * 0.87), 424);
-  const snapInterval = cardWidth + CARD_GAP;
-  const sidePadding = Math.max(12, Math.round((screenWidth - cardWidth) / 2));
+  const { cardWidth, snapInterval, sidePadding } =
+    spotlightGeometry(screenWidth);
 
   // Pin the order so a refresh never reshuffles the stack; a newly arriving
   // card re-pins it and takes you to that card (#1) once the reply keyboard
@@ -884,7 +881,6 @@ export function SpotlightCarousel({
   const scrollRef = useRef<Animated.ScrollView>(null);
   // Tables and code blocks inside cards block this gesture while their own
   // sideways pan is active (see pager-gesture.tsx).
-  const pagerGesture = useNativeGesture({});
   const replyInputRef = useRef<React.ComponentRef<typeof TextInput>>(null);
   const searchInputRef = useRef<React.ComponentRef<typeof TextInput>>(null);
   const markedReadRef = useRef(new Set<string>());
@@ -1636,6 +1632,26 @@ export function SpotlightCarousel({
     recentCards,
   ]);
 
+  const workMessage = actionSheetCard?.messageId;
+  const [workLink, setWorkLink] = useState<{
+    message: string;
+    projectId: string;
+    beadId: string | null;
+  } | null>(null);
+  useEffect(() => {
+    if (!client || !workMessage || !onProjectWork) return;
+    let active = true;
+    void client
+      .resultWork(workMessage)
+      .then((link) => {
+        if (active && link) setWorkLink({ message: workMessage, ...link });
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+      setWorkLink(null);
+    };
+  }, [client, workMessage, onProjectWork]);
   const actionSavedEdit =
     actionSheetCard && savedEdits.get(carouselCardKey(actionSheetCard));
   const actionSaved = actionSheetCard && displayedCardSaved(actionSheetCard);
@@ -2122,81 +2138,63 @@ export function SpotlightCarousel({
             style={[styles.trackWrap, searchOpen && { opacity: 0.25 }]}
             pointerEvents={searchOpen ? "none" : "auto"}
           >
-            <PagerGesture.Provider value={pagerGesture}>
-              <GestureDetector gesture={pagerGesture}>
-                <Animated.ScrollView
-                  ref={scrollRef}
-                  horizontal
-                  // With the reply keyboard up, the default ("never") makes this
-                  // carousel claim every touch to dismiss the keyboard, so the
-                  // card underneath cannot scroll. Let the card take the touch.
-                  keyboardShouldPersistTaps="handled"
-                  showsHorizontalScrollIndicator={false}
-                  decelerationRate="fast"
-                  snapToInterval={snapInterval}
-                  snapToAlignment="start"
-                  disableIntervalMomentum
-                  scrollEventThrottle={16}
-                  onScroll={scrollHandler}
-                  contentContainerStyle={{
-                    paddingHorizontal: sidePadding,
-                    gap: CARD_GAP,
-                  }}
-                >
-                  {slides.map((slide, index) => {
-                    // Window rendering: only mount rich card trees for the active card
-                    // and its immediate left/right peeking neighbors (at most 3 cards).
-                    if (Math.abs(index - safeIndex) > 1) {
-                      return (
-                        <View
-                          key={slide.id}
-                          style={[
-                            styles.floatCard,
-                            {
-                              width: cardWidth,
-                              backgroundColor: theme.surface,
-                              borderColor: theme.line,
-                              opacity: 0.62,
-                            },
-                          ]}
-                        />
-                      );
-                    }
-                    const header = headers[index];
-                    const isMatch =
-                      Boolean(
-                        (searchOpen ? searchQuery : committedQuery).trim(),
-                      ) && activeHits.some((h) => h.index === index);
-                    const slideFiles =
-                      (slide.runId && runFilesByRunId.get(slide.runId)) ||
-                      EMPTY_PUBLISHED_FILES;
-                    return (
-                      <FloatingCarouselCard
-                        key={slide.id}
-                        slide={slide}
-                        header={header}
-                        files={slideFiles}
-                        client={client}
-                        index={index}
-                        isActive={index === safeIndex}
-                        isMatch={isMatch}
-                        cardWidth={cardWidth}
-                        snapInterval={snapInterval}
-                        scrollX={scrollX}
-                        theme={theme}
-                        onSelectNeighbor={handleSelectNeighbor}
-                        onPullToSearch={handlePullToSearch}
-                        onLongPress={handleLongPressCard}
-                        onReplyButton={prefillReply}
-                        onOpenThread={onOpenThread}
-                        onOpenFile={onOpenFile}
-                        onOpenFileTarget={onOpenFileTarget}
-                      />
-                    );
-                  })}
-                </Animated.ScrollView>
-              </GestureDetector>
-            </PagerGesture.Provider>
+            <SpotlightTrack
+              ref={scrollRef}
+              snapInterval={snapInterval}
+              sidePadding={sidePadding}
+              onScroll={scrollHandler}
+            >
+              {slides.map((slide, index) => {
+                // Window rendering: only mount rich card trees for the active card
+                // and its immediate left/right peeking neighbors (at most 3 cards).
+                if (Math.abs(index - safeIndex) > 1) {
+                  return (
+                    <View
+                      key={slide.id}
+                      style={[
+                        styles.floatCard,
+                        {
+                          width: cardWidth,
+                          backgroundColor: theme.surface,
+                          borderColor: theme.line,
+                          opacity: 0.62,
+                        },
+                      ]}
+                    />
+                  );
+                }
+                const header = headers[index];
+                const isMatch =
+                  Boolean((searchOpen ? searchQuery : committedQuery).trim()) &&
+                  activeHits.some((h) => h.index === index);
+                const slideFiles =
+                  (slide.runId && runFilesByRunId.get(slide.runId)) ||
+                  EMPTY_PUBLISHED_FILES;
+                return (
+                  <FloatingCarouselCard
+                    key={slide.id}
+                    slide={slide}
+                    header={header}
+                    files={slideFiles}
+                    client={client}
+                    index={index}
+                    isActive={index === safeIndex}
+                    isMatch={isMatch}
+                    cardWidth={cardWidth}
+                    snapInterval={snapInterval}
+                    scrollX={scrollX}
+                    theme={theme}
+                    onSelectNeighbor={handleSelectNeighbor}
+                    onPullToSearch={handlePullToSearch}
+                    onLongPress={handleLongPressCard}
+                    onReplyButton={prefillReply}
+                    onOpenThread={onOpenThread}
+                    onOpenFile={onOpenFile}
+                    onOpenFileTarget={onOpenFileTarget}
+                  />
+                );
+              })}
+            </SpotlightTrack>
           </View>
 
           {/* Mode-A Live Search Hit Dropdown floating above dimmed card deck */}
@@ -2907,6 +2905,46 @@ export function SpotlightCarousel({
                 </View>
               </Pressable>
 
+              {workLink && workLink.message === workMessage && (
+                <View style={styles.quickOptionText}>
+                  {[false, true]
+                    .filter((create) => create || workLink.beadId)
+                    .map((create) => (
+                      <Pressable
+                        key={String(create)}
+                        style={[
+                          styles.quickOption,
+                          {
+                            backgroundColor: theme.soft,
+                            borderColor: theme.line,
+                          },
+                        ]}
+                        onPress={() => {
+                          setActionSheetCard(null);
+                          onProjectWork?.({
+                            projectId: workLink.projectId,
+                            beadId: create
+                              ? undefined
+                              : workLink.beadId || undefined,
+                            sourceMessageId: create ? workMessage : undefined,
+                            title: actionSheetCard.fallbackTitle,
+                          });
+                        }}
+                      >
+                        <Text
+                          style={[
+                            styles.quickOptionLabel,
+                            { color: theme.text },
+                          ]}
+                        >
+                          {create
+                            ? "Create bead from result"
+                            : "Open linked bead"}
+                        </Text>
+                      </Pressable>
+                    ))}
+                </View>
+              )}
               <Pressable
                 disabled={actionSavePending}
                 onPress={() => {

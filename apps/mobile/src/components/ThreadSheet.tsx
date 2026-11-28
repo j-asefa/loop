@@ -1,3 +1,4 @@
+import { SelectionTextInput } from "./SelectionTextInput";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -1523,12 +1524,8 @@ export function ThreadSheet({
           </View>
           {selectingMessage ? (
             Platform.OS === "ios" ? (
-              <TextInput
+              <SelectionTextInput
                 value={selectingMessage.content}
-                editable={false}
-                multiline
-                scrollEnabled
-                textAlignVertical="top"
                 style={[styles.selectModalInput, { color: theme.text }]}
               />
             ) : (

@@ -1637,3 +1637,41 @@ button:not(:disabled):active,
     animation: none;
   }
 }
+
+.project-work {
+  display: grid;
+  gap: 0.75rem;
+  padding-block: 0.75rem;
+  align-items: start;
+}
+
+.project-work form,
+.project-work article {
+  display: grid;
+  gap: 0.6rem;
+  justify-items: start;
+  min-width: 0;
+}
+
+.project-work article {
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  background: var(--surface);
+}
+
+.project-work label {
+  display: grid;
+  gap: 0.3rem;
+  width: 100%;
+}
+
+.project-work textarea {
+  width: 100%;
+  min-height: 5rem;
+}
+
+.project-work ul,
+.project-work p {
+  margin-block: 0;
+}

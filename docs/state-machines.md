@@ -40,6 +40,31 @@ If a step can't be followed, say which and why in the PR instead of working arou
 
 ## Runs
 
+### Project Beads assignments
+
+The [assignment coordinator](../src/server/bead-assignments.ts) owns these
+transitions. A unique active assignment per owner, store and bead reserves
+each claim. The request ID and generation survive reloads. The Beads
+assignee encodes that generation and the ready query and guarded claim
+share one per-store kernel lock. A launch binds the assignment and queued
+run in one SQLite transaction.
+
+| From | To | Trigger and guard |
+| --- | --- | --- |
+| ∅ | prepared | Work on this reserves the request and generation; tx |
+| prepared | claiming | First start or explicit resume records intent before invoking Beads; sql |
+| claiming | prepared | The launcher proves Beads never started; sql |
+| claiming | refused | The ready or claim precondition failed before mutation; sql |
+| claiming | claimed | The Beads assignee and status match the request; sql |
+| claimed | started | Explicit launch inserts the linked run and binds its identity; tx |
+| prepared | released | Explicit release proved the claim was never sent; tx |
+| claimed / started | releasing | Explicit release rechecks the generation and no run or a terminal run without unsettled native dispatch; tx |
+| releasing | released | The Beads release marker matches the generation; sql |
+
+Recovery reads in `claiming` and `releasing` never repeat mutations.
+Completing a linked run leaves the bead open until explicitly closed.
+Assignment records retain their run and result links after release.
+
 ### `runs.state`
 
 Owner: [`src/shared/run-state.ts`](../src/shared/run-state.ts) (`RUN_TRANSITIONS`).
