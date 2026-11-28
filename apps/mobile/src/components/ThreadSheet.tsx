@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   Keyboard,
@@ -49,6 +55,12 @@ import {
 } from "../drafts";
 import { relativeTime, type NativeResultCard } from "../fixtures";
 import { ThreadRefreshGate } from "../workspace-runtime";
+import {
+  revealEarlierId,
+  runFileRequests,
+  THREAD_RENDER_STEP,
+  threadWindowStart,
+} from "../thread-window";
 import { haptics } from "../haptics";
 import { CopySessionTracker } from "../text-selection";
 import type { LoopTheme } from "../theme";
@@ -124,6 +136,11 @@ export function ThreadSheet({
 }) {
   const insets = useSafeAreaInsets();
   const [messages, setMessages] = useState<ApiMessage[]>([]);
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+  // Null renders the newest step; an id pins the window after "Load earlier".
+  const [firstVisibleId, setFirstVisibleId] = useState<string | null>(null);
+  const fetchedRunFilesRef = useRef(new Map<string, string>());
   const [runFilesByRunId, setRunFilesByRunId] = useState<
     Map<string, PublishedFileItem[]>
   >(() => new Map());
@@ -319,6 +336,19 @@ export function ThreadSheet({
 
   const scheduleLocked = Boolean(pendingSchedule?.locked);
 
+  // Stable so the memoized RichContent of every message skips re-rendering
+  // when the draft or a live stream changes.
+  const replyButtonStateRef = useRef({ scheduleLocked, client, draftScope });
+  replyButtonStateRef.current = { scheduleLocked, client, draftScope };
+  const handleReplyButton = useCallback((prompt: string) => {
+    const state = replyButtonStateRef.current;
+    if (state.scheduleLocked) return;
+    draftTouchedRef.current = true;
+    pendingSendRef.current = null;
+    setDraft(prompt);
+    saveDraft(state.client?.localDataScope, state.draftScope, prompt);
+  }, []);
+
   const load = useCallback(async () => {
     if (!client) {
       // Build chronological messages from local demo cards
@@ -407,14 +437,20 @@ export function ThreadSheet({
       const page = await client.conversation(targetConv, cursor);
       if (targetConv !== conversationId) return;
       hasLoadedHistoryRef.current = true;
+      const loadedIds = new Set(messagesRef.current.map((m) => m.id));
+      const fetchedOlder = page.messages.filter((m) => !loadedIds.has(m.id));
+      if (fetchedOlder.length > 0) {
+        suppressAutoScrollUntilRef.current = Date.now() + 800;
+        // Reveal one step of the fetched page; the rest waits for the next tap.
+        setFirstVisibleId(
+          fetchedOlder[Math.max(0, fetchedOlder.length - THREAD_RENDER_STEP)]!
+            .id,
+        );
+      }
       setMessages((prev) => {
         const existingIds = new Set(prev.map((m) => m.id));
         const older = page.messages.filter((m) => !existingIds.has(m.id));
-        if (older.length > 0) {
-          suppressAutoScrollUntilRef.current = Date.now() + 800;
-          return [...older, ...prev];
-        }
-        return prev;
+        return older.length > 0 ? [...older, ...prev] : prev;
       });
       applyBookmarks(page.saved, bookmarkRead, startedAt);
       setNextCursor(page.next ?? null);
@@ -436,29 +472,47 @@ export function ThreadSheet({
     void load();
   }, [load, refreshKey]);
 
-  // Fetch published files for runs present in this thread
+  const windowStart = threadWindowStart(messages, firstVisibleId);
+  const visibleMessages = useMemo(
+    () => (windowStart > 0 ? messages.slice(windowStart) : messages),
+    [messages, windowStart],
+  );
+  useEffect(() => {
+    fetchedRunFilesRef.current = new Map();
+  }, [client]);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  // Fetch published files for rendered runs. A refresh refetches only runs
+  // whose newest rendered message changed, not every run in the thread.
   useEffect(() => {
     if (!client) return;
-    const runIds = Array.from(
-      new Set(
-        messages
-          .filter((m) => m.role === "assistant" && m.run_id)
-          .map((m) => m.run_id!),
-      ),
-    );
-    if (!runIds.length) return;
-    let cancelled = false;
+    const fetched = fetchedRunFilesRef.current;
+    const requests = runFileRequests(visibleMessages, fetched);
+    if (!requests.length) return;
+    for (const { runId, signature } of requests) fetched.set(runId, signature);
+    // A later refresh must not drop these results: they are marked fetched.
     void Promise.all(
-      runIds.map(async (runId) => {
+      requests.map(async ({ runId, signature }) => {
         try {
           const files = await client.runFiles(runId);
-          return [runId, files] as const;
+          // A newer fetch for this run supersedes this answer.
+          return fetched.get(runId) === signature
+            ? ([runId, files] as const)
+            : null;
         } catch {
+          // Retry on the next refresh unless a newer fetch already started.
+          if (fetched.get(runId) === signature) fetched.delete(runId);
           return null;
         }
       }),
     ).then((entries) => {
-      if (cancelled) return;
+      if (!mountedRef.current) return;
       setRunFilesByRunId((prev) => {
         const next = new Map(prev);
         for (const entry of entries) {
@@ -467,10 +521,7 @@ export function ThreadSheet({
         return next;
       });
     });
-    return () => {
-      cancelled = true;
-    };
-  }, [client, messages]);
+  }, [client, visibleMessages]);
 
   async function handleSend() {
     const trimmed = draft.trim();
@@ -917,13 +968,19 @@ export function ThreadSheet({
             </Text>
           ) : (
             <>
-              {nextCursor && (
+              {(windowStart > 0 || nextCursor) && (
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="Load earlier messages"
                   disabled={loadingMore}
                   onPress={() => {
                     haptics.light();
+                    if (windowStart > 0) {
+                      // Loaded but not yet rendered: reveal without a request.
+                      suppressAutoScrollUntilRef.current = Date.now() + 800;
+                      setFirstVisibleId(revealEarlierId(messages, windowStart));
+                      return;
+                    }
                     void loadEarlier();
                   }}
                   style={({ pressed }) => [
@@ -942,7 +999,7 @@ export function ThreadSheet({
                   </Text>
                 </Pressable>
               )}
-              {messages.map((msg) => {
+              {visibleMessages.map((msg) => {
                 const isUser = msg.role === "user";
                 const isSaved = savedIds.has(msg.id);
                 const isCopied = copiedMsgId === msg.id;
@@ -1036,17 +1093,7 @@ export function ThreadSheet({
                           selectable
                           workspaceOrigin={client?.origin}
                           onOpenFile={onOpenFileTarget}
-                          onReplyButton={(prompt) => {
-                            if (scheduleLocked) return;
-                            draftTouchedRef.current = true;
-                            pendingSendRef.current = null;
-                            setDraft(prompt);
-                            saveDraft(
-                              client?.localDataScope,
-                              draftScope,
-                              prompt,
-                            );
-                          }}
+                          onReplyButton={handleReplyButton}
                         />
                         {msg.run_id &&
                         (runFilesByRunId.get(msg.run_id)?.length ?? 0) > 0 ? (
