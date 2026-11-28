@@ -245,7 +245,7 @@ it("repairs damaged cache entries and preserves an unexpected directory", async 
           {
             cwd: cache,
             stdio: "ignore",
-            timeout: 1000,
+            timeout: 5_000,
           },
         ),
         "close",

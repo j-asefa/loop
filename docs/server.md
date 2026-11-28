@@ -80,9 +80,8 @@ completion writes keep their normal timeout ([busy-wait.ts](../src/server/busy-w
 ### Beads runtime
 
 The companion's pinned Beads runtime supports Linux and macOS on x64 and
-arm64. Desktop use requires Python 3, Git, tar and access to the upstream
-release for the first download of a new pin. The companion image includes
-Python 3 and the verified Beads binary.
+arm64. The runtime requires Python 3, Git, tar and access to the upstream
+release for the first download of a new pin.
 
 Run `npm run smoke:beads` to exercise the pinned Beads CLI with a disposable
 embedded Dolt store. It uses the platform release archive, launches competing

@@ -21,7 +21,7 @@
     "smoke:feed-events": "node scripts/heavy-command.mjs --import tsx scripts/feed-websocket-smoke.mjs && node scripts/heavy-command.mjs --import tsx scripts/personal-files-events-smoke.mjs",
     "smoke:feed-refresh": "node scripts/heavy-command.mjs --import tsx scripts/feed-refresh-browser-smoke.mjs",
     "smoke:package": "node scripts/heavy-command.mjs scripts/package-smoke.mjs",
-    "smoke:beads": "node --import tsx scripts/beads-recovery-smoke.mjs",
+    "smoke:beads": "node scripts/heavy-command.mjs --import tsx scripts/beads-recovery-smoke.mjs",
     "smoke:creation-commands": "node scripts/heavy-command.mjs scripts/creation-commands-browser-smoke.mjs",
     "smoke:run-retry": "node scripts/heavy-command.mjs scripts/run-retry-browser-smoke.mjs",
     "smoke:history": "node scripts/heavy-command.mjs scripts/conversation-history-smoke.mjs",

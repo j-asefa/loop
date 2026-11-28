@@ -22,6 +22,14 @@ const { BeadsStore, beadsBinary, beadsRelease } = await import(moduleUrl);
 const scope = { ownerId: "owner", profile: "companion", projectId: "project" };
 const [, script, rootArg, action, id, request] = process.argv;
 
+async function waitForWorkers(work) {
+  const results = await Promise.allSettled(work);
+  return results.map((result) => {
+    if (result.status === "rejected") throw result.reason;
+    return result.value;
+  });
+}
+
 if (rootArg) {
   const store = new BeadsStore(rootArg, scope);
   const receipt = join(rootArg, request);
@@ -73,7 +81,7 @@ if (rootArg) {
     await mkdir(resolve(installed, ".."), { recursive: true });
     await copyFile(original, installed);
     const store = new BeadsStore(root, scope);
-    await Promise.all([store.initialize(), store.initialize()]);
+    await waitForWorkers([store.initialize(), store.initialize()]);
     await chmod(installed, 0o601);
     assert.equal(await beadsBinary(root), installed);
     assert.deepEqual(await store.read(["list"]), []);
@@ -91,7 +99,7 @@ if (rootArg) {
       return issue.id;
     };
     const contested = await create("Claim contention");
-    const claims = await Promise.all([
+    const claims = await waitForWorkers([
       work("claim", contested, "loop-start-first"),
       work("claim", contested, "loop-start-second"),
     ]);
