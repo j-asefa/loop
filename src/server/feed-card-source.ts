@@ -107,7 +107,10 @@ SELECT k.*,
   m.metadata message_metadata,
   CASE WHEN res.sealed=1 THEN 'assistant' ELSE m.role END message_role,
   ${doneOnly ? "CASE WHEN res.sealed=1 THEN json_extract(res.outcome,'$.body') ELSE m.content END" : `substr(CASE WHEN res.sealed=1 THEN json_extract(res.outcome,'$.body') ELSE m.content END,1,${FEED_MESSAGE_PREFIX_LIMIT + 1})`} message_content,
-  COALESCE(m.created_at,res.created_at) message_created_at,
+  -- A sealed answer arrived when its Result was sealed. Native harnesses
+  -- create the answer's message row when the turn starts and fill it in,
+  -- so that row's created_at is closer to when the prompt was sent.
+  CASE WHEN res.sealed=1 THEN res.created_at ELSE COALESCE(m.created_at,res.created_at) END message_created_at,
   json_extract(m.metadata,'$.automation.kind') message_automation,json_extract(m.metadata,'$.automation.fromName') message_automation_from,
   (k.message_id IS NOT NULL AND (EXISTS(SELECT 1 FROM message_bookmarks b WHERE b.owner_id=@owner AND b.message_id=k.message_id)
     OR EXISTS(SELECT 1 FROM artifacts sa WHERE sa.owner_id=@owner AND sa.pinned=1 AND sa.archived=0 AND json_extract(sa.metadata,'$.messageId')=k.message_id))) message_saved,
