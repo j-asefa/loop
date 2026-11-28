@@ -82,9 +82,11 @@ const pendingForReviewStatement = statement(`SELECT r.id,r.owner_id
    AND r.agent_id=@agentId
    AND r.conversation_id=@conversationId
    AND r.id<>@excludeRunId
-   AND r.state IN ('queued','paused')
+   AND r.state='queued'
+   AND EXISTS(SELECT 1 FROM runs caller WHERE caller.id=@excludeRunId AND caller.owner_id=@owner AND caller.state IN ('running','pausing'))
    AND NOT EXISTS(SELECT 1 FROM native_dispatch d WHERE d.run_id=r.id)
-   AND NOT EXISTS(SELECT 1 FROM agent_checkpoints c WHERE c.run_id=r.id)`);
+   AND NOT EXISTS(SELECT 1 FROM agent_checkpoints c WHERE c.run_id=r.id)
+   AND NOT EXISTS(SELECT 1 FROM messages m WHERE m.owner_id=r.owner_id AND m.run_id=r.id AND m.role='assistant')`);
 export function pendingForReview(
   db: Database.Database,
   params: {

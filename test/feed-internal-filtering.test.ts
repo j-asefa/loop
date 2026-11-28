@@ -31,7 +31,7 @@ function createTestRepo(name: string) {
 
 const { db, id, now } = await import("../src/server/db");
 const { createAgent, ownedRun } = await import("../src/server/domain");
-const { requestReview, requestedReviewStatus } =
+const { requestReview, requestedReviewStatus, startCodeReview } =
   await import("../src/server/code-reviews");
 const { transition } = await import("../src/server/queue");
 const { feed } = await import("../src/server/mobile-return");
@@ -992,4 +992,186 @@ it("keeps a direct owner follow-up queued in a review conversation visible in Qu
   expect(
     threadDetails(db, owner, lead.conversation_id).queued_runs.map((r) => r.id),
   ).toEqual([ownerFollowUp]);
+});
+
+it("keeps a mail-only conversation hidden even when a mail turn requests a code review", () => {
+  const owner = "mail-review-hide-" + id().slice(0, 6);
+  const { connectionId, builder, helper, folder, reviewTeam } =
+    setupWorkspace(owner);
+  const humanConv = id();
+  seedConversation(db, {
+    id: humanConv,
+    owner_id: owner,
+    agent_id: builder.id,
+    title: "Builder root",
+    project_id: folder.id,
+    created_at: now(),
+  });
+  const humanRun = id();
+  seedRun(db, {
+    id: humanRun,
+    owner_id: owner,
+    agent_id: builder.id,
+    conversation_id: humanConv,
+    input: "Ask helper to review",
+    state: "running",
+    idempotency_key: humanRun,
+    payload: JSON.stringify({ connectionId, folderId: folder.id }),
+    created_at: now(),
+    updated_at: now(),
+  });
+  seedMessage(db, {
+    id: id(),
+    owner_id: owner,
+    conversation_id: humanConv,
+    run_id: humanRun,
+    role: "user",
+    content: "Ask helper to review",
+    metadata: writeMessageMetadata({ personal: true }),
+    created_at: now(),
+  });
+
+  // Builder mails helper, creating a pure agent-mail conversation for helper
+  const sent = sendMail(ownedRun(humanRun, owner), "mail-rev-call", {
+    to: helper.id,
+    body: "Run a code review on the repo",
+    interrupt: false,
+    fileIds: [],
+  });
+  const mailRow = db
+    .prepare(
+      "SELECT run_id, recipient_conversation_id FROM agent_mail WHERE owner_id=? AND id=?",
+    )
+    .get(owner, sent.messageId) as {
+    run_id: string;
+    recipient_conversation_id: string;
+  };
+  const mailConv = mailRow.recipient_conversation_id;
+  const mailRun = mailRow.run_id;
+
+  // Helper's mail run requests a review with default wait:false (adds review_continuation)
+  db.prepare(
+    "UPDATE runs SET state='running', payload=? WHERE id=? AND owner_id=?",
+  ).run(
+    JSON.stringify({
+      agentId: helper.id,
+      name: helper.name,
+      provider: "openai",
+      model: "fixture",
+      instructions: "",
+      connectionId,
+      folderId: folder.id,
+      mailId: sent.messageId,
+    }),
+    mailRun,
+    owner,
+  );
+  const req = requestReview(ownedRun(mailRun, owner), "mail-rev-1", {
+    teamId: reviewTeam.id,
+    scope: "uncommitted",
+    base: "main",
+    depth: "auto",
+    wait: false,
+  });
+  const reviewId = (req as { report: { reviewId: string } }).report.reviewId;
+  const rc = db
+    .prepare(
+      "SELECT rc.run_id, cr.run_id lead_run_id FROM review_continuations rc JOIN code_reviews cr ON cr.id=rc.review_id WHERE rc.review_id=?",
+    )
+    .get(reviewId) as { run_id: string; lead_run_id: string };
+  finishTurn(owner, mailRun, mailConv, "Requested review from mail turn.");
+
+  // Review completes and continuation finishes inside helper's mail-only conversation
+  db.prepare(
+    "UPDATE runs SET state='completed', result='Clean' WHERE id=?",
+  ).run(rc.lead_run_id);
+  finishTurn(owner, rc.run_id, mailConv, "Review clean on mail thread.");
+
+  // Mail-only conversation and its terminal review_continuation result stay hidden
+  expect(
+    feed(owner, { filter: "all" }).items.some(
+      (item) => item.conversation_id === mailConv,
+    ),
+  ).toBe(false);
+  expect(
+    feed(owner, { filter: "done" }).items.some(
+      (item) => item.conversation_id === mailConv,
+    ),
+  ).toBe(false);
+  expect(
+    listDoneCards(owner).some(
+      (entry) => entry.card.source.conversation_id === mailConv,
+    ),
+  ).toBe(false);
+  expect(feed(owner, { filter: "done" }).summary.done_unread).toBe(0);
+});
+
+it("does not auto-cancel a paused continuation when loop_review_status is read", () => {
+  const owner = "paused-cont-" + id().slice(0, 6);
+  const { builder, folder, reviewTeam, runPayload } = setupWorkspace(owner);
+  const convId = id();
+  seedConversation(db, {
+    id: convId,
+    owner_id: owner,
+    agent_id: builder.id,
+    title: "Paused continuation guard",
+    project_id: folder.id,
+    created_at: now(),
+  });
+  const parentId = id();
+  seedRun(db, {
+    id: parentId,
+    owner_id: owner,
+    agent_id: builder.id,
+    conversation_id: convId,
+    input: "Work",
+    state: "running",
+    idempotency_key: parentId,
+    payload: runPayload(folder.id),
+    created_at: now(),
+    updated_at: now(),
+  });
+  const req = requestReview(ownedRun(parentId, owner), "paused-call-1", {
+    teamId: reviewTeam.id,
+    scope: "uncommitted",
+    base: "main",
+    depth: "auto",
+    wait: false,
+  });
+  const reviewId = (req as { report: { reviewId: string } }).report.reviewId;
+  const rc = db
+    .prepare(
+      "SELECT rc.run_id, cr.run_id lead_run_id FROM review_continuations rc JOIN code_reviews cr ON cr.id=rc.review_id WHERE rc.review_id=?",
+    )
+    .get(reviewId) as { run_id: string; lead_run_id: string };
+  db.prepare("UPDATE runs SET state='completed', result='Done' WHERE id=?").run(
+    rc.lead_run_id,
+  );
+  // Continuation has already started and paused -> must NOT be auto-cancelled
+  db.prepare("UPDATE runs SET state='paused' WHERE id=?").run(rc.run_id);
+
+  requestedReviewStatus(ownedRun(parentId, owner), reviewId);
+  expect(
+    (
+      db.prepare("SELECT state FROM runs WHERE id=?").get(rc.run_id) as {
+        state: string;
+      }
+    ).state,
+  ).toBe("paused");
+});
+
+it("keeps an owner-started code review lead visible in Queued while hiding its delegated reviewer fan-out", () => {
+  const owner = "owner-started-rev-" + id().slice(0, 6);
+  const { folder, reviewTeam } = setupWorkspace(owner);
+  const started = startCodeReview(owner, reviewTeam.id, {
+    folderId: folder.id,
+    scope: "uncommitted",
+    base: "main",
+    idempotencyKey: "owner-ui-review-" + id(),
+  });
+  const queued = feed(owner, { filter: "queued" });
+  expect(queued.items.map((item) => item.conversation_id)).toEqual([
+    started.conversationId,
+  ]);
+  expect(queued.summary.queued).toBe(1);
 });

@@ -213,15 +213,26 @@ export function projectFeed(db: Database.Database, emit: Emit) {
         });
       }
     }
+    const previousThreadInternal = (
+      db
+        .prepare(
+          "SELECT hide_internal FROM feed_cards WHERE owner_id=? AND conversation_id=? AND kind='thread' LIMIT 1",
+        )
+        .get(owner, conversation) as { hide_internal: number } | undefined
+    )?.hide_internal;
     save("thread", {
       row: threadDisplayRow(row),
       detail: detail(row.card_run),
       thread,
     });
-    // A reminder change can lift or drop any of the conversation's results
-    // (there are few), so it re-projects them all.
+    // A reminder change (or a thread flipping between internal-mail-only and
+    // user-visible) can affect any of the conversation's results, so re-project
+    // all of them.
     let selected =
-      keys.has("*") || keys.has("later")
+      keys.has("*") ||
+      keys.has("later") ||
+      (previousThreadInternal !== undefined &&
+        previousThreadInternal !== row.hide_internal)
         ? null
         : [...keys].filter(
             (key) => key.startsWith("run:") || key.startsWith("message:"),

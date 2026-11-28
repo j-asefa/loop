@@ -50,6 +50,8 @@ export type SourceRow = FeedRow & {
 
 const MAIL_AUTOMATION_KINDS_SQL =
   "('agent_message','agent_result','agent_ping')";
+const INTERNAL_THREAD_AUTOMATION_KINDS_SQL =
+  "('agent_message','agent_result','agent_ping','review_continuation')";
 const ACTIVE_CONTINUATION_STATES_SQL =
   "('queued','running','pausing','paused','awaiting_approval','waiting_children')";
 /**
@@ -259,15 +261,16 @@ export function sourceCards(
         AND NOT EXISTS(
           SELECT 1 FROM messages m
           WHERE m.owner_id=c.owner_id AND m.conversation_id=c.id AND m.role='user'
-            AND COALESCE(json_extract(m.metadata,'$.automation.kind'), '') NOT IN ${MAIL_AUTOMATION_KINDS_SQL}
+            AND COALESCE(json_extract(m.metadata,'$.automation.kind'), '') NOT IN ${INTERNAL_THREAD_AUTOMATION_KINDS_SQL}
         )
         AND NOT EXISTS(
           SELECT 1 FROM runs r
           WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id
             AND NOT (
               json_extract(r.payload,'$.mailId') IS NOT NULL
+              OR EXISTS(SELECT 1 FROM review_continuations rc WHERE rc.owner_id=r.owner_id AND rc.run_id=r.id)
               OR EXISTS(SELECT 1 FROM agent_mail m WHERE m.owner_id=r.owner_id AND ((m.run_id=r.id AND m.steering_id IS NULL) OR m.requeued_run_id=r.id))
-              OR EXISTS(SELECT 1 FROM messages m WHERE m.owner_id=r.owner_id AND m.run_id=r.id AND m.role='user' AND json_extract(m.metadata,'$.automation.kind') IN ${MAIL_AUTOMATION_KINDS_SQL})
+              OR EXISTS(SELECT 1 FROM messages m WHERE m.owner_id=r.owner_id AND m.run_id=r.id AND m.role='user' AND json_extract(m.metadata,'$.automation.kind') IN ${INTERNAL_THREAD_AUTOMATION_KINDS_SQL})
             )
         )
       ),0) internal_thread
