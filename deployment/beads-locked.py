@@ -27,7 +27,7 @@ def acquire():
 def installed(destination, expected):
     digest = hashlib.sha256()
     try:
-        fd = os.open(destination, os.O_RDONLY | os.O_NONBLOCK)
+        fd = os.open(destination, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
         if not stat.S_ISREG(os.fstat(fd).st_mode):
             os.close(fd)
             return False
@@ -35,7 +35,8 @@ def installed(destination, expected):
             for chunk in iter(lambda: binary.read(1024 * 1024), b""):
                 digest.update(chunk)
             return digest.hexdigest() == expected
-    except (FileNotFoundError, PermissionError, IsADirectoryError):
+    except OSError:
+        # Invalid or unreadable cache entries are replaced only from verified staging.
         return False
 
 

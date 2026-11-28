@@ -4,11 +4,11 @@ import { constants, createWriteStream } from "node:fs";
 import {
   access,
   chmod,
+  lstat,
   mkdir,
   mkdtemp,
   open,
   rm,
-  stat,
 } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -49,7 +49,10 @@ const builds: Record<string, [string, string, string, string]> = {
 };
 
 async function digest(path: string) {
-  const file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK);
+  const file = await open(
+    path,
+    constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW,
+  );
   try {
     if (!(await file.stat()).isFile())
       throw new Error("The Beads cache entry is not a regular file");
@@ -82,9 +85,27 @@ async function extract(archive: string, entry: string, destination: string) {
 
 const installations = new Map<string, Promise<string>>();
 const verified = new Map<string, { binary: string; stamp: string }>();
+const launchers = new Map<string | undefined, Promise<void>>();
+
+function checkLauncher() {
+  const path = process.env.PATH;
+  const previous = launchers.get(path);
+  if (previous) return previous;
+  const check = exec("python3", ["-I", "-c", "import fcntl; print('ready')"], {
+    timeout: 5_000,
+    killSignal: "SIGKILL",
+    maxBuffer: 2048,
+  }).then(({ stdout }) => {
+    if (stdout.trim() !== "ready")
+      throw new Error("Python 3 with file locking is required for Beads");
+  });
+  launchers.set(path, check);
+  void check.catch(() => launchers.delete(path));
+  return check;
+}
 
 async function executableStamp(binary: string) {
-  const info = await stat(binary, { bigint: true }).catch(() => undefined);
+  const info = await lstat(binary, { bigint: true }).catch(() => undefined);
   if (!info?.isFile()) return undefined;
   try {
     await access(binary, constants.X_OK);
@@ -304,6 +325,7 @@ export class BeadsStore {
     let binary: string;
     try {
       await access(lock);
+      await checkLauncher();
       binary = await beadsBinary(this.root);
     } catch (cause) {
       throw new BeadsNotStarted({ cause });
@@ -314,8 +336,8 @@ export class BeadsStore {
         ["-I", lock, binary, "--sandbox", "--json", ...args],
         {
           cwd: this.directory,
-          // Reserve up to 15 seconds for lock admission in addition to the
-          // 45-second command budget and a small launcher startup allowance.
+          // This bounds the entire child process. Lock admission ends after
+          // 15 seconds even if the holder has time left in its own budget.
           timeout: 65_000,
           killSignal: "SIGKILL",
           maxBuffer: 8 * 1024 * 1024,
