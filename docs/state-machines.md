@@ -60,6 +60,7 @@ run in one SQLite transaction.
 | prepared | released | Explicit release proved the claim was never sent; tx |
 | claimed / started | releasing | Explicit release rechecks the generation and no run or a terminal run without unsettled native dispatch; tx |
 | releasing | released | The Beads release marker matches the generation; sql |
+| releasing | claimed / started | The launcher proves the release was never sent; sql |
 
 Recovery reads in `claiming` and `releasing` never repeat mutations.
 Completing a linked run leaves the bead open until explicitly closed.

@@ -60,7 +60,6 @@ export function ProjectWork({ project }: { project: ProjectId }) {
   const passage = useRef<HTMLDivElement>(null);
   const createRequest = useRef("");
   const closeRequest = useRef("");
-  const startRequest = useRef("");
   const bead = detail?.id === selected ? detail : undefined;
   const draftKey = bead
     ? JSON.stringify([
@@ -120,7 +119,6 @@ export function ProjectWork({ project }: { project: ProjectId }) {
     setClosing(false);
     setAgent("");
     closeRequest.current = "";
-    startRequest.current = "";
   }, [draftKey]);
 
   function handle(operation: () => Promise<void>) {
@@ -337,9 +335,8 @@ export function ProjectWork({ project }: { project: ProjectId }) {
               {bead.assignment && bead.status !== "closed" && (
                 <div>
                   <p>
-                    {bead.assignment.state === "claiming" ||
-                    bead.assignment.state === "releasing"
-                      ? "Checking claim recovery"
+                    {bead.assignment.recovery
+                      ? "Checking " + bead.assignment.recovery + " recovery"
                       : "Assigned to " +
                         (agents.find(
                           ({ id }) => id === bead.assignment!.agentId,
@@ -385,7 +382,6 @@ export function ProjectWork({ project }: { project: ProjectId }) {
                       aria-label="Project agent"
                       value={agent}
                       onChange={(event) => {
-                        startRequest.current = "";
                         setAgent(event.target.value);
                       }}
                     >
@@ -400,19 +396,27 @@ export function ProjectWork({ project }: { project: ProjectId }) {
                       disabled={!agent || busy}
                       onClick={() =>
                         handle(async () => {
-                          startRequest.current ||= crypto.randomUUID();
+                          const key = JSON.stringify([
+                            "loop-bead-start",
+                            draftKey,
+                            agent,
+                          ]);
+                          const requestId =
+                            localStorage.getItem(key) || crypto.randomUUID();
+                          localStorage.setItem(key, requestId);
                           await callRoute(
                             workspaceApi.projectBeadStart,
                             {
                               params: { project, bead: bead.id },
                               body: {
                                 storeId: bead.storeId,
-                                requestId: startRequest.current,
+                                requestId,
                                 agentId: agent,
                               },
                             },
                             source,
                           );
+                          localStorage.removeItem(key);
                         })
                       }
                     >

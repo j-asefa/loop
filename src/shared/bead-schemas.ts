@@ -51,6 +51,7 @@ export const Assignment = z.object({
   ]),
   canResume: z.boolean(),
   canRelease: z.boolean(),
+  recovery: z.enum(["claim", "release", "run"]).nullable(),
   conversationId: z.string().nullable(),
   result: ResultReference.nullable(),
   pulls: z.array(z.url()),

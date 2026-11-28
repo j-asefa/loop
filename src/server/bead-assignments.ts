@@ -5,6 +5,7 @@ import {
   type BeadsStore,
 } from "../beads-runtime.js";
 import { parsePullRequestUrls, pullRequestUrl } from "../shared/github.js";
+import type { BeadAssignmentView } from "../shared/bead-schemas.js";
 import { runResultId } from "../shared/result.js";
 import { isTerminalRunState } from "../shared/run-state.js";
 import { submit, nextTurnConnection } from "./agent-runtime.js";
@@ -61,7 +62,7 @@ function mayRelease(row: Assignment) {
   );
 }
 
-function publicAssignment(row: Assignment) {
+function publicAssignment(row: Assignment): BeadAssignmentView {
   const run = row.run_id
     ? runsQueries.owned(db, row.run_id, row.owner_id)
     : undefined;
@@ -73,6 +74,17 @@ function publicAssignment(row: Assignment) {
     generation: row.generation,
     agentId: row.agent_id,
     state: row.state,
+    recovery:
+      row.state === "claiming"
+        ? "claim"
+        : row.state === "releasing"
+          ? "release"
+          : row.state === "started" &&
+              run &&
+              isTerminalRunState(run.state) &&
+              dispatchQueries.hasAcceptedOrUnknown(db, run.id)
+            ? "run"
+            : null,
     canResume: row.state === "prepared" || row.state === "claimed",
     canRelease: mayRelease(row),
     conversationId: run?.conversation_id ?? null,
@@ -252,8 +264,18 @@ export async function changeBeadAssignment(
 ) {
   const store = enabledStore(owner, project, input.storeId);
   const active = assignmentsQueries.active(db, owner, store.id, beadId);
-  if (!active || active.generation !== input.generation)
+  if (!active || active.generation !== input.generation) {
+    const previous = assignmentsQueries.byGeneration(
+      db,
+      owner,
+      store.id,
+      beadId,
+      input.generation,
+    );
+    if (input.action === "release" && previous?.state === "released")
+      return publicAssignment(previous);
     throw new Problem(409, "This assignment changed. Reopen the bead.");
+  }
   const row = await reconcile(store, active);
   if (input.action === "resume") return claimAndStart(store, row, project);
   if (row.state === "releasing" || row.state === "released")
@@ -290,7 +312,11 @@ export async function changeBeadAssignment(
         "--set-metadata",
         "loop_release=" + reserved.generation,
       ]);
-    } catch {
+    } catch (error) {
+      if (error instanceof BeadsNotStarted) {
+        assignmentsQueries.transition(db, reserved, row.state);
+        return publicAssignment(row);
+      }
       // The attempt may have committed. Reconcile by marker, without replay.
     }
     return publicAssignment(await reconcile(store, reserved));

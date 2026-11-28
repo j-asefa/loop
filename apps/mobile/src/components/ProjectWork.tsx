@@ -499,7 +499,6 @@ function WorkDetail({
   const [loaded, setLoaded] = useState(false);
   const [reason, setReason] = useState<string | null>(null);
   const closeRequest = useRef("");
-  const startRequest = useRef<{ agent: string; id: string } | null>(null);
   const refresh = useCallback(async () => {
     const result = await client.projectBead(project, bead);
     setDetail(result);
@@ -689,8 +688,8 @@ function WorkDetail({
           {detail.assignment && detail.status !== "closed" && (
             <>
               <Text style={{ color: theme.text }}>
-                {["claiming", "releasing"].includes(detail.assignment.state)
-                  ? "Checking claim recovery"
+                {detail.assignment.recovery
+                  ? "Checking " + detail.assignment.recovery + " recovery"
                   : "Assigned to @" +
                     (agents.find(({ id }) => id === detail.assignment!.agentId)
                       ?.name || "project agent")}
@@ -736,16 +735,28 @@ function WorkDetail({
                       disabled={busy}
                       onPress={() =>
                         void write(async () => {
-                          if (startRequest.current?.agent !== agent.id)
-                            startRequest.current = {
-                              agent: agent.id,
-                              id: randomUuid(),
-                            };
+                          const key = JSON.stringify([
+                            "bead-start",
+                            scope,
+                            agent.id,
+                          ]);
+                          const pending = await loadDraftEntry(
+                            client.localDataScope,
+                            key,
+                          );
+                          const requestId = pending?.pendingKey || randomUuid();
+                          await saveDraftAndFlush(
+                            client.localDataScope,
+                            key,
+                            agent.id,
+                            { key: requestId },
+                          );
                           await client.startBead(project, bead, {
                             storeId: detail.storeId,
                             agentId: agent.id,
-                            requestId: startRequest.current.id,
+                            requestId,
                           });
+                          clearDraft(client.localDataScope, key);
                         })
                       }
                     />

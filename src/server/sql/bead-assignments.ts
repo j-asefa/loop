@@ -15,6 +15,19 @@ export function byRequest(db: Database.Database, owner: string, id: string) {
   return maybe(request(db).get(owner, id));
 }
 
+const generation = statement(
+  "SELECT * FROM bead_assignments WHERE owner_id=? AND store_id=? AND bead_id=? AND generation=?",
+);
+export function byGeneration(
+  db: Database.Database,
+  owner: string,
+  store: string,
+  bead: string,
+  identity: string,
+) {
+  return maybe(generation(db).get(owner, store, bead, identity));
+}
+
 const current = statement(
   "SELECT * FROM bead_assignments WHERE owner_id=? AND store_id=? AND bead_id=? AND state NOT IN ('released','refused')",
 );
