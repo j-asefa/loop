@@ -207,6 +207,13 @@ async function install(path: string) {
     (await digest(baked).catch(() => undefined)) === executableHash
   )
     return baked;
+  // Leave an unexpected directory and its contents where the user put it.
+  // Use one deterministic alternate executable path for this cache release.
+  if ((await lstat(path).catch(() => undefined))?.isDirectory()) {
+    path = join(dir, "bd.loop-verified");
+    if ((await lstat(path).catch(() => undefined))?.isDirectory())
+      throw new Error("A directory occupies both Beads cache executable paths");
+  }
   if ((await digest(path).catch(() => undefined)) === executableHash) {
     if (!(await executableStamp(path)))
       await publishBinary(path, "", executableHash).catch(() => {});

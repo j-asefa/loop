@@ -4,7 +4,6 @@ import hashlib
 import os
 import stat
 import sys
-import tempfile
 import time
 
 
@@ -55,11 +54,6 @@ def publish(source, destination, expected):
                 return
     if not source:
         sys.exit("LOOP_BEADS_NOT_STARTED")
-    if os.path.isdir(destination) and not os.path.islink(destination):
-        # Preserve unexpected directory contents. A file cannot replace a
-        # directory, so move it aside under the same publication lock.
-        rejected = tempfile.mkdtemp(prefix=".rejected-bd-", dir=os.path.dirname(destination))
-        os.rename(destination, os.path.join(rejected, "bd"))
     os.replace(source, destination)
 
 
@@ -120,5 +114,5 @@ def run():
 if __name__ == "__main__":
     try:
         run()
-    except OSError:
+    except (OSError, IndexError):
         sys.exit("LOOP_BEADS_NOT_STARTED")

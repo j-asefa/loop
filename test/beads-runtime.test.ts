@@ -276,18 +276,32 @@ it("repairs damaged cache entries and preserves an unexpected directory", async 
     await mkdir(destination);
     await writeFile(join(destination, "existing.txt"), "keep this");
     await writeFile(candidate, content, { mode: 0o700 });
-    expect(await publish()).toEqual([0, null]);
-    expect(await readFile(destination, "utf8")).toBe(content);
-    const rejected = (await readdir(cache)).find((name) =>
-      name.startsWith(".rejected-bd-"),
+    expect(await publish()).toEqual([1, null]);
+    expect(await readFile(candidate, "utf8")).toBe(content);
+    expect(await readFile(join(destination, "existing.txt"), "utf8")).toBe(
+      "keep this",
     );
-    expect(rejected).toBeDefined();
-    expect(
-      await readFile(join(cache, rejected!, "bd", "existing.txt"), "utf8"),
-    ).toBe("keep this");
   } finally {
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+it("reports malformed launcher arguments as a pre-launch refusal", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "loop-beads-arguments-"));
+  try {
+    const child = spawn("python3", [lock, "--verify"], {
+      cwd: directory,
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    let error = "";
+    child.stderr!.on("data", (chunk) => {
+      error += chunk;
+    });
+    expect(await once(child, "close")).toEqual([1, null]);
+    expect(error).toBe("LOOP_BEADS_NOT_STARTED\n");
+  } finally {
     await rm(directory, { recursive: true, force: true });
   }
 });

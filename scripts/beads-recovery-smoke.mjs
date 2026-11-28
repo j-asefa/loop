@@ -80,6 +80,17 @@ if (rootArg) {
     }
     await mkdir(resolve(installed, ".."), { recursive: true });
     await copyFile(original, installed);
+    const fallbackRoot = join(root, "occupied-cache");
+    const occupied = join(fallbackRoot, "beads-runtime", beadsRelease, "bd");
+    const alternate = occupied + ".loop-verified";
+    await mkdir(occupied, { recursive: true });
+    await writeFile(join(occupied, "keep.txt"), "existing data");
+    await copyFile(original, alternate);
+    assert.equal(await beadsBinary(fallbackRoot), alternate);
+    assert.equal(
+      await readFile(join(occupied, "keep.txt"), "utf8"),
+      "existing data",
+    );
     const store = new BeadsStore(root, scope);
     await waitForWorkers([store.initialize(), store.initialize()]);
     await chmod(installed, 0o601);
