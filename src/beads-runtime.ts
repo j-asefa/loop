@@ -313,7 +313,9 @@ export class BeadsStore {
         ["-I", lock, ...check, binary, "--sandbox", "--json", ...args],
         {
           cwd: this.directory,
-          timeout: 45_000,
+          // Reserve up to 15 seconds for lock admission in addition to the
+          // 45-second command budget and a small launcher startup allowance.
+          timeout: 65_000,
           killSignal: "SIGKILL",
           maxBuffer: 8 * 1024 * 1024,
         },
@@ -323,7 +325,8 @@ export class BeadsStore {
       if (
         typeof cause === "object" &&
         cause !== null &&
-        (("code" in cause && cause.code === "ENOENT") ||
+        (("code" in cause &&
+          ["ENOENT", "ENOTDIR", "EACCES"].includes(String(cause.code))) ||
           ("stderr" in cause && cause.stderr === "LOOP_BEADS_NOT_STARTED\n"))
       )
         throw new BeadsNotStarted({ cause });

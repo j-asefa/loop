@@ -137,7 +137,12 @@ if (rootArg) {
     ]) {
       const unrelated = new BeadsStore(root, { ...scope, ...override });
       await mkdir(join(root, "beads-stores", unrelated.id));
-      await assert.rejects(unrelated.read(["list"]), /unavailable/);
+      await assert.rejects(unrelated.read(["list"]), (error) => {
+        assert.match(error.cause?.stderr ?? "", /no beads database found/);
+        return true;
+      });
+      await unrelated.initialize();
+      assert.deepEqual(await unrelated.read(["list", "--all"]), []);
       assert.notEqual(unrelated.id, restarted.id);
     }
 
