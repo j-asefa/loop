@@ -130,11 +130,6 @@ async function install(path: string) {
   const build = builds[`${process.platform}-${process.arch}`];
   if (!build) throw new Error("Beads requires macOS or Linux on x64 or arm64");
   const [platform, entry, archiveHash, executableHash] = build;
-  if ((await digest(path).catch(() => undefined)) === executableHash) {
-    if (!(await executableStamp(path)))
-      await publishBinary(path, "", executableHash);
-    return path;
-  }
   const baked =
     process.env.LOOP_BAKED_BEADS &&
     resolve(process.env.LOOP_BAKED_BEADS, "beads-runtime", beadsRelease, "bd");
@@ -144,6 +139,13 @@ async function install(path: string) {
     (await digest(baked).catch(() => undefined)) === executableHash
   )
     return baked;
+  if ((await digest(path).catch(() => undefined)) === executableHash) {
+    if (!(await executableStamp(path)))
+      await publishBinary(path, "", executableHash);
+    if (!(await executableStamp(path)))
+      throw new Error("The Beads runtime directory does not allow execution");
+    return path;
+  }
 
   const dir = resolve(path, "..");
   await mkdir(dir, { recursive: true, mode: 0o700 });

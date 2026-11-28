@@ -71,6 +71,7 @@ def run():
         "BEADS_DIR": os.path.join(directory, ".beads"),
         "GIT_CONFIG_NOSYSTEM": "1",
         "GIT_CONFIG_GLOBAL": "/dev/null",
+        "GIT_CEILING_DIRECTORIES": os.path.dirname(directory),
         "GIT_CONFIG_COUNT": "1",
         "GIT_CONFIG_KEY_0": "core.hooksPath",
         "GIT_CONFIG_VALUE_0": "/dev/null",

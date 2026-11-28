@@ -56,6 +56,8 @@ if (rootArg) {
     const installed = join(root, "beads-runtime", beadsRelease, "bd");
     const assetRoot = join(root, "release");
     const original = await beadsBinary(assetRoot);
+    // Exercise the desktop cache even when a verified image asset seeded it.
+    delete process.env.LOOP_BAKED_BEADS;
     await mkdir(resolve(installed, ".."), { recursive: true });
     await copyFile(original, installed);
     const store = new BeadsStore(root, scope);
