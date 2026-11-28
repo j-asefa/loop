@@ -58,10 +58,14 @@ import {
   clearRunFromLiveStreams,
   extractLiveStreamEvents,
   isNativeHarnessConnection,
+  FEED_REFRESH_MIN_INTERVAL_MS,
+  LoopEventSocket,
   pruneLiveStreams,
+  refreshPlanForFrame,
   shouldRefreshForFrame,
   utf8ByteLength,
   type LiveStreamOverlay,
+  type RefreshPlan,
 } from "../apps/mobile/src/api/socket.js";
 import {
   assignPairingStorage,
@@ -238,6 +242,119 @@ describe("mobile socket frame filtering", () => {
       true,
     );
     expect(shouldRefreshForFrame(JSON.stringify({ type: "ping" }))).toBe(false);
+  });
+});
+
+describe("mobile scoped refresh plans", () => {
+  const events = (...list: object[]) =>
+    JSON.stringify({
+      v: 3,
+      type: "events",
+      events: list.map((event, i) => ({ id: i + 1, event })),
+    });
+  const conversation = { kind: "conversation", id: "c1" };
+  const run = { kind: "run", id: "r1" };
+  const col = (id: string) => ({ kind: "collection", id });
+
+  it("fetches nothing for run activity and only re-fetches the touched conversation", () => {
+    // The most frequent live burst: activity plus a message in a thread.
+    const plan = refreshPlanForFrame(
+      events(
+        {
+          type: "invalidate",
+          scope: col("activities"),
+          scopes: [conversation],
+        },
+        { type: "activity.updated", scope: run },
+        { type: "message.upsert", scope: conversation },
+        { type: "native.event", scope: run },
+      ),
+    );
+    expect(plan).toEqual({
+      full: false,
+      bootstrap: false,
+      feed: false,
+      decisions: false,
+      runs: true,
+      conversations: ["c1"],
+    });
+  });
+
+  it("maps collections to the fetches that show them", () => {
+    expect(
+      refreshPlanForFrame(events({ type: "feed.card", scope: col("feed") })),
+    ).toMatchObject({ full: false, feed: true, runs: false });
+    expect(
+      refreshPlanForFrame(
+        events({ type: "decision.pending", scope: col("decisions") }),
+      ),
+    ).toMatchObject({ full: false, decisions: true, feed: false });
+    expect(
+      refreshPlanForFrame(
+        events({
+          type: "invalidate",
+          scope: col("later"),
+          scopes: [col("saved"), col("social")],
+        }),
+      ),
+    ).toMatchObject({ full: false, feed: true });
+    expect(
+      refreshPlanForFrame(events({ type: "invalidate", scope: col("usage") })),
+    ).toBeNull();
+  });
+
+  it("falls back to a full reload for anything it cannot place", () => {
+    expect(
+      refreshPlanForFrame(events({ type: "invalidate", scope: col("all") })),
+    ).toMatchObject({ full: true });
+    expect(
+      refreshPlanForFrame(events({ type: "invalidate", scope: col("new") })),
+    ).toMatchObject({ full: true });
+    expect(refreshPlanForFrame(events({ type: "completed" }))).toMatchObject({
+      full: true,
+    });
+    expect(
+      refreshPlanForFrame(JSON.stringify({ v: 3, type: "reset" })),
+    ).toMatchObject({ full: true });
+    expect(refreshPlanForFrame(JSON.stringify({ type: "ping" }))).toBeNull();
+  });
+
+  it("spaces feed fetches and folds bursts into one trailing feed fetch", () => {
+    vi.useFakeTimers();
+    try {
+      const plans: RefreshPlan[] = [];
+      const socket = new LoopEventSocket(
+        { origin: "https://phone.example", csrf: "x" } as never,
+        (plan) => plans.push(plan),
+        () => {},
+      );
+      const schedule = (frame: string) =>
+        (
+          socket as unknown as { scheduleRefresh(plan: RefreshPlan): void }
+        ).scheduleRefresh(refreshPlanForFrame(frame)!);
+      const feed = events({ type: "feed.card", scope: col("feed") });
+      const runs = events({ type: "running", scope: run });
+
+      schedule(feed);
+      vi.advanceTimersByTime(1_600);
+      expect(plans.map((p) => p.feed)).toEqual([true]);
+
+      // Within the interval: runs still fetch, the feed waits.
+      schedule(feed);
+      schedule(runs);
+      vi.advanceTimersByTime(1_600);
+      expect(plans[1]).toMatchObject({ feed: false, runs: true });
+      schedule(feed);
+      vi.advanceTimersByTime(1_600);
+      expect(plans).toHaveLength(2);
+
+      vi.advanceTimersByTime(FEED_REFRESH_MIN_INTERVAL_MS);
+      expect(plans).toHaveLength(3);
+      expect(plans[2]).toMatchObject({ feed: true, runs: false });
+      socket.stop();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -801,6 +918,60 @@ describe("mobile production workspace runtime & feed previews", () => {
     });
     expect(staleOutcome).toBe("stale");
     expect(definiteErrors).toBe(1);
+  });
+
+  it("WorkspaceLoadCoordinator merges the plans of loads queued behind an in-flight load", async () => {
+    const coord = new WorkspaceLoadCoordinator();
+    const fetched: RefreshPlan[] = [];
+    let releaseFirst!: () => void;
+    const handlers = {
+      setRefreshing: () => {},
+      refreshSession: async () => {},
+      fetchAll: async (plan: RefreshPlan) => {
+        fetched.push(plan);
+        if (fetched.length === 1) {
+          await new Promise<void>((r) => {
+            releaseFirst = r;
+          });
+        }
+      },
+      onError: () => {},
+    };
+    const base = {
+      full: false,
+      bootstrap: false,
+      feed: false,
+      decisions: false,
+      runs: false,
+      conversations: [] as string[],
+    };
+    const first = coord.run(
+      { silent: true, plan: { ...base, runs: true } },
+      handlers,
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    await coord.run(
+      { silent: true, plan: { ...base, feed: true, conversations: ["a"] } },
+      handlers,
+    );
+    await coord.run(
+      {
+        silent: true,
+        plan: { ...base, decisions: true, conversations: ["b"] },
+      },
+      handlers,
+    );
+    releaseFirst();
+    await first;
+    await new Promise((r) => setTimeout(r, 10));
+    expect(fetched).toEqual([
+      { ...base, runs: true },
+      { ...base, feed: true, decisions: true, conversations: ["a", "b"] },
+    ]);
+    // A load without a plan is a full reload.
+    await coord.run({ silent: true }, handlers);
+    expect(fetched[2]).toMatchObject({ full: true });
   });
 
   it("WorkspaceLoadCoordinator coalesces overlapping refreshes, aborts on refreshSession 401, and drops stale workspace results", async () => {

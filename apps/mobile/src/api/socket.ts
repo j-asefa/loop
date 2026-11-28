@@ -1154,9 +1154,164 @@ export function shouldRefreshForFrame(raw: unknown): boolean {
  * Connects to Loop's paired WebSocket event stream (`wss://<host>/ws?v=3`) with
  * exponential backoff reconnection, heartbeat filtering, and coalesced silent refreshes.
  */
+/**
+ * Which parts of the workspace a burst of socket events touched. A full
+ * reload re-fetches everything; otherwise only the named parts are fetched
+ * and an open thread re-fetches only when its conversation is listed.
+ */
+export type RefreshPlan = {
+  full: boolean;
+  bootstrap: boolean;
+  feed: boolean;
+  decisions: boolean;
+  runs: boolean;
+  conversations: string[];
+};
+
+export function emptyRefreshPlan(): RefreshPlan {
+  return {
+    full: false,
+    bootstrap: false,
+    feed: false,
+    decisions: false,
+    runs: false,
+    conversations: [],
+  };
+}
+
+export function fullRefreshPlan(): RefreshPlan {
+  return { ...emptyRefreshPlan(), full: true };
+}
+
+export function isEmptyRefreshPlan(plan: RefreshPlan): boolean {
+  return (
+    !plan.full &&
+    !plan.bootstrap &&
+    !plan.feed &&
+    !plan.decisions &&
+    !plan.runs &&
+    plan.conversations.length === 0
+  );
+}
+
+export function mergeRefreshPlans(a: RefreshPlan, b: RefreshPlan): RefreshPlan {
+  return {
+    full: a.full || b.full,
+    bootstrap: a.bootstrap || b.bootstrap,
+    feed: a.feed || b.feed,
+    decisions: a.decisions || b.decisions,
+    runs: a.runs || b.runs,
+    conversations: Array.from(
+      new Set([...a.conversations, ...b.conversations]),
+    ),
+  };
+}
+
+/** Workspace collections and the fetch each one feeds; null means none. */
+const COLLECTION_PARTS: Record<
+  string,
+  "feed" | "runs" | "decisions" | "bootstrap" | "full" | null
+> = {
+  all: "full",
+  feed: "feed",
+  results: "feed",
+  saved: "feed",
+  later: "feed",
+  runs: "runs",
+  approvals: "decisions",
+  decisions: "decisions",
+  metadata: "bootstrap",
+  // Not part of the workspace load; their own screens fetch on open.
+  activities: null,
+  usage: null,
+  search: null,
+  scheduled: null,
+  pulls: null,
+  webhooks: null,
+  social: null,
+};
+
+type ScopeLike = { kind?: unknown; id?: unknown } | null | undefined;
+
+function addScope(plan: RefreshPlan, scope: ScopeLike) {
+  if (!scope || typeof scope !== "object") {
+    plan.full = true;
+    return;
+  }
+  const id = typeof scope.id === "string" ? scope.id : "";
+  switch (scope.kind) {
+    case "collection": {
+      const part = COLLECTION_PARTS[id];
+      if (part === undefined || part === "full") plan.full = true;
+      else if (part) plan[part] = true;
+      return;
+    }
+    case "run":
+      plan.runs = true;
+      return;
+    case "conversation":
+      if (!id) plan.full = true;
+      else if (!plan.conversations.includes(id)) plan.conversations.push(id);
+      return;
+    case "connection":
+      plan.bootstrap = true;
+      return;
+    default:
+      plan.full = true;
+  }
+}
+
+type FrameEvent = {
+  type?: string;
+  kind?: string;
+  scope?: ScopeLike;
+  scopes?: ScopeLike[];
+  event?: FrameEvent;
+};
+
+function addEvent(plan: RefreshPlan, entry: FrameEvent) {
+  const event = entry.event ?? entry;
+  const type = (event.type || event.kind || "").toLowerCase();
+  if (!type || IGNORED_TYPES.has(type)) return;
+  if (!event.scope) {
+    // An event the plan cannot place falls back to reloading everything.
+    plan.full = true;
+    return;
+  }
+  addScope(plan, event.scope);
+  for (const scope of event.scopes ?? []) addScope(plan, scope);
+}
+
+/**
+ * Maps one socket frame to the workspace parts it changed, or null when it
+ * changed nothing. Unknown shapes return a full plan, the old behaviour.
+ */
+export function refreshPlanForFrame(raw: unknown): RefreshPlan | null {
+  if (!shouldRefreshForFrame(raw)) return null;
+  let parsed: FrameEvent & { events?: FrameEvent[] };
+  try {
+    parsed = JSON.parse(raw as string);
+  } catch {
+    return null;
+  }
+  const plan = emptyRefreshPlan();
+  if (Array.isArray(parsed.events)) {
+    for (const entry of parsed.events) addEvent(plan, entry);
+  } else if (parsed.event) {
+    addEvent(plan, parsed.event);
+  } else {
+    // reset and other top-level frames reload everything.
+    plan.full = true;
+  }
+  return isEmptyRefreshPlan(plan) ? null : plan;
+}
+
+/** Feed fetches are the heaviest part; space them at least this far apart. */
+export const FEED_REFRESH_MIN_INTERVAL_MS = 5_000;
+
 export class LoopEventSocket {
   private session: PairedSession;
-  private onEvent: () => void;
+  private onEvent: (plan: RefreshPlan) => void;
   private onStatus: (status: SocketStatus) => void;
   private onStreamEvents?: (events: LiveStreamEvent[]) => void;
   private ws: WebSocket | null = null;
@@ -1165,10 +1320,13 @@ export class LoopEventSocket {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private lastEmitAt = 0;
+  private pendingPlan: RefreshPlan | null = null;
+  private lastFeedAt = 0;
+  private feedTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     session: PairedSession,
-    onEvent: () => void,
+    onEvent: (plan: RefreshPlan) => void,
     onStatus: (status: SocketStatus) => void,
     onStreamEvents?: (events: LiveStreamEvent[]) => void,
   ) {
@@ -1187,6 +1345,10 @@ export class LoopEventSocket {
     this.stopped = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
+    if (this.feedTimer) clearTimeout(this.feedTimer);
+    this.debounceTimer = null;
+    this.feedTimer = null;
+    this.pendingPlan = null;
     if (this.ws) {
       try {
         this.ws.close();
@@ -1206,15 +1368,45 @@ export class LoopEventSocket {
     return url.toString();
   }
 
-  private scheduleRefresh() {
+  private scheduleRefresh(plan: RefreshPlan) {
+    this.pendingPlan = this.pendingPlan
+      ? mergeRefreshPlans(this.pendingPlan, plan)
+      : plan;
     if (this.debounceTimer) return;
     const elapsed = Date.now() - this.lastEmitAt;
     const delay = Math.max(850, 1600 - elapsed);
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = null;
       this.lastEmitAt = Date.now();
-      this.onEvent();
+      const next = this.pendingPlan ?? emptyRefreshPlan();
+      this.pendingPlan = null;
+      this.emit(next);
     }, delay);
+  }
+
+  private emit(plan: RefreshPlan) {
+    if (this.stopped) return;
+    const now = Date.now();
+    const sinceFeed = now - this.lastFeedAt;
+    if (plan.feed && !plan.full && sinceFeed < FEED_REFRESH_MIN_INTERVAL_MS) {
+      // Defer the feed part; one trailing feed fetch covers every burst
+      // that arrives before it fires.
+      plan = { ...plan, feed: false };
+      if (!this.feedTimer) {
+        this.feedTimer = setTimeout(() => {
+          this.feedTimer = null;
+          this.emit({ ...emptyRefreshPlan(), feed: true });
+        }, FEED_REFRESH_MIN_INTERVAL_MS - sinceFeed);
+      }
+    }
+    if (plan.feed || plan.full) {
+      this.lastFeedAt = now;
+      if (this.feedTimer) {
+        clearTimeout(this.feedTimer);
+        this.feedTimer = null;
+      }
+    }
+    if (!isEmptyRefreshPlan(plan)) this.onEvent(plan);
   }
 
   private connect() {
@@ -1240,7 +1432,7 @@ export class LoopEventSocket {
         this.onStatus("live");
         if (reconnected) {
           this.onStreamEvents?.([{ kind: "reset" }]);
-          this.scheduleRefresh();
+          this.scheduleRefresh(fullRefreshPlan());
         }
       };
 
@@ -1252,9 +1444,8 @@ export class LoopEventSocket {
             this.onStreamEvents(streamEvents);
           }
         }
-        if (shouldRefreshForFrame(event.data)) {
-          this.scheduleRefresh();
-        }
+        const plan = refreshPlanForFrame(event.data);
+        if (plan) this.scheduleRefresh(plan);
       };
 
       ws.onerror = () => {

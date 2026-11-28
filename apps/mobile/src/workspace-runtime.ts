@@ -3,6 +3,11 @@ import {
   LoopApiError,
   randomUuid,
 } from "./api/client";
+import {
+  fullRefreshPlan,
+  mergeRefreshPlans,
+  type RefreshPlan,
+} from "./api/socket";
 
 export function stableStringify(value: unknown): string {
   if (value === null || typeof value !== "object") {
@@ -134,7 +139,7 @@ export async function runSaveToggle(opts: {
 export class WorkspaceLoadCoordinator {
   private generation = 0;
   private inFlight = false;
-  private pending: { silent: boolean } | null = null;
+  private pending: { silent: boolean; plan: RefreshPlan } | null = null;
   private sessionRefreshed = false;
   private initialLoadDone = false;
 
@@ -152,21 +157,28 @@ export class WorkspaceLoadCoordinator {
   }
 
   async run(
-    options: { silent?: boolean },
+    options: { silent?: boolean; plan?: RefreshPlan },
     handlers: {
       setRefreshing: (value: boolean) => void;
       refreshSession: () => Promise<unknown>;
-      fetchAll: () => Promise<void>;
+      /** Fetches the parts named by plan; a missing plan means everything. */
+      fetchAll: (plan: RefreshPlan) => Promise<void>;
       onError: (err: unknown) => void;
     },
   ): Promise<void> {
     const silent = options.silent ?? true;
+    const plan = options.plan ?? fullRefreshPlan();
     const gen = this.generation;
 
     if (this.inFlight) {
       if (!silent) handlers.setRefreshing(true);
       const prev = this.pending;
-      this.pending = { silent: (prev?.silent ?? true) && silent };
+      // Queued loads merge, so a part requested while another load runs is
+      // still fetched by the follow-up load.
+      this.pending = {
+        silent: (prev?.silent ?? true) && silent,
+        plan: prev ? mergeRefreshPlans(prev.plan, plan) : plan,
+      };
       return;
     }
 
@@ -187,7 +199,7 @@ export class WorkspaceLoadCoordinator {
         this.sessionRefreshed = true;
       }
 
-      await handlers.fetchAll();
+      await handlers.fetchAll(plan);
       if (gen !== this.generation) return;
       this.initialLoadDone = true;
     } catch (err) {

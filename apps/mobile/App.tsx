@@ -55,6 +55,7 @@ import {
   canPauseRun,
   clearRunFromLiveStreams,
   LoopEventSocket,
+  type RefreshPlan,
   pruneLiveStreams,
   type LiveStreamEvent,
   type LiveStreamOverlay,
@@ -395,7 +396,7 @@ function LoopShell() {
   const uncertainReordersRef = useRef<Map<string, number>>(new Map());
 
   const loadWorkspace = useCallback(
-    async (options?: { silent?: boolean }) => {
+    async (options?: { silent?: boolean; plan?: RefreshPlan }) => {
       if (!client || activeSessionRef.current !== session) return;
       const gen = loadCoordRef.current.currentGeneration;
       await loadCoordRef.current.run(options ?? { silent: true }, {
@@ -420,9 +421,20 @@ function LoopShell() {
             }
           }
         },
-        fetchAll: async () => {
+        fetchAll: async (plan) => {
           const fetchStartedAt = Date.now();
           const savedObservedAt = performance.now();
+          const all = plan.full;
+          const want = {
+            bootstrap: all || plan.bootstrap,
+            feed: all || plan.feed,
+            decisions: all || plan.decisions,
+            runs: all || plan.runs,
+            // Prompt history changes only through this phone's own sends,
+            // which follow up with a full reload.
+            prompts: all,
+          };
+          const skip = Promise.resolve(null);
           const [
             boot,
             feedPage,
@@ -435,54 +447,61 @@ function LoopShell() {
             snipList,
             runList,
           ] = await Promise.all([
-            client.bootstrap(),
-            client.feed("done"),
-            client.doneCardsPage().catch(() => null),
-            client.feed("replies").catch(() => null),
-            client.feed("queued").catch(() => null),
-            client.feed("working").catch(() => null),
-            client.approvals().catch(() => null),
-            client.nativeDecisions().catch(() => null),
-            client.snippets().catch(() => [] as ApiSnippet[]),
-            client.runs(true).catch(() => null),
+            want.bootstrap ? client.bootstrap() : skip,
+            want.feed ? client.feed("done") : skip,
+            want.feed ? client.doneCardsPage().catch(() => null) : skip,
+            want.feed ? client.feed("replies").catch(() => null) : skip,
+            want.feed ? client.feed("queued").catch(() => null) : skip,
+            want.feed ? client.feed("working").catch(() => null) : skip,
+            want.decisions ? client.approvals().catch(() => null) : skip,
+            want.decisions ? client.nativeDecisions().catch(() => null) : skip,
+            want.prompts
+              ? client.snippets().catch(() => [] as ApiSnippet[])
+              : skip,
+            want.runs ? client.runs(true).catch(() => null) : skip,
           ]);
           // Drop stale results if workspace switched or signed out mid-flight
           if (gen !== loadCoordRef.current.currentGeneration) return;
-          setAgents(boot.agents);
-          setConnections(boot.connections ?? []);
-          setFolders(boot.folders);
-          setEnvironmentName(boot.environmentName || "");
-          setSummary(feedPage.summary);
-
-          const useCardsSource = Boolean(
-            doneCardPage && doneCardPage.items.length > 0,
-          );
-          const doneSource = useCardsSource
-            ? doneCardPage!.items
-            : feedPage.items;
-          const nextTopCards = mergeUnifiedFeedCards(
-            doneSource,
-            replyPage?.items ?? [],
-          );
-          const nextPageCursor = useCardsSource
-            ? doneCardPage?.next
-              ? { source: "cards" as const, before: doneCardPage.next }
-              : null
-            : feedPage.next
-              ? { source: "feed" as const, before: feedPage.next }
-              : null;
-          if (options?.silent === false) {
-            feedPageEpochRef.current += 1;
-            hasLoadedOlderFeedRef.current = false;
-            setOlderFeedCards([]);
-            setLoadingMoreFeed(false);
-            setFeedCursor(nextPageCursor);
-          } else if (!hasLoadedOlderFeedRef.current) {
-            setFeedCursor(nextPageCursor);
+          if (boot) {
+            setAgents(boot.agents);
+            setConnections(boot.connections ?? []);
+            setFolders(boot.folders);
+            setEnvironmentName(boot.environmentName || "");
           }
-          setLiveCards(
-            nextTopCards.map((card) => ({ ...card, savedObservedAt })),
-          );
+
+          let nextTopCards: NativeResultCard[] | null = null;
+          if (feedPage) {
+            setSummary(feedPage.summary);
+            const useCardsSource = Boolean(
+              doneCardPage && doneCardPage.items.length > 0,
+            );
+            const doneSource = useCardsSource
+              ? doneCardPage!.items
+              : feedPage.items;
+            nextTopCards = mergeUnifiedFeedCards(
+              doneSource,
+              replyPage?.items ?? [],
+            );
+            const nextPageCursor = useCardsSource
+              ? doneCardPage?.next
+                ? { source: "cards" as const, before: doneCardPage.next }
+                : null
+              : feedPage.next
+                ? { source: "feed" as const, before: feedPage.next }
+                : null;
+            if (options?.silent === false) {
+              feedPageEpochRef.current += 1;
+              hasLoadedOlderFeedRef.current = false;
+              setOlderFeedCards([]);
+              setLoadingMoreFeed(false);
+              setFeedCursor(nextPageCursor);
+            } else if (!hasLoadedOlderFeedRef.current) {
+              setFeedCursor(nextPageCursor);
+            }
+            setLiveCards(
+              nextTopCards.map((card) => ({ ...card, savedObservedAt })),
+            );
+          }
           if (queuedPage || workingPage) {
             setQueuedFeedItems([
               ...(queuedPage?.items ?? []),
@@ -500,7 +519,7 @@ function LoopShell() {
           }
           if (appList !== null) setApprovals(appList);
           if (decList !== null) setDecisions(decList);
-          setSnippets(snipList);
+          if (snipList !== null) setSnippets(snipList);
           if (runList !== null) {
             setActiveRuns(runList);
             actionKeysRef.current.reconcileRunActions(runList);
@@ -510,25 +529,36 @@ function LoopShell() {
               setLiveStreams(new Map(liveStreamsRef.current));
             }
           }
-          setWorkspaceVersion((v) => v + 1);
-          hasLiveLoadRef.current = true;
-          setShowingCachedSnapshot(false);
-          setCachedAt(null);
+          // The open thread re-fetches only when its own conversation changed.
+          const openThread = threadConversationRef.current;
+          if (all || (openThread && plan.conversations.includes(openThread))) {
+            setWorkspaceVersion((v) => v + 1);
+          }
+          if (all) {
+            hasLiveLoadRef.current = true;
+            setShowingCachedSnapshot(false);
+            setCachedAt(null);
+          }
           // Bind cache and notifications strictly to the client that performed this fetch
           const fetchOrigin = client.localDataScope;
-          saveWorkspaceCache(fetchOrigin, {
-            environmentName: boot.environmentName || "",
-            cards: nextTopCards,
-            agents: boot.agents,
-            folders: boot.folders,
-            summary: feedPage.summary,
-          });
+          if (nextTopCards) {
+            saveWorkspaceCache(fetchOrigin, {
+              environmentName: boot
+                ? boot.environmentName || ""
+                : environmentNameRef.current,
+              cards: nextTopCards,
+              agents: boot ? boot.agents : agentsRef.current,
+              folders: boot ? boot.folders : foldersRef.current,
+              summary: feedPage!.summary,
+            });
+          }
+          if (!nextTopCards && appList === null && decList === null) return;
           const { nextSnapshot, events } = detectNotificationEvents(
             notificationSnapshotRef.current,
             {
               approvals: appList,
               decisions: decList,
-              cards: nextTopCards,
+              cards: nextTopCards ?? liveCardsRef.current,
               repliesLoaded: replyPage !== null,
             },
             notificationPrefsRef.current,
@@ -554,6 +584,18 @@ function LoopShell() {
 
   const loadWorkspaceRef = useRef(loadWorkspace);
   loadWorkspaceRef.current = loadWorkspace;
+  // Latest values for partial reloads, which skip the fetches that would
+  // otherwise supply them.
+  const agentsRef = useRef(agents);
+  agentsRef.current = agents;
+  const foldersRef = useRef(folders);
+  foldersRef.current = folders;
+  const environmentNameRef = useRef(environmentName);
+  environmentNameRef.current = environmentName;
+  const liveCardsRef = useRef(liveCards);
+  liveCardsRef.current = liveCards;
+  const threadConversationRef = useRef<string | null>(null);
+  threadConversationRef.current = threadOverlay?.conversationId ?? null;
 
   const scheduleSilentRefresh = useCallback((delayMs: number, gen: number) => {
     setTimeout(() => {
@@ -677,7 +719,7 @@ function LoopShell() {
     if (!session || !client) return;
     const sock = new LoopEventSocket(
       session,
-      () => void loadWorkspaceRef.current({ silent: true }),
+      (plan) => void loadWorkspaceRef.current({ silent: true, plan }),
       setSocketStatus,
       handleStreamEvents,
     );
