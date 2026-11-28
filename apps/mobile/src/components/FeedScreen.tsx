@@ -1,4 +1,10 @@
-import React, { useMemo } from "react";
+import React, {
+  useCallback,
+  useContext,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+} from "react";
 import {
   Pressable,
   RefreshControl,
@@ -40,8 +46,9 @@ import type {
 } from "../api/types";
 import { agentModelLabel } from "../models";
 import type { AgentRunSummary } from "./AgentProfileSheet";
-import { relativeTime, type NativeResultCard } from "../fixtures";
+import type { NativeResultCard } from "../fixtures";
 import { haptics } from "../haptics";
+import { FeedTime, FeedVisibilityContext } from "./FeedVisibility";
 import { NativeDecisionCard } from "./NativeDecisionCard";
 import type { LoopTheme } from "../theme";
 import {
@@ -93,6 +100,11 @@ const NEEDS_STATES = new Set([
   "awaiting_approval",
   "paused",
 ]);
+
+function FeedScrollView(props: React.ComponentPropsWithRef<typeof ScrollView>) {
+  const visible = useContext(FeedVisibilityContext);
+  return <ScrollView {...props} scrollsToTop={visible} />;
+}
 
 export function FeedScreen({
   cards,
@@ -286,7 +298,7 @@ export function FeedScreen({
             numberOfLines={1}
           >
             Offline · showing cached feed
-            {cachedAt ? ` · ${relativeTime(cachedAt)}` : ""}
+            {cachedAt ? <FeedTime timestamp={cachedAt} prefix=" · " /> : null}
           </Text>
           <Pressable
             accessibilityRole="button"
@@ -311,7 +323,7 @@ export function FeedScreen({
       )}
 
       {/* Feed List */}
-      <ScrollView
+      <FeedScrollView
         ref={scrollRef}
         style={styles.list}
         refreshControl={
@@ -334,6 +346,7 @@ export function FeedScreen({
           </Text>
           <ScrollView
             horizontal
+            scrollsToTop={false}
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.agentsStripRow}
           >
@@ -528,7 +541,7 @@ export function FeedScreen({
                     @{app.agent_name || "agent"} · {app.tool_name}
                   </Text>
                   <Text style={[styles.cardTime, { color: theme.muted }]}>
-                    {relativeTime(app.created_at)}
+                    <FeedTime timestamp={app.created_at} />
                   </Text>
                 </View>
                 <Text
@@ -655,9 +668,43 @@ export function FeedScreen({
             </Text>
           </Pressable>
         )}
-      </ScrollView>
+      </FeedScrollView>
     </View>
   );
+}
+
+function useSwipeActions(
+  cardId: string,
+  onSwipeDone: () => void,
+  onSwipeSave: () => void,
+) {
+  // The mounted gesture outlives card updates, including changes to Saved.
+  const actions = useRef<{
+    cardId: string;
+    onSwipeDone: () => void;
+    onSwipeSave: () => void;
+  } | null>(null);
+  useLayoutEffect(() => {
+    actions.current = { cardId, onSwipeDone, onSwipeSave };
+    return () => {
+      actions.current = null;
+    };
+  }, [cardId, onSwipeDone, onSwipeSave]);
+
+  const fireDone = useCallback((gestureCardId: string) => {
+    const current = actions.current;
+    if (current?.cardId !== gestureCardId) return;
+    haptics.success();
+    current.onSwipeDone();
+  }, []);
+  const fireSave = useCallback((gestureCardId: string) => {
+    const current = actions.current;
+    if (current?.cardId !== gestureCardId) return;
+    haptics.medium();
+    current.onSwipeSave();
+  }, []);
+
+  return { fireDone, fireSave };
 }
 
 const SwipeableStackCard = React.memo(function SwipeableStackCard({
@@ -678,6 +725,7 @@ const SwipeableStackCard = React.memo(function SwipeableStackCard({
   onSwipeSave: () => void;
 }) {
   const item = entry.top;
+  const cardId = item.id;
   const stackCount = entry.cards.length;
   const header = useMemo(
     () =>
@@ -695,14 +743,11 @@ const SwipeableStackCard = React.memo(function SwipeableStackCard({
   const crossedThreshold = useSharedValue<0 | 1 | -1>(0);
 
   const fireTick = () => haptics.light();
-  const fireDone = () => {
-    haptics.success();
-    onSwipeDone();
-  };
-  const fireSave = () => {
-    haptics.medium();
-    onSwipeSave();
-  };
+  const { fireDone, fireSave } = useSwipeActions(
+    cardId,
+    onSwipeDone,
+    onSwipeSave,
+  );
 
   const panGesture = useMemo(
     () =>
@@ -738,16 +783,16 @@ const SwipeableStackCard = React.memo(function SwipeableStackCard({
             mass: 0.85,
           });
           if (finalDir === 1) {
-            runOnJS(fireSave)();
+            runOnJS(fireSave)(cardId);
           } else if (finalDir === -1) {
-            runOnJS(fireDone)();
+            runOnJS(fireDone)(cardId);
           }
         })
         .onFinalize(() => {
           crossedThreshold.value = 0;
           translateX.value = withSpring(0, { damping: 22, stiffness: 280 });
         }),
-    [interactive, item.id],
+    [interactive, cardId, crossedThreshold, fireDone, fireSave, translateX],
   );
 
   const cardAnimatedStyle = useAnimatedStyle(() => ({
@@ -923,7 +968,7 @@ const SwipeableStackCard = React.memo(function SwipeableStackCard({
               </Pressable>
               <View style={styles.cardMetaRight}>
                 <Text style={[styles.cardTime, { color: theme.muted }]}>
-                  {relativeTime(item.createdAt)}
+                  <FeedTime timestamp={item.createdAt} />
                 </Text>
               </View>
             </View>

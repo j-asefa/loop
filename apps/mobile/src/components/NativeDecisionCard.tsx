@@ -9,7 +9,6 @@ import {
 } from "react-native";
 import { AlertTriangle, Check, ChevronRight, X } from "lucide-react-native";
 import type { ApiNativeDecision } from "../api/types";
-import { relativeTime } from "../fixtures";
 import { haptics } from "../haptics";
 import {
   choiceLabel,
@@ -18,6 +17,7 @@ import {
   readNativeDecision,
 } from "../native-decision";
 import type { LoopTheme } from "../theme";
+import { FeedTime } from "./FeedVisibility";
 
 /**
  * A pending native decision (tool approval or harness question) in the
@@ -70,7 +70,7 @@ export function NativeDecisionCard({
           <Text style={[styles.meta, { color: theme.muted }]}>
             @{view.agentName} ·{" "}
             {view.kind === "approval" ? "Approval" : "Question"} ·{" "}
-            {relativeTime(decision.created_at)}
+            <FeedTime timestamp={decision.created_at} />
           </Text>
         </View>
         <ChevronRight size={16} color={theme.muted} />

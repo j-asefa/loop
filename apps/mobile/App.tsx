@@ -1,12 +1,14 @@
 import React, {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
 import {
   Linking,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -84,6 +86,7 @@ import {
   type ComposeTarget,
 } from "./src/components/ComposeSheet";
 import { FeedScreen } from "./src/components/FeedScreen";
+import { FeedVisibilityContext } from "./src/components/FeedVisibility";
 import { FilePreviewModal } from "./src/components/FilePreviewModal";
 import { PairingModal } from "./src/components/PairingModal";
 import { ProfileScreen } from "./src/components/ProfileScreen";
@@ -196,8 +199,18 @@ function LoopShell() {
 
   // Navigation
   const [appTab, setAppTab] = useState<AppTab>("feed");
+  const selectedTabRef = useRef(appTab);
   const feedScrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
   const lastFeedTapRef = useRef(0);
+  useLayoutEffect(() => {
+    selectedTabRef.current = appTab;
+  }, [appTab]);
+  const returnToFeedAfterCompose = useCallback(() => {
+    if (selectedTabRef.current !== "feed") {
+      feedScrollRef.current?.scrollTo({ y: 0, animated: false });
+    }
+    setAppTab("feed");
+  }, []);
 
   // Workspace state (live or demo fallback)
   const [demoCards, setDemoCards] = useState<NativeResultCard[]>(() =>
@@ -1123,7 +1136,7 @@ function LoopShell() {
             ? `Sent to @${agent.name} with ${input.attachmentIds.length} ${input.attachmentIds.length === 1 ? "file" : "files"}`
             : `Sent to @${agent.name}`,
         );
-        setAppTab("feed");
+        returnToFeedAfterCompose();
         scheduleSilentRefresh(400, gen);
         return;
       }
@@ -1135,11 +1148,11 @@ function LoopShell() {
         input.text,
       );
       setDemoCards((prev) => [nextCard, ...prev]);
-      setAppTab("feed");
+      returnToFeedAfterCompose();
       haptics.success();
       showToast(`@${agent.name} answered`);
     },
-    [client, scheduleSilentRefresh, showToast],
+    [client, returnToFeedAfterCompose, scheduleSilentRefresh, showToast],
   );
 
   const handleComposeCreate = useCallback(
@@ -1166,7 +1179,7 @@ function LoopShell() {
           throw new LoopApiError(401, "Workspace changed.");
         }
         showToast(`Started @${created.name}`);
-        setAppTab("feed");
+        returnToFeedAfterCompose();
         scheduleSilentRefresh(400, gen);
         return;
       }
@@ -1178,11 +1191,17 @@ function LoopShell() {
         input.text,
       );
       setDemoCards((prev) => [nextCard, ...prev]);
-      setAppTab("feed");
+      returnToFeedAfterCompose();
       haptics.success();
       showToast(`@${input.name} answered`);
     },
-    [client, session, scheduleSilentRefresh, showToast],
+    [
+      client,
+      returnToFeedAfterCompose,
+      session,
+      scheduleSilentRefresh,
+      showToast,
+    ],
   );
 
   const handleDecideApproval = useCallback(
@@ -1727,62 +1746,115 @@ function LoopShell() {
     );
   }, [liveStreams, openThreadActiveRun, threadOverlay]);
 
+  // Retain the native list and reuse its element on tab-only changes.
+  const feedScreen = useMemo(
+    () => (
+      <FeedScreen
+        key={client?.localDataScope ?? "demo"}
+        cards={activeCards}
+        agents={agents}
+        connections={connections}
+        activeRuns={effectiveActiveRuns}
+        approvals={approvals}
+        decisions={decisions}
+        isLive={Boolean(client)}
+        environmentName={environmentName}
+        socketStatus={socketStatus}
+        showingCached={showingCachedSnapshot}
+        cachedAt={cachedAt}
+        refreshing={refreshing}
+        hasMore={Boolean(client && feedCursor)}
+        loadingMore={loadingMoreFeed}
+        theme={theme}
+        scrollRef={feedScrollRef}
+        onRefresh={() => {
+          if (client) void loadWorkspace({ silent: false });
+          else {
+            setDemoCards(createInitialCards());
+            showToast("Demo deck refreshed");
+          }
+        }}
+        onLoadMore={() => void handleLoadMoreFeed()}
+        onOpenPairing={() => setPairingOpen(true)}
+        onOpenAgent={handleOpenAgent}
+        onOpenAgentByName={openAgentByName}
+        onNewAgent={() => setComposeTarget({ kind: "new" })}
+        onOpenStack={(conversationId) => {
+          setCarouselOverrideCards(null);
+          setOpenConversationId(conversationId);
+        }}
+        onSwipeDone={(card) => {
+          if (selectedTabRef.current === "feed") handleDismissCard(card);
+        }}
+        onSwipeSave={(card) => {
+          if (selectedTabRef.current === "feed") {
+            void handleToggleSaved(card).catch(() => {});
+          }
+        }}
+        onDecideApproval={(id, decision) => {
+          if (selectedTabRef.current === "feed") {
+            handleDecideApproval(id, decision);
+          }
+        }}
+        onAnswerDecision={(id, answer) => {
+          if (selectedTabRef.current === "feed") {
+            handleAnswerDecision(id, answer);
+          }
+        }}
+        onOpenDecisionThread={(conversationId, agentName) => {
+          if (selectedTabRef.current !== "feed") return;
+          setOpenConversationId(null);
+          setCarouselOverrideCards(null);
+          setThreadOverlay({
+            conversationId,
+            title: "Decision needed",
+            agentName,
+          });
+        }}
+      />
+    ),
+    [
+      activeCards,
+      agents,
+      connections,
+      effectiveActiveRuns,
+      approvals,
+      decisions,
+      client,
+      environmentName,
+      socketStatus,
+      showingCachedSnapshot,
+      cachedAt,
+      refreshing,
+      feedCursor,
+      loadingMoreFeed,
+      theme,
+      loadWorkspace,
+      showToast,
+      handleLoadMoreFeed,
+      handleOpenAgent,
+      openAgentByName,
+      handleDismissCard,
+      handleToggleSaved,
+      handleDecideApproval,
+      handleAnswerDecision,
+    ],
+  );
+  const feedSelected = appTab === "feed";
+
   return (
     <View style={[styles.root, { backgroundColor: theme.bg }]}>
       <StatusBar style={darkMode ? "light" : "dark"} />
 
-      {/* Active Primary Screen */}
-      {appTab === "feed" && (
-        <FeedScreen
-          cards={activeCards}
-          agents={agents}
-          connections={connections}
-          activeRuns={effectiveActiveRuns}
-          approvals={approvals}
-          decisions={decisions}
-          isLive={Boolean(client)}
-          environmentName={environmentName}
-          socketStatus={socketStatus}
-          showingCached={showingCachedSnapshot}
-          cachedAt={cachedAt}
-          refreshing={refreshing}
-          hasMore={Boolean(client && feedCursor)}
-          loadingMore={loadingMoreFeed}
-          theme={theme}
-          scrollRef={feedScrollRef}
-          onRefresh={() => {
-            if (client) void loadWorkspace({ silent: false });
-            else {
-              setDemoCards(createInitialCards());
-              showToast("Demo deck refreshed");
-            }
-          }}
-          onLoadMore={() => void handleLoadMoreFeed()}
-          onOpenPairing={() => setPairingOpen(true)}
-          onOpenAgent={handleOpenAgent}
-          onOpenAgentByName={openAgentByName}
-          onNewAgent={() => setComposeTarget({ kind: "new" })}
-          onOpenStack={(conversationId) => {
-            setCarouselOverrideCards(null);
-            setOpenConversationId(conversationId);
-          }}
-          onSwipeDone={handleDismissCard}
-          onSwipeSave={(card) => {
-            void handleToggleSaved(card).catch(() => {});
-          }}
-          onDecideApproval={handleDecideApproval}
-          onAnswerDecision={handleAnswerDecision}
-          onOpenDecisionThread={(conversationId, agentName) => {
-            setOpenConversationId(null);
-            setCarouselOverrideCards(null);
-            setThreadOverlay({
-              conversationId,
-              title: "Decision needed",
-              agentName,
-            });
-          }}
-        />
-      )}
+      <View
+        style={[StyleSheet.absoluteFill, !feedSelected && styles.hiddenFeed]}
+        pointerEvents={feedSelected ? "auto" : "none"}
+        aria-hidden={!feedSelected}
+      >
+        <FeedVisibilityContext.Provider value={feedSelected}>
+          {feedScreen}
+        </FeedVisibilityContext.Provider>
+      </View>
 
       {appTab === "projects" && (
         <ProjectsScreen
@@ -2332,6 +2404,10 @@ const TAB_FADE_HEIGHT = 22;
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  hiddenFeed: {
+    opacity: 0,
+    ...(Platform.OS === "web" ? { visibility: "hidden" } : {}),
+  },
   tabDock: {
     position: "absolute",
     left: 0,
