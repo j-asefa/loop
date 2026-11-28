@@ -34,12 +34,18 @@ export function VoiceRecorderButton({
   onRecorded,
   onError,
   onRecordingChange,
+  startRequest = 0,
+  onStartRequestSettled,
 }: {
   theme: LoopTheme;
   disabled?: boolean;
   onRecorded: (file: PickedFile) => void;
   onError?: (message: string) => void;
   onRecordingChange?: (active: boolean) => void;
+  /** A new non-zero value starts recording, as if the mic were tapped. */
+  startRequest?: number;
+  /** Called once a start request has started, failed or been ignored. */
+  onStartRequestSettled?: () => void;
 }) {
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const [recording, setRecording] = useState(false);
@@ -58,6 +64,9 @@ export function VoiceRecorderButton({
   onRecordedRef.current = onRecorded;
   onErrorRef.current = onError;
   onRecordingChangeRef.current = onRecordingChange;
+  const onStartRequestSettledRef = useRef(onStartRequestSettled);
+  onStartRequestSettledRef.current = onStartRequestSettled;
+  const handledStartRequestRef = useRef(0);
 
   const stopTimer = useCallback(() => {
     if (timerRef.current) {
@@ -223,6 +232,15 @@ export function VoiceRecorderButton({
       busyRef.current = false;
     }
   }, [disabled, recorder, resetAudioMode, stopTimer]);
+
+  useEffect(() => {
+    if (!startRequest || handledStartRequestRef.current === startRequest)
+      return;
+    handledStartRequestRef.current = startRequest;
+    void startRecording().finally(() => {
+      if (mountedRef.current) onStartRequestSettledRef.current?.();
+    });
+  }, [startRequest, startRecording]);
 
   if (recording) {
     return (

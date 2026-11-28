@@ -53,6 +53,7 @@ import {
   Clock,
   Copy,
   CornerUpLeft,
+  Mic,
   Paperclip,
   Plus,
   Pause,
@@ -558,6 +559,9 @@ export function SpotlightCarousel({
   const [committedQuery, setCommittedQuery] = useState("");
   const [quickReplyOpen, setQuickReplyOpen] = useState(false);
   const [composerMenuOpen, setComposerMenuOpen] = useState(false);
+  // Set by the composer menu's Voice note item; keeps the recorder mounted
+  // in the mic/send slot until its start attempt settles.
+  const [voiceStartRequest, setVoiceStartRequest] = useState(0);
   const [queuedSheetOpen, setQueuedSheetOpen] = useState(false);
   const [expandedQueuedRunId, setExpandedQueuedRunId] = useState<string | null>(
     null,
@@ -697,6 +701,8 @@ export function SpotlightCarousel({
     waitingForDraft || keyboardVisible || recordingAudio || sending;
   const holdSelection =
     holdHistoryUpdates ||
+    composerMenuOpen ||
+    quickReplyOpen ||
     draft.trim().length > 0 ||
     replyAttachments.attachments.length > 0;
   useEffect(() => {
@@ -831,10 +837,28 @@ export function SpotlightCarousel({
     scheduleBusy ||
     Boolean(pendingSchedule);
   const attachDisabled = !replyAttachments.canAddMore || replyEditingLocked;
+  const scheduleHint = pendingSchedule
+    ? "Review or discard the pending reply"
+    : !scheduleDisabled
+      ? "Send this reply later"
+      : recordingAudio
+        ? "Finish the voice note first"
+        : replyAttachments.uploading
+          ? "Waiting for attachments to upload"
+          : replyAttachments.hasErrors
+            ? "Remove or retry the failed attachment"
+            : sending || scheduleBusy
+              ? "Sending…"
+              : retryModeLocked
+                ? "Resolve the pending reply first"
+                : !draft.trim() && replyAttachments.readyIds.length === 0
+                  ? "Write a reply first"
+                  : "Not available right now";
   // Mic and send share one slot: the mic shows while there is nothing to
   // send, and stays mounted while recording so a live note is not dropped.
   const showMicSlot =
     recordingAudio ||
+    voiceStartRequest > 0 ||
     (!draft.trim() &&
       replyAttachments.attachments.length === 0 &&
       !pendingSchedule &&
@@ -2537,6 +2561,8 @@ export function SpotlightCarousel({
                     void replyAttachments.addFiles([file]);
                   }}
                   onError={(msg) => setReplyError(msg)}
+                  startRequest={voiceStartRequest}
+                  onStartRequestSettled={() => setVoiceStartRequest(0)}
                 />
               ) : (
                 <Pressable
@@ -3090,6 +3116,16 @@ export function SpotlightCarousel({
               },
             },
             {
+              key: "voice",
+              label: "Voice note",
+              hint: replyAttachments.canAddMore
+                ? "Record and attach a voice note"
+                : "Attachment limit reached",
+              icon: <Mic size={16} color={theme.brassText} />,
+              disabled: attachDisabled || recordingAudio,
+              onPress: () => setVoiceStartRequest(Date.now()),
+            },
+            {
               key: "quick",
               label: "Quick replies & snippets",
               hint: "Insert a saved reply",
@@ -3102,11 +3138,7 @@ export function SpotlightCarousel({
             items.push({
               key: "schedule",
               label: pendingSchedule ? "Scheduled reply" : "Schedule send",
-              hint: pendingSchedule
-                ? "Review or discard the pending reply"
-                : scheduleDisabled
-                  ? "Write a reply first"
-                  : "Send this reply later",
+              hint: scheduleHint,
               icon: <Clock size={16} color={theme.brassText} />,
               disabled: scheduleDisabled,
               onPress: () => {

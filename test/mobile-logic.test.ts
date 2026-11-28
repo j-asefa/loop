@@ -3855,8 +3855,10 @@ describe("reply composer controls", () => {
     "apps/mobile/src/components/SpotlightCarousel.tsx",
     "utf8",
   );
+  // The composer pill runs from the + button to the end of the keyboard view
+  // (the first styles.replyPill is the "Sending reply…" banner).
   const pill = carousel.slice(
-    carousel.indexOf("styles.replyPill"),
+    carousel.indexOf('accessibilityLabel="Attach, quick replies and schedule"'),
     carousel.indexOf("</KeyboardAvoidingView>"),
   );
 
@@ -3880,8 +3882,46 @@ describe("reply composer controls", () => {
     expect(pill).toMatch(/canSchedule && pendingSchedule && \(/);
   });
 
-  it("keeps the mic mounted while a voice note is recording", () => {
-    expect(carousel).toMatch(/const showMicSlot =\s*recordingAudio \|\|/);
+  it("keeps the mic mounted while a voice note is recording or starting", () => {
+    expect(carousel).toMatch(
+      /const showMicSlot =\s*recordingAudio \|\|\s*voiceStartRequest > 0 \|\|/,
+    );
+    expect(pill).toContain("startRequest={voiceStartRequest}");
+    expect(pill).toContain(
+      "onStartRequestSettled={() => setVoiceStartRequest(0)}",
+    );
+  });
+
+  it("starts a voice recording once per request and reports when it settles", () => {
+    const recorder = readFileSync(
+      "apps/mobile/src/components/VoiceRecorder.tsx",
+      "utf8",
+    );
+    expect(recorder).toMatch(
+      /handledStartRequestRef\.current === startRequest\)\s*return;\s*handledStartRequestRef\.current = startRequest;\s*void startRecording\(\)\.finally\(/,
+    );
+    expect(recorder).toContain("onStartRequestSettledRef.current?.()");
+  });
+
+  it("holds the carousel on the current card while a composer sheet is open", () => {
+    expect(carousel).toMatch(
+      /const holdSelection =\s*holdHistoryUpdates \|\|\s*composerMenuOpen \|\|\s*quickReplyOpen \|\|/,
+    );
+  });
+
+  it("explains why Schedule send is disabled", () => {
+    const hint = carousel.slice(
+      carousel.indexOf("const scheduleHint ="),
+      carousel.indexOf("const scheduleHint =") + 1200,
+    );
+    for (const reason of [
+      "Finish the voice note first",
+      "Waiting for attachments to upload",
+      "Remove or retry the failed attachment",
+      "Write a reply first",
+    ]) {
+      expect(hint).toContain(reason);
+    }
   });
 
   it("offers attach, quick replies and schedule from the composer menu", () => {
@@ -3890,6 +3930,9 @@ describe("reply composer controls", () => {
       carousel.indexOf("Frosted Quick Reply Sheet"),
     );
     expect(menu).toContain('key: "attach"');
+    expect(menu).toContain('key: "voice"');
+    expect(menu).toContain("setVoiceStartRequest(Date.now())");
+    expect(menu).toContain("hint: scheduleHint");
     expect(menu).toContain("replyAttachments.setPickerOpen(true)");
     expect(menu).toContain('key: "quick"');
     expect(menu).toContain("setQuickReplyOpen(true)");
