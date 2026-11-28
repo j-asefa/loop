@@ -1,6 +1,15 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -99,6 +108,46 @@ it("marks lock-open failures before executing the helper", async () => {
     });
     expect(await once(child, "close")).toEqual([1, null]);
     expect(error).toBe("LOOP_BEADS_NOT_STARTED\n");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+it("keeps the first verified binary when independent installers publish together", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "loop-beads-publish-"));
+  try {
+    const content = "candidate executable";
+    const digest = createHash("sha256").update(content).digest("hex");
+    const destination = join(directory, "bd");
+    const candidates = [join(directory, "first"), join(directory, "second")];
+    await Promise.all(
+      candidates.map((path) => writeFile(path, content, { mode: 0o700 })),
+    );
+    const inodes = await Promise.all(
+      candidates.map(async (path) => (await stat(path)).ino),
+    );
+    const exits = await Promise.all(
+      candidates.map((path) =>
+        once(
+          spawn("python3", [lock, "--install", path, destination, digest], {
+            cwd: directory,
+            stdio: "ignore",
+          }),
+          "close",
+        ),
+      ),
+    );
+    expect(exits).toEqual([
+      [0, null],
+      [0, null],
+    ]);
+    expect(inodes).toContain((await stat(destination)).ino);
+    expect(
+      (await readdir(directory)).filter(
+        (name) => name === "first" || name === "second",
+      ),
+    ).toHaveLength(1);
+    expect(await readFile(destination, "utf8")).toBe(content);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

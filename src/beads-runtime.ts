@@ -1,16 +1,7 @@
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import {
-  access,
-  chmod,
-  link,
-  mkdir,
-  mkdtemp,
-  rename,
-  rm,
-  stat,
-} from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, rm, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Readable, Transform } from "node:stream";
@@ -113,12 +104,30 @@ async function verifyOrInstall(path: string) {
   return binary;
 }
 
+async function publishBinary(
+  path: string,
+  verifiedStaging: string,
+  expected: string,
+) {
+  await exec(
+    "python3",
+    ["-I", lock, "--install", verifiedStaging, path, expected],
+    {
+      cwd: resolve(path, ".."),
+      timeout: 30_000,
+      killSignal: "SIGKILL",
+      maxBuffer: 2048,
+    },
+  );
+}
+
 async function install(path: string) {
   const build = builds[`${process.platform}-${process.arch}`];
   if (!build) throw new Error("Beads requires macOS or Linux on x64 or arm64");
   const [platform, entry, archiveHash, executableHash] = build;
   if ((await digest(path).catch(() => undefined)) === executableHash) {
-    if (!(await executableStamp(path))) await chmod(path, 0o700);
+    if (!(await executableStamp(path)))
+      await publishBinary(path, "", executableHash);
     return path;
   }
   const baked =
@@ -165,22 +174,7 @@ async function install(path: string) {
     if ((await digest(binary)) !== executableHash)
       throw new Error("Beads executable integrity check failed");
     await chmod(binary, 0o700);
-    try {
-      // Preserve the inode of an already verified executable when another
-      // process installs the same release concurrently.
-      await link(binary, path);
-    } catch (error) {
-      if (!(
-        typeof error === "object" &&
-        error !== null &&
-        "code" in error &&
-        error.code === "EEXIST"
-      ))
-        throw error;
-      if ((await digest(path).catch(() => undefined)) !== executableHash)
-        await rename(binary, path);
-      else if (!(await executableStamp(path))) await chmod(path, 0o700);
-    }
+    await publishBinary(path, binary, executableHash);
     return path;
   } finally {
     await rm(staging, { recursive: true, force: true });

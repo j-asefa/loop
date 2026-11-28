@@ -94,6 +94,11 @@ volume when upgrading. If Work is unavailable, restore access to that data
 or resolve the missing runtime prerequisite, then retry the read. A failed
 read should never trigger reinitialization.
 
+Run `npm run smoke:beads` to exercise the pinned Beads CLI with a disposable
+embedded Dolt store. It uses the platform release archive, launches competing
+workers and kills a worker after the claim or comment commits. It checks
+recovery from the CLI and leaves the development workspace data untouched.
+
 ## Archive deployment backups
 
 Deployments that keep a full `workspace-backup` in each
