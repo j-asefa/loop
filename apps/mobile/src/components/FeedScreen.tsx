@@ -1,4 +1,11 @@
-import React, { useCallback, useLayoutEffect, useMemo, useRef } from "react";
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+} from "react";
 import {
   Pressable,
   RefreshControl,
@@ -92,6 +99,25 @@ const NEEDS_STATES = new Set([
   "awaiting_approval",
   "paused",
 ]);
+
+export const FeedVisibilityContext = createContext(true);
+
+function FeedScrollView(props: React.ComponentPropsWithRef<typeof ScrollView>) {
+  const visible = useContext(FeedVisibilityContext);
+  return <ScrollView {...props} scrollsToTop={visible} />;
+}
+
+function FeedTime({
+  timestamp,
+  prefix = "",
+}: {
+  timestamp: number;
+  prefix?: string;
+}) {
+  // A tab change refreshes the label without rendering the surrounding card.
+  useContext(FeedVisibilityContext);
+  return prefix + relativeTime(timestamp);
+}
 
 export function FeedScreen({
   cards,
@@ -284,7 +310,7 @@ export function FeedScreen({
             numberOfLines={1}
           >
             Offline · showing cached feed
-            {cachedAt ? ` · ${relativeTime(cachedAt)}` : ""}
+            {cachedAt ? <FeedTime timestamp={cachedAt} prefix=" · " /> : null}
           </Text>
           <Pressable
             accessibilityRole="button"
@@ -309,7 +335,7 @@ export function FeedScreen({
       )}
 
       {/* Feed List */}
-      <ScrollView
+      <FeedScrollView
         ref={scrollRef}
         style={styles.list}
         refreshControl={
@@ -526,7 +552,7 @@ export function FeedScreen({
                     @{app.agent_name || "agent"} · {app.tool_name}
                   </Text>
                   <Text style={[styles.cardTime, { color: theme.muted }]}>
-                    {relativeTime(app.created_at)}
+                    <FeedTime timestamp={app.created_at} />
                   </Text>
                 </View>
                 <Text
@@ -700,7 +726,7 @@ export function FeedScreen({
             </Text>
           </Pressable>
         )}
-      </ScrollView>
+      </FeedScrollView>
     </View>
   );
 }
@@ -711,20 +737,29 @@ function useSwipeActions(
   onSwipeSave: () => void,
 ) {
   // The mounted gesture outlives card updates, including changes to Saved.
-  const actions = useRef({ cardId, onSwipeDone, onSwipeSave });
+  const actions = useRef<{
+    cardId: string;
+    onSwipeDone: () => void;
+    onSwipeSave: () => void;
+  } | null>(null);
   useLayoutEffect(() => {
     actions.current = { cardId, onSwipeDone, onSwipeSave };
+    return () => {
+      actions.current = null;
+    };
   }, [cardId, onSwipeDone, onSwipeSave]);
 
   const fireDone = useCallback((gestureCardId: string) => {
-    if (actions.current.cardId !== gestureCardId) return;
+    const current = actions.current;
+    if (current?.cardId !== gestureCardId) return;
     haptics.success();
-    actions.current.onSwipeDone();
+    current.onSwipeDone();
   }, []);
   const fireSave = useCallback((gestureCardId: string) => {
-    if (actions.current.cardId !== gestureCardId) return;
+    const current = actions.current;
+    if (current?.cardId !== gestureCardId) return;
     haptics.medium();
-    actions.current.onSwipeSave();
+    current.onSwipeSave();
   }, []);
 
   return { fireDone, fireSave };
@@ -991,7 +1026,7 @@ const SwipeableStackCard = React.memo(function SwipeableStackCard({
               </Pressable>
               <View style={styles.cardMetaRight}>
                 <Text style={[styles.cardTime, { color: theme.muted }]}>
-                  {relativeTime(item.createdAt)}
+                  <FeedTime timestamp={item.createdAt} />
                 </Text>
               </View>
             </View>

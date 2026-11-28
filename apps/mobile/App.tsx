@@ -85,7 +85,7 @@ import {
   type ComposeSubmit,
   type ComposeTarget,
 } from "./src/components/ComposeSheet";
-import { FeedScreen } from "./src/components/FeedScreen";
+import { FeedScreen, FeedVisibilityContext } from "./src/components/FeedScreen";
 import { FilePreviewModal } from "./src/components/FilePreviewModal";
 import { PairingModal } from "./src/components/PairingModal";
 import { ProfileScreen } from "./src/components/ProfileScreen";
@@ -1782,8 +1782,16 @@ function LoopShell() {
             void handleToggleSaved(card).catch(() => {});
           }
         }}
-        onDecideApproval={handleDecideApproval}
-        onAnswerDecision={handleAnswerDecision}
+        onDecideApproval={(id, decision) => {
+          if (selectedTabRef.current === "feed") {
+            handleDecideApproval(id, decision);
+          }
+        }}
+        onAnswerDecision={(id, answer) => {
+          if (selectedTabRef.current === "feed") {
+            handleAnswerDecision(id, answer);
+          }
+        }}
       />
     ),
     [
@@ -1824,7 +1832,9 @@ function LoopShell() {
         pointerEvents={feedSelected ? "auto" : "none"}
         aria-hidden={!feedSelected}
       >
-        {feedScreen}
+        <FeedVisibilityContext.Provider value={feedSelected}>
+          {feedScreen}
+        </FeedVisibilityContext.Provider>
       </View>
 
       {appTab === "projects" && (
