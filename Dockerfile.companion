@@ -13,7 +13,7 @@ RUN LOOP_BUILD_SOURCE_FILE="$LOOP_BUILD_SOURCE_FILE" npm run build \
     && npm cache clean --force
 
 FROM node:24-bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends git openssl ca-certificates \
+RUN apt-get update && apt-get install -y --no-install-recommends git openssl python3 ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && ln -s /app/dist/cli.js /usr/local/bin/loop \
     && mkdir -p /data/loop/provider-home /data/loop-connection /workspaces \

@@ -77,6 +77,18 @@ Liveness heartbeats and periodic native display updates skip a tick rather
 than wait when another process holds SQLite's write lock; ordinary and
 completion writes keep their normal timeout ([busy-wait.ts](../src/server/busy-wait.ts)).
 
+### Beads runtime
+
+The companion's pinned Beads runtime supports Linux and macOS on x64 and
+arm64. The runtime requires Python 3, Git, tar and access to the upstream
+release for the first download of a new pin. The companion image includes
+Python 3. Run the smoke from a source checkout.
+
+Run `npm run smoke:beads` to exercise the pinned Beads CLI with a disposable
+embedded Dolt store. It uses the platform release archive, launches competing
+workers and kills a worker after the claim or comment commits. It checks
+recovery from the CLI and leaves the development workspace data untouched.
+
 ## Archive deployment backups
 
 Deployments that keep a full `workspace-backup` in each
