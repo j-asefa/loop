@@ -44,17 +44,21 @@ def publish(source, destination, expected):
     # All Loop installers use this directory's lock before changing the
     # published inode or its mode. Downloads stage outside the critical section.
     if installed(destination, expected):
-        if not os.stat(destination).st_mode & 0o100:
+        if os.access(destination, os.X_OK):
+            return
+        info = os.stat(destination, follow_symlinks=False)
+        if info.st_uid == os.geteuid() and not info.st_mode & stat.S_IXUSR:
             os.chmod(destination, 0o700)
-    elif source:
-        if os.path.isdir(destination) and not os.path.islink(destination):
-            # Preserve unexpected directory contents. A file cannot replace a
-            # directory, so move it aside under the same publication lock.
-            rejected = tempfile.mkdtemp(prefix=".rejected-bd-", dir=os.path.dirname(destination))
-            os.rename(destination, os.path.join(rejected, "bd"))
-        os.replace(source, destination)
-    else:
+            if os.access(destination, os.X_OK):
+                return
+    if not source:
         sys.exit("LOOP_BEADS_NOT_STARTED")
+    if os.path.isdir(destination) and not os.path.islink(destination):
+        # Preserve unexpected directory contents. A file cannot replace a
+        # directory, so move it aside under the same publication lock.
+        rejected = tempfile.mkdtemp(prefix=".rejected-bd-", dir=os.path.dirname(destination))
+        os.rename(destination, os.path.join(rejected, "bd"))
+    os.replace(source, destination)
 
 
 def run():

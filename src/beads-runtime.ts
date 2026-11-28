@@ -203,10 +203,10 @@ async function install(path: string) {
     return baked;
   if ((await digest(path).catch(() => undefined)) === executableHash) {
     if (!(await executableStamp(path)))
-      await publishBinary(path, "", executableHash);
-    if (!(await executableStamp(path)))
-      throw new Error("The Beads runtime directory does not allow execution");
-    return path;
+      await publishBinary(path, "", executableHash).catch(() => {});
+    if (await executableStamp(path)) return path;
+    // A valid inode may have been restored with another owner's permissions.
+    // Stage a replacement when the locked in-place repair cannot make it usable.
   }
 
   await mkdir(dir, { recursive: true, mode: 0o700 });
