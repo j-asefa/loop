@@ -13,6 +13,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  useColorScheme,
   View,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
@@ -95,6 +96,7 @@ import { ProjectsScreen } from "./src/components/ProjectsScreen";
 import { PullRequestsScreen } from "./src/components/PullRequestsScreen";
 import { RemindSheet, type RemindChoice } from "./src/components/RemindSheet";
 import { SearchScreen } from "./src/components/SearchScreen";
+import { SettingsSheet } from "./src/components/SettingsSheet";
 import {
   ShareInboxSheet,
   useIncomingShareIntake,
@@ -134,7 +136,15 @@ import {
   mergeUnifiedFeedCards,
   type NativeResultCard,
 } from "./src/fixtures";
-import { haptics } from "./src/haptics";
+import { haptics, setHapticsEnabled } from "./src/haptics";
+import {
+  DEFAULT_DEVICE_PREFS,
+  loadDevicePrefs,
+  resolveThemeDark,
+  saveDevicePrefs,
+  type DevicePrefs,
+} from "./src/device-prefs";
+import { summarizeConnections } from "./src/settings-helpers";
 import { DARK_THEME, LIGHT_THEME } from "./src/theme";
 
 function clearEphemeralWorkspaceData(scope: string | undefined) {
@@ -188,9 +198,22 @@ export default function App() {
 
 function LoopShell() {
   const insets = useSafeAreaInsets();
-  const [darkMode, setDarkMode] = useState(false);
+  const systemColorScheme = useColorScheme();
+  const [devicePrefs, setDevicePrefs] = useState<DevicePrefs>(() => ({
+    ...DEFAULT_DEVICE_PREFS,
+  }));
+  const devicePrefsDirtyRef = useRef(false);
+  const darkMode = resolveThemeDark(devicePrefs.themeMode, systemColorScheme);
   const theme = darkMode ? DARK_THEME : LIGHT_THEME;
   const tabBarBottom = Math.max(insets.bottom, 12);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  const handleChangeDevicePrefs = useCallback((next: DevicePrefs) => {
+    devicePrefsDirtyRef.current = true;
+    setDevicePrefs(next);
+    setHapticsEnabled(next.hapticsEnabled);
+    saveDevicePrefs(next);
+  }, []);
 
   // Companion session (Keychain-backed)
   const [session, setSession] = useState<PairedSession | null>(null);
@@ -302,9 +325,15 @@ function LoopShell() {
     toastTimer.current = setTimeout(() => setToast(null), undo ? 4200 : 2400);
   }, []);
 
-  // Load saved Keychain session on startup & listen for deep-linked pairing URLs
+  // Load saved Keychain session & device preferences on startup, and listen for deep-linked pairing URLs
   useEffect(() => {
     configureNotificationsHandler();
+    void loadDevicePrefs().then((saved) => {
+      if (!devicePrefsDirtyRef.current) {
+        setDevicePrefs(saved);
+        setHapticsEnabled(saved.hapticsEnabled);
+      }
+    });
     void loadPairedSession().then((saved) => {
       if (saved) setSession(saved);
     });
@@ -336,6 +365,7 @@ function LoopShell() {
       setOpenConversationId(null);
       setCarouselOverrideCards(null);
       setProfileAgent(null);
+      setSettingsOpen(false);
       setThreadOverlay({
         conversationId: target.conversationId,
         title: target.title,
@@ -370,6 +400,7 @@ function LoopShell() {
       clearEphemeralWorkspaceData(localDataScope(expiredSession));
       void clearPairedSession();
       setComposeTarget(null);
+      setSettingsOpen(false);
       setSession(null);
       setSocketStatus("offline");
       setPairingOpen(true);
@@ -1818,6 +1849,7 @@ function LoopShell() {
         }}
         onLoadMore={() => void handleLoadMoreFeed()}
         onOpenPairing={() => setPairingOpen(true)}
+        onOpenSettings={() => setSettingsOpen(true)}
         onOpenAgent={handleOpenAgent}
         onOpenAgentByName={openAgentByName}
         onNewAgent={() => setComposeTarget({ kind: "new" })}
@@ -1940,21 +1972,14 @@ function LoopShell() {
         <ProfileScreen
           client={client}
           session={session}
-          socketStatus={socketStatus}
           localCards={activeCards}
           theme={theme}
-          onToggleTheme={() => setDarkMode((v) => !v)}
-          onOpenPairing={() => setPairingOpen(true)}
-          onSignOut={() => void handleSignOut()}
+          hasConnectionAttention={
+            summarizeConnections(connections).unhealthy > 0
+          }
+          onOpenSettings={() => setSettingsOpen(true)}
           onOpenConversation={(conv) => setThreadOverlay(conv)}
           onOpenFile={handleOpenFile}
-          notificationPrefs={notificationPrefs}
-          notificationPrefsLoaded={notificationPrefsLoaded}
-          onChangeNotificationPrefs={(next) => {
-            if (!notificationPrefsLoaded) return;
-            setNotificationPrefs(next);
-            saveNotificationPrefs(client?.localDataScope, next);
-          }}
         />
       )}
 
@@ -2300,6 +2325,45 @@ function LoopShell() {
               });
             }
           }}
+        />
+      )}
+
+      {/* Settings Sheet (full-screen above tab dock; keeps 5-tab bar minimal) */}
+      {settingsOpen && (
+        <SettingsSheet
+          client={client}
+          session={session}
+          socketStatus={socketStatus}
+          environmentName={environmentName}
+          agents={agents}
+          connections={connections}
+          folders={folders}
+          theme={theme}
+          devicePrefs={devicePrefs}
+          onChangeDevicePrefs={handleChangeDevicePrefs}
+          notificationPrefs={notificationPrefs}
+          notificationPrefsLoaded={notificationPrefsLoaded}
+          onChangeNotificationPrefs={(next) => {
+            if (!notificationPrefsLoaded) return;
+            setNotificationPrefs(next);
+            saveNotificationPrefs(client?.localDataScope, next);
+          }}
+          onClose={() => setSettingsOpen(false)}
+          onOpenPairing={() => setPairingOpen(true)}
+          onSignOut={() => void handleSignOut()}
+          onOpenAgent={(agent) => setProfileAgent(agent)}
+          onAgentUpdated={(updated) => {
+            setAgents((prev) =>
+              prev.map((a) => (a.id === updated.id ? updated : a)),
+            );
+            void loadWorkspaceRef.current({ silent: true });
+          }}
+          onRefreshWorkspace={() => loadWorkspaceRef.current({ silent: true })}
+          onCacheCleared={() => {
+            setShowingCachedSnapshot(false);
+            setCachedAt(null);
+          }}
+          onNotify={showToast}
         />
       )}
 

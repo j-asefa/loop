@@ -408,3 +408,73 @@ export type ApiSharePreview = {
     excerpt: string;
   };
 };
+
+export type ApiPermissionMode = "default" | "acceptEdits" | "bypassPermissions";
+
+export type ApiMcpApprovalMode = "ask" | "allow";
+
+export type ApiMcpPreferences = {
+  approvalMode: ApiMcpApprovalMode;
+  agentPermissionMode: ApiPermissionMode;
+};
+
+export type ApiMcpConnection = {
+  id: string;
+  owner_id: string;
+  name: string;
+  url: string;
+  status: string;
+  tools: string;
+  metadata: string;
+  created_at: number;
+  authType: "none" | "bearer" | "headers" | "oauth" | "query";
+};
+
+export type ApiMemorySourceSummary = {
+  id: string;
+  title: string;
+  kind: string;
+  project_id: string | null;
+  revision: number;
+  eligible: number;
+  tombstone: number;
+};
+
+export type ApiMemoryStatus = {
+  policies: Array<{ scope: string; enabled: number }>;
+  sources: ApiMemorySourceSummary[];
+};
+
+export type ApiSearchStatus = {
+  enabled: boolean;
+  state: string;
+  total: number;
+  indexed: number;
+  pending: number;
+  detail: string | null;
+};
+
+export type ApiSearchPreferences = {
+  embedding_enabled: number;
+  embedding_connection?: string | null;
+};
+
+export type ApiAgentUpdate = {
+  retired?: boolean;
+  folderId?: string | null;
+  name?: string;
+  instructions?: string;
+  connectionId?: string | null;
+  model?: string | null;
+  effort?: string | null;
+};
+
+export type ApiConnectionRefresh = {
+  models: Array<{
+    id: string;
+    name: string;
+    resolvedModel?: string;
+    capabilities?: string;
+  }>;
+  name?: string;
+};

@@ -5,6 +5,7 @@
  */
 export const LAYERS = {
   tabDock: 15,
+  settings: 45,
   compose: 50,
   pairing: 60,
   toast: 70,
