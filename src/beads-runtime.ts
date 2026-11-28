@@ -1,6 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { createReadStream, createWriteStream } from "node:fs";
+import { constants, createReadStream, createWriteStream } from "node:fs";
 import { access, chmod, mkdir, mkdtemp, rm, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -69,7 +69,12 @@ const verified = new Map<string, { binary: string; stamp: string }>();
 
 async function executableStamp(binary: string) {
   const info = await stat(binary, { bigint: true }).catch(() => undefined);
-  if (!info?.isFile() || (info.mode & 0o111n) === 0n) return undefined;
+  if (!info?.isFile()) return undefined;
+  try {
+    await access(binary, constants.X_OK);
+  } catch {
+    return undefined;
+  }
   return [info.dev, info.ino, info.size, info.mtimeNs, info.ctimeNs].join(":");
 }
 

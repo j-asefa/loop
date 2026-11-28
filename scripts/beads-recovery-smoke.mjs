@@ -60,7 +60,7 @@ if (rootArg) {
     await copyFile(original, installed);
     const store = new BeadsStore(root, scope);
     await Promise.all([store.initialize(), store.initialize()]);
-    await chmod(installed, 0o600);
+    await chmod(installed, 0o601);
     assert.equal(await beadsBinary(root), installed);
     assert.deepEqual(await store.read(["list"]), []);
     const work = (action, id, request) =>
