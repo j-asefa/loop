@@ -1,7 +1,7 @@
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { chmod, mkdir, mkdtemp, rename, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rename, rm, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Readable, Transform } from "node:stream";
@@ -65,15 +65,21 @@ async function extract(archive: string, entry: string, destination: string) {
 }
 
 const installations = new Map<string, Promise<string>>();
+const verified = new Map<string, { binary: string; stamp: string }>();
+
+async function executableStamp(binary: string) {
+  const info = await stat(binary, { bigint: true }).catch(() => undefined);
+  if (!info?.isFile() || (info.mode & 0o111n) === 0n) return undefined;
+  return [info.dev, info.ino, info.size, info.mtimeNs, info.ctimeNs].join(":");
+}
 
 /** Resolve the pinned desktop or preinstalled companion executable. */
 export function beadsBinary(root: string): Promise<string> {
   const path = resolve(root, "beads-runtime", beadsRelease, "bd");
   const active = installations.get(path);
   if (active) return active;
-  const installing = install(path);
+  const installing = verifyOrInstall(path);
   installations.set(path, installing);
-  // Cache only concurrent calls. Each later lookup can detect a damaged helper.
   void installing.then(
     () => installations.delete(path),
     () => installations.delete(path),
@@ -81,16 +87,33 @@ export function beadsBinary(root: string): Promise<string> {
   return installing;
 }
 
+async function verifyOrInstall(path: string) {
+  const previous = verified.get(path);
+  if (previous && (await executableStamp(previous.binary)) === previous.stamp)
+    return previous.binary;
+  const binary = await install(path);
+  const stamp = await executableStamp(binary);
+  if (!stamp) throw new Error("Beads is not executable");
+  verified.set(path, { binary, stamp });
+  return binary;
+}
+
 async function install(path: string) {
   const build = builds[`${process.platform}-${process.arch}`];
   if (!build) throw new Error("Beads requires macOS or Linux on x64 or arm64");
   const [platform, entry, archiveHash, executableHash] = build;
-  if ((await digest(path).catch(() => undefined)) === executableHash)
+  if ((await digest(path).catch(() => undefined)) === executableHash) {
+    if (!(await executableStamp(path))) await chmod(path, 0o700);
     return path;
+  }
   const baked =
     process.env.LOOP_BAKED_BEADS &&
-    join(process.env.LOOP_BAKED_BEADS, "beads-runtime", beadsRelease, "bd");
-  if (baked && (await digest(baked).catch(() => undefined)) === executableHash)
+    resolve(process.env.LOOP_BAKED_BEADS, "beads-runtime", beadsRelease, "bd");
+  if (
+    baked &&
+    (await executableStamp(baked)) &&
+    (await digest(baked).catch(() => undefined)) === executableHash
+  )
     return baked;
 
   const dir = resolve(path, "..");
@@ -157,10 +180,16 @@ export class BeadsUnavailable extends Error {
   }
 }
 
+/** A failed call or lost response can arrive after a mutation committed. */
+export class BeadsWriteUnknown extends Error {
+  constructor(options?: ErrorOptions) {
+    super("The Beads write may have committed.", options);
+  }
+}
+
 export class BeadsStore {
   readonly id: string;
   private readonly directory: string;
-  private resolvedBinary?: string;
 
   constructor(
     private readonly root: string,
@@ -190,7 +219,15 @@ export class BeadsStore {
   }
 
   async write(args: readonly string[]): Promise<unknown> {
-    return this.json(args);
+    try {
+      return await this.json(args);
+    } catch (error) {
+      // The caller owns the durable receipt and must inspect Beads for its
+      // operation identity before doing anything with an uncertain write.
+      throw new BeadsWriteUnknown({
+        cause: error instanceof BeadsUnavailable ? error.cause : error,
+      });
+    }
   }
 
   private async json(args: readonly string[]): Promise<unknown> {
@@ -206,7 +243,7 @@ export class BeadsStore {
   // process exiting because bd inherits the descriptor via exec.
   private async execute(args: readonly string[]) {
     try {
-      const binary = (this.resolvedBinary ??= await beadsBinary(this.root));
+      const binary = await beadsBinary(this.root);
       const { stdout } = await exec(
         "/usr/bin/env",
         ["python3", lock, binary, "--sandbox", "--json", ...args],
@@ -215,6 +252,7 @@ export class BeadsStore {
           env: {
             PATH: "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin",
             HOME: this.directory,
+            BEADS_DIR: join(this.directory, ".beads"),
             GIT_CONFIG_NOSYSTEM: "1",
             GIT_CONFIG_GLOBAL: "/dev/null",
             GIT_CONFIG_COUNT: "1",

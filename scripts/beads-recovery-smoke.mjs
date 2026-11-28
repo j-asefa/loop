@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -9,7 +18,7 @@ import { pathToFileURL } from "node:url";
 const moduleUrl = process.env.LOOP_BEADS_RUNTIME_MODULE
   ? pathToFileURL(resolve(process.env.LOOP_BEADS_RUNTIME_MODULE)).href
   : new URL("../src/beads-runtime.ts", import.meta.url).href;
-const { BeadsStore } = await import(moduleUrl);
+const { BeadsStore, beadsBinary, beadsRelease } = await import(moduleUrl);
 const scope = { ownerId: "owner", profile: "companion", projectId: "project" };
 const [, script, rootArg, action, id, request] = process.argv;
 
@@ -44,8 +53,16 @@ if (rootArg) {
 } else {
   const root = await mkdtemp(join(tmpdir(), "loop-beads-smoke-"));
   try {
+    const installed = join(root, "beads-runtime", beadsRelease, "bd");
+    const assetRoot = join(root, "release");
+    const original = await beadsBinary(assetRoot);
+    await mkdir(resolve(installed, ".."), { recursive: true });
+    await copyFile(original, installed);
     const store = new BeadsStore(root, scope);
     await Promise.all([store.initialize(), store.initialize()]);
+    await chmod(installed, 0o600);
+    assert.equal(await beadsBinary(root), installed);
+    assert.deepEqual(await store.read(["list"]), []);
     const work = (action, id, request) =>
       once(
         spawn(
@@ -106,12 +123,18 @@ if (rootArg) {
     );
     assert.equal((await restarted.read(["show", unsent]))[0].status, "open");
 
+    // A parent's Beads repository must never satisfy another scope's read.
+    await symlink(
+      join(root, "beads-stores", store.id, ".beads"),
+      join(root, ".beads"),
+    );
     for (const override of [
       { ownerId: "other-owner" },
       { profile: "other-profile" },
       { projectId: "other-project" },
     ]) {
       const unrelated = new BeadsStore(root, { ...scope, ...override });
+      await mkdir(join(root, "beads-stores", unrelated.id));
       await assert.rejects(unrelated.read(["list"]), /unavailable/);
       assert.notEqual(unrelated.id, restarted.id);
     }
