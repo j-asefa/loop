@@ -302,6 +302,8 @@ it.skipIf(!realBeads)(
 
     const run = claim("beads-fixture")!;
     expect(run.conversation_id).toBe(winner.conversationId);
+    expect(run.input).toContain("Work on " + blocker + ".");
+    expect(run.input).not.toContain("Blocker");
     const { projectWorkAvailable, invokeProjectWork } =
       await import("../src/server/bead-tools.js");
     const leasedRun = ownedRun(run.id, owner);

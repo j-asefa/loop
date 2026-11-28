@@ -151,7 +151,7 @@ async function reconcile(store: BeadsStore, row: Assignment, fence = false) {
   return assignmentsQueries.byRequest(db, row.owner_id, row.request_id)!;
 }
 
-function dispatchStart(row: Assignment, project: string, title: string) {
+function dispatchStart(row: Assignment, project: string) {
   return db
     .transaction(() => {
       const current = assignmentsQueries.active(
@@ -174,9 +174,7 @@ function dispatchStart(row: Assignment, project: string, title: string) {
         input:
           "Work on " +
           row.bead_id +
-          " (" +
-          title +
-          "). Read the bead and its discussion with the Project Work tool. Verify the bead's acceptance criteria before explicitly closing it with a reason. Finishing this turn does not close the bead.",
+          ". Read the bead and its discussion with the Project Work tool. Verify the bead's acceptance criteria before explicitly closing it with a reason. Finishing this turn does not close the bead.",
       });
       assignmentsQueries.transition(db, current, "started", run.id);
       return assignmentsQueries.byRequest(db, row.owner_id, row.request_id)!;
@@ -236,7 +234,7 @@ async function claimAndStart(
     const bead = await issue(store, row.bead_id);
     if (bead.status !== "in_progress" || bead.assignee !== claimActor(row))
       throw new Problem(409, "The assignment is no longer current.");
-    row = dispatchStart(row, project, bead.title);
+    row = dispatchStart(row, project);
   }
   return publicAssignment(row);
 }

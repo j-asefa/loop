@@ -117,9 +117,6 @@ export function ProjectWork({
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState<BeadWorkItem["status"]>("ready");
   const [opened, setOpened] = useState(target?.beadId || "");
-  useEffect(() => {
-    if (target?.beadId) setOpened(target.beadId);
-  }, [target]);
   const [adding, setAdding] = useState(!!target?.sourceMessageId);
   const [sourceMessage, setSourceMessage] = useState(target?.sourceMessageId);
   const [title, setTitle] = useState(
@@ -127,6 +124,25 @@ export function ProjectWork({
   );
   const [description, setDescription] = useState("");
   const [createPending, setCreatePending] = useState(false);
+  const lastTarget = useRef(target);
+  useEffect(() => {
+    if (lastTarget.current === target) return;
+    lastTarget.current = target;
+    if (target?.beadId) setOpened(target.beadId);
+    if (target?.sourceMessageId) {
+      setOpened("");
+      setAdding(true);
+      if (
+        !createPending &&
+        !busy &&
+        (!adding || sourceMessage !== target.sourceMessageId)
+      ) {
+        setSourceMessage(target.sourceMessageId);
+        setTitle(target.title || "");
+        setDescription("");
+      }
+    }
+  }, [adding, busy, createPending, sourceMessage, target]);
   const createScope = work?.enabled
     ? JSON.stringify(["bead-create", project, work.storeId])
     : "";
@@ -366,7 +382,19 @@ export function ProjectWork({
           ))}
         </>
       )}
-      {opened && slides.length > 0 && (
+      {opened && work?.enabled && !openedItem && !busy && (
+        <View>
+          <Text accessibilityRole="alert" style={{ color: theme.text }}>
+            This bead is unavailable in this project.
+          </Text>
+          <WorkButton
+            theme={theme}
+            label="Dismiss"
+            onPress={() => setOpened("")}
+          />
+        </View>
+      )}
+      {openedItem && (
         <BeadSpotlight
           client={client}
           project={project}
