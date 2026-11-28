@@ -43,24 +43,26 @@ export function reserve(
 }
 
 const complete = statement(
-  "UPDATE bead_write_receipts SET completed_at=COALESCE(completed_at,?) WHERE owner_id=? AND request_id=?",
+  "UPDATE bead_write_receipts SET completed_at=COALESCE(completed_at,?) WHERE owner_id=? AND request_id=? AND correlation_id=?",
 );
 export function finish(
   db: Database.Database,
   owner: string,
   request: string,
+  marker: string,
   now: number,
 ) {
-  complete(db).run(now, owner, request);
+  complete(db).run(now, owner, request, marker);
 }
 
 const forget = statement(
-  "DELETE FROM bead_write_receipts WHERE owner_id=? AND request_id=? AND completed_at IS NULL",
+  "DELETE FROM bead_write_receipts WHERE owner_id=? AND request_id=? AND correlation_id=? AND completed_at IS NULL",
 );
 export function forgetPending(
   db: Database.Database,
   owner: string,
   request: string,
+  marker: string,
 ) {
-  forget(db).run(owner, request);
+  forget(db).run(owner, request, marker);
 }

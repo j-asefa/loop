@@ -97,6 +97,9 @@ export function Projects({
   const requestedTab = useRef(
     new URLSearchParams(location.search).get("projectTab"),
   );
+  const requestedProject = useRef(
+    new URLSearchParams(location.search).get("projectView"),
+  );
   const consumeRequestedTab = () => {
     requestedTab.current = null;
     const url = new URL(location.href);
@@ -109,8 +112,9 @@ export function Projects({
     );
   };
   useEffect(() => {
-    const requested = requestedTab.current;
-    if (requested && !selected) return;
+    if (requestedTab.current && requestedProject.current && !selected) return;
+    const requested =
+      requestedProject.current === selected ? requestedTab.current : null;
     consumeRequestedTab();
     if (requested === "work")
       sessionStorage.setItem("loop-project-tab:" + selected, requested);

@@ -200,6 +200,10 @@ async function mutate(
   sourceResultId: string | null,
   perform: (marker: string) => Promise<boolean>,
   reconcile: (storedBead: string, marker: string) => Promise<boolean>,
+  recover?: (
+    storedBead: string,
+    marker: string,
+  ) => Promise<"committed" | "refused">,
 ): Promise<BeadStatus> {
   const hash = requestHash({
     operation,
@@ -217,14 +221,33 @@ async function mutate(
   });
   const prior = receiptsQueries.byRequest(db, owner, input.requestId);
   if (prior?.request_hash === hash && prior.completed_at === null) {
-    // An unfinished receipt may still be running in another process. Only
-    // accept the external record with the reserved identity. Never repeat it.
-    if (
-      !(await reconcile(prior.bead_id, prior.correlation_id).catch(() => false))
-    )
-      return unknown(prior.bead_id);
-    receiptsQueries.finish(db, owner, input.requestId, now());
-    return committed(prior.bead_id);
+    // Recovery either observes the reserved external identity or fences an
+    // unsent close under the same store lock. It never repeats the write.
+    const status = recover
+      ? await recover(prior.bead_id, prior.correlation_id).catch(
+          () => "unknown" as const,
+        )
+      : (await reconcile(prior.bead_id, prior.correlation_id).catch(
+            () => false,
+          ))
+        ? "committed"
+        : "unknown";
+    if (status === "committed")
+      receiptsQueries.finish(
+        db,
+        owner,
+        input.requestId,
+        prior.correlation_id,
+        now(),
+      );
+    if (status === "refused")
+      receiptsQueries.forgetPending(
+        db,
+        owner,
+        input.requestId,
+        prior.correlation_id,
+      );
+    return { status, beadId: prior.bead_id };
   }
 
   return await withRequestReceipt<BeadStatus>(db, {
@@ -276,9 +299,9 @@ async function mutate(
     },
     complete: (outcome) => {
       if (outcome.status === "committed")
-        receiptsQueries.finish(db, owner, input.requestId, now());
+        receiptsQueries.finish(db, owner, input.requestId, marker, now());
       if (outcome.status === "refused")
-        receiptsQueries.forgetPending(db, owner, input.requestId);
+        receiptsQueries.forgetPending(db, owner, input.requestId, marker);
       return outcome;
     },
   });
@@ -488,12 +511,17 @@ export async function closeProjectBead(
             id: bead,
             status: current.status,
             assignee: current.assignee || null,
+            marker,
           },
         },
       );
       return false;
     },
     recorded,
+    async (id, marker) =>
+      z
+        .enum(["committed", "refused"])
+        .parse(await store.settleClose(id, marker)),
   );
 }
 

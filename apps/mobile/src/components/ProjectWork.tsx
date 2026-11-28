@@ -769,11 +769,14 @@ function WorkDetail({
           {detail.assignment && detail.status !== "closed" && (
             <>
               <Text style={{ color: theme.text }}>
-                {detail.assignment.recovery
-                  ? "Checking " + detail.assignment.recovery + " recovery"
-                  : "Assigned to @" +
-                    (agents.find(({ id }) => id === detail.assignment!.agentId)
-                      ?.name || "project agent")}
+                {detail.assignment.recovery === "run"
+                  ? "The linked run has an unconfirmed outcome. Open its thread for details."
+                  : detail.assignment.recovery
+                    ? "Checking " + detail.assignment.recovery + " recovery"
+                    : "Assigned to @" +
+                      (agents.find(
+                        ({ id }) => id === detail.assignment!.agentId,
+                      )?.name || "project agent")}
               </Text>
               <View style={styles.row}>
                 {(["resume", "release", "recover"] as const)
@@ -782,7 +785,8 @@ function WorkDetail({
                       ? detail.assignment!.canResume
                       : action === "release"
                         ? detail.assignment!.canRelease
-                        : !!detail.assignment!.recovery,
+                        : detail.assignment!.recovery === "claim" ||
+                          detail.assignment!.recovery === "release",
                   )
                   .map((action) => (
                     <WorkButton

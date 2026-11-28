@@ -268,7 +268,7 @@ export function nativeBindings(
   };
   if (projectWorkAvailable(run))
     descriptions.loop_project_work =
-      "Read and manage Beads in this run's project. List or read a bead and its comments, create a bead, add a comment or blocker, or explicitly close the bead assigned to this run after checking its acceptance criteria. Comments never send a live reply.";
+      "Read and manage Beads in this run's project. List or read a bead and its comments, create a bead, add a comment or blocker, or explicitly close the bead assigned to this run after checking its acceptance criteria. Comments never send a live reply. To check an unknown write outcome, use the same action and fields.";
   descriptions.loop_review_status =
     "Check status and report of requested reviews. Pass reviewId, or omit for the 10 most recent. Running is not approval; never start duplicate reviews.";
   const reviewTeams = run.agent_id
@@ -727,7 +727,7 @@ export async function invokeNative(
     }
   } else if (tool === "loop_project_work") {
     try {
-      text = JSON.stringify(await invokeProjectWork(run, callId, args));
+      text = JSON.stringify(await invokeProjectWork(run, args));
     } catch (error) {
       if (!(error instanceof Problem)) throw error;
       isError = true;

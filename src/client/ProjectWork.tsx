@@ -10,6 +10,8 @@ import type { ProjectId } from "../shared/contract-ids";
 import { workspaceApi } from "../shared/workspace-api";
 import { callRoute, readRoute } from "./api";
 import { ErrorNotice } from "./ErrorNotice";
+import { AutofillBoundary } from "./AutofillBoundary";
+import { proseEntry } from "./textEntry";
 import { sourceUrl, executionSourceId } from "./sourceRouting";
 import { viewOwner } from "./viewCache";
 
@@ -355,6 +357,7 @@ export function ProjectWork({ project }: { project: ProjectId }) {
               <label>
                 Title{" "}
                 <input
+                  {...proseEntry}
                   value={title}
                   required
                   maxLength={256}
@@ -365,6 +368,7 @@ export function ProjectWork({ project }: { project: ProjectId }) {
               <label>
                 Description{" "}
                 <textarea
+                  {...proseEntry}
                   value={description}
                   maxLength={16000}
                   readOnly={createPending}
@@ -464,12 +468,14 @@ export function ProjectWork({ project }: { project: ProjectId }) {
               {bead.assignment && bead.status !== "closed" && (
                 <div>
                   <p>
-                    {bead.assignment.recovery
-                      ? "Checking " + bead.assignment.recovery + " recovery"
-                      : "Assigned to " +
-                        (agents.find(
-                          ({ id }) => id === bead.assignment!.agentId,
-                        )?.name || "project agent")}
+                    {bead.assignment.recovery === "run"
+                      ? "The linked run has an unconfirmed outcome. Open its thread for details."
+                      : bead.assignment.recovery
+                        ? "Checking " + bead.assignment.recovery + " recovery"
+                        : "Assigned to " +
+                          (agents.find(
+                            ({ id }) => id === bead.assignment!.agentId,
+                          )?.name || "project agent")}
                   </p>
                   {(["resume", "release", "recover"] as const)
                     .filter((action) =>
@@ -477,7 +483,8 @@ export function ProjectWork({ project }: { project: ProjectId }) {
                         ? bead.assignment!.canResume
                         : action === "release"
                           ? bead.assignment!.canRelease
-                          : !!bead.assignment!.recovery,
+                          : bead.assignment!.recovery === "claim" ||
+                            bead.assignment!.recovery === "release",
                     )
                     .map((action) => (
                       <button
@@ -626,6 +633,7 @@ export function ProjectWork({ project }: { project: ProjectId }) {
                   }}
                 >
                   <input
+                    {...proseEntry}
                     aria-label="Close reason"
                     required
                     value={reason}
@@ -700,15 +708,18 @@ export function ProjectWork({ project }: { project: ProjectId }) {
                   Comment on selection
                 </button>
                 {comment.excerpt && <blockquote>{comment.excerpt}</blockquote>}
-                <textarea
-                  aria-label="Comment"
-                  value={comment.text}
-                  maxLength={8000}
-                  readOnly={!!comment.requestId}
-                  onChange={(event) =>
-                    saveComment({ ...comment, text: event.target.value })
-                  }
-                />
+                <AutofillBoundary>
+                  <textarea
+                    {...proseEntry}
+                    aria-label="Comment"
+                    value={comment.text}
+                    maxLength={8000}
+                    readOnly={!!comment.requestId}
+                    onChange={(event) =>
+                      saveComment({ ...comment, text: event.target.value })
+                    }
+                  />
+                </AutofillBoundary>
                 {comment.requestId && (
                   <button
                     type="button"

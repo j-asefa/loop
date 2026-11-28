@@ -135,6 +135,8 @@ def run():
     if args[0] == "--current":
         expected = json.loads(args[1])
         args = args[2:]
+        if os.path.exists(work_fence(expected.pop("marker"))):
+            sys.exit("LOOP_BEADS_FENCED")
         [bead] = read(args, ["show", expected["id"]], environment, fd)
         actual = {
             "id": bead["id"],
@@ -143,6 +145,19 @@ def run():
         }
         if actual != expected:
             sys.exit(13)
+    elif args[0] == "--settle-close":
+        expected = json.loads(args[1])
+        [bead] = read(args[2:], ["show", expected["bead"]], environment, fd)
+        if bead["id"] != expected["bead"]:
+            raise ValueError("unexpected bead")
+        marker = expected["marker"]
+        suffix = "\n\n<!-- loop-close:" + marker + " -->"
+        if bead["status"] == "closed" and (bead.get("close_reason") or "").endswith(suffix):
+            print(json.dumps("committed"))
+        else:
+            fence_attempt(marker)
+            print(json.dumps("refused"))
+        return
     elif args[0] == "--settle":
         expected = json.loads(args[1])
         print(json.dumps(settle(args[2:], expected, environment, fd)))

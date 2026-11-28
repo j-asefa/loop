@@ -8,6 +8,7 @@ import {
   BeadsNotStarted,
   BeadsStore,
   BeadsUnavailable,
+  BeadsWriteUnknown,
 } from "../src/beads-runtime.js";
 
 const data = testDirectory();
@@ -305,18 +306,41 @@ it.skipIf(!realBeads)(
     const leasedRun = ownedRun(run.id, owner);
     expect(projectWorkAvailable(leasedRun)).toBe(true);
     expect(
-      await invokeProjectWork(leasedRun, "read", {
+      await invokeProjectWork(leasedRun, {
         action: "read",
         bead: blocker,
       }),
     ).toMatchObject({ id: blocker });
     await expect(
-      invokeProjectWork(leasedRun, "close-another", {
+      invokeProjectWork(leasedRun, {
         action: "close",
         bead: target,
         reason: "Wrong bead",
       }),
     ).rejects.toThrow(/only close its own/);
+    const toolComment = {
+      action: "comment",
+      bead: blocker,
+      text: "One native comment",
+    };
+    const nativeWrite = BeadsStore.prototype.write;
+    const lostComment = vi
+      .spyOn(BeadsStore.prototype, "write")
+      .mockImplementationOnce(async function (this: BeadsStore, ...args) {
+        await nativeWrite.apply(this, args);
+        throw new BeadsWriteUnknown();
+      });
+    try {
+      expect(await invokeProjectWork(leasedRun, toolComment)).toMatchObject({
+        status: "unknown",
+      });
+      expect(await invokeProjectWork(leasedRun, toolComment)).toMatchObject({
+        status: "committed",
+      });
+      expect(lostComment).toHaveBeenCalledOnce();
+    } finally {
+      lostComment.mockRestore();
+    }
     const answer = "Work finished. https://github.com/example/repo/pull/42";
     const messageId = id();
     seedMessage(db, {
@@ -473,6 +497,27 @@ it.skipIf(!realBeads)(
     const resumedRun = claim("beads-fixture")!;
     expect(resumedRun.conversation_id).toBe(resumed.body.conversationId);
     expect(transition(resumedRun, "cancelled")).toBe(true);
+    const dispatch = await import("../src/server/sql/native-dispatch.js");
+    dispatch.insertUnknown(db, resumedRun.id, randomUUID(), "fixture", now());
+    expect(
+      (await request(route + "/" + recovery)).body.assignment,
+    ).toMatchObject({ recovery: "run", canRelease: false });
+    const disputed = await request(resume, "POST", {
+      storeId,
+      generation,
+      action: "recover",
+    });
+    expect(disputed.status).toBe(409);
+    expect(
+      (
+        await request(resume, "POST", {
+          storeId,
+          generation,
+          action: "release",
+        })
+      ).status,
+    ).toBe(409);
+    dispatch.setState(db, "interrupted", resumedRun.id);
     const interruptedRelease = randomUUID();
     const started = byRequest(db, owner, requestId)!;
     expect(
@@ -586,6 +631,59 @@ it.skipIf(!realBeads)(
     ).rejects.toBeInstanceOf(BeadsNotStarted);
     expect(claim("beads-fixture")).toBeUndefined();
 
+    const interruptedClose = await create("Close before dispatch");
+    const closeAttempt = {
+      storeId,
+      requestId: randomUUID(),
+      generation: null,
+      reason: "First reason",
+    };
+    const interruptedCloseRoute = route + "/" + interruptedClose + "/close";
+    const { requestHash } = await import("../src/server/request-receipts.js");
+    const marker = randomUUID();
+    receipts.reserve(db, {
+      owner_id: owner,
+      store_id: storeId,
+      request_id: closeAttempt.requestId,
+      operation: "close",
+      request_hash: requestHash({
+        operation: "close",
+        input: closeAttempt,
+        target: interruptedClose,
+      }),
+      bead_id: interruptedClose,
+      correlation_id: marker,
+      source_result_id: null,
+    });
+    expect(
+      (await request(interruptedCloseRoute, "POST", closeAttempt)).body.status,
+    ).toBe("refused");
+    await expect(
+      store.write(
+        ["close", interruptedClose, "--reason", closeAttempt.reason],
+        {
+          current: {
+            id: interruptedClose,
+            status: "open",
+            assignee: null,
+            marker,
+          },
+        },
+      ),
+    ).rejects.toBeInstanceOf(BeadsNotStarted);
+    expect(
+      (
+        await request(interruptedCloseRoute, "POST", {
+          ...closeAttempt,
+          requestId: randomUUID(),
+          reason: "Replacement reason",
+        })
+      ).body.status,
+    ).toBe("committed");
+    expect(
+      (await request(route + "/" + interruptedClose)).body.closeReason,
+    ).toBe("Replacement reason");
+
     const { submit } = await import("../src/server/agent-runtime.js");
     const shared = submit(owner, {
       agentId: agents[0].id,
@@ -599,7 +697,7 @@ it.skipIf(!realBeads)(
     const leasedSharedRun = ownedRun(sharedRun.id, owner);
     expect(projectWorkAvailable(leasedSharedRun)).toBe(false);
     await expect(
-      invokeProjectWork(leasedSharedRun, "list", { action: "list" }),
+      invokeProjectWork(leasedSharedRun, { action: "list" }),
     ).rejects.toThrow(/disabled/);
     expect(transition(sharedRun, "cancelled")).toBe(true);
 
@@ -619,9 +717,21 @@ it.skipIf(!realBeads)(
       const current = ownedRun(leased.id, owner);
       expect(projectWorkAvailable(current)).toBe(false);
       await expect(
-        invokeProjectWork(current, "list", { action: "list" }),
+        invokeProjectWork(current, { action: "list" }),
       ).rejects.toThrow(/disabled/);
       expect(transition(leased, "cancelled")).toBe(true);
+      const followUp = submit(owner, {
+        agentId: agents[0].id,
+        conversationId: leased.conversation_id!,
+        input: "A personal follow-up",
+        idempotencyKey: randomUUID(),
+        personal: true,
+        mailScope: "direct",
+      });
+      const followUpRun = claim("beads-fixture")!;
+      expect(followUpRun.id).toBe(followUp.id);
+      expect(projectWorkAvailable(ownedRun(followUpRun.id, owner))).toBe(false);
+      expect(transition(followUpRun, "cancelled")).toBe(true);
     }
   },
   100_000,

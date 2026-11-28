@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { BeadsUnavailable } from "../beads-runtime.js";
 import { BeadId } from "../shared/bead-routes.js";
-import { db } from "./db.js";
+import { db, now } from "./db.js";
 import { ownedRun, Problem } from "./domain.js";
 import { canUseMemorySearch } from "./memory.js";
 import { requestHash } from "./request-receipts.js";
@@ -55,7 +55,14 @@ function runWorkScope(run: Run) {
   // instructions the workspace owner did not type.
   if (
     !messagesQueries.hasPersonalPrompt(db, run.id, run.owner_id) ||
-    !canUseMemorySearch(run)
+    !canUseMemorySearch(run) ||
+    (run.conversation_id &&
+      messagesQueries.hasUnwrittenMessage(
+        db,
+        run.conversation_id,
+        run.owner_id,
+        now(),
+      ))
   )
     return undefined;
   const project = foldersQueries.projectFor(db, {
@@ -71,17 +78,12 @@ export function projectWorkAvailable(run: Run) {
   return !!runWorkScope(run);
 }
 
-export async function invokeProjectWork(
-  run: Run,
-  callId: string,
-  input: unknown,
-) {
+export async function invokeProjectWork(run: Run, input: unknown) {
   const current = ownedRun(run.id, run.owner_id);
   if (current.state !== "running" || current.worker_id !== run.worker_id)
     throw new Problem(409, "This run is no longer executing.");
   const scope = runWorkScope(current);
   if (!scope) throw new Problem(404, "Project Work is disabled.");
-  const requestId = "tool:" + requestHash([run.id, callId]);
   const parsed = command.safeParse(input);
   if (!parsed.success)
     throw new Problem(
@@ -91,6 +93,9 @@ export async function invokeProjectWork(
   const args = parsed.data;
   const owner = run.owner_id;
   const project = scope.project_id;
+  // The model can retry under a new tool-call ID. Identical requests within
+  // this run must reconcile the original receipt instead of dispatching again.
+  const requestId = "tool:" + requestHash([run.id, scope.store_id, args]);
   const mutation = { requestId, storeId: scope.store_id };
   try {
     switch (args.action) {

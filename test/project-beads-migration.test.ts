@@ -64,7 +64,7 @@ it("preserves published answers and Beads references across migration and reopen
       correlation_id: "correlation",
       source_result_id: saved.id,
     });
-    receiptsQueries.finish(db, owner, "request", 3);
+    receiptsQueries.finish(db, owner, "request", "correlation", 3);
     db.close();
 
     db = new Database(existing);

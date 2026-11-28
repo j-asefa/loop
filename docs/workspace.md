@@ -40,6 +40,11 @@ discussion, quote selected text in a comment, or pick a project agent with
 thread to direct an active run. Closing a bead requires an explicit reason.
 On a phone, swipe between beads in the current Work view.
 
+If a close is interrupted, **Check close** recovers the result or confirms
+the old request can no longer close the bead. When a linked run's outcome
+is still unconfirmed, open its thread for details. Release becomes available
+after Loop confirms that run ended or never started.
+
 See [managed Beads storage](server.md#managed-beads-storage) for backup and
 runtime requirements.
 

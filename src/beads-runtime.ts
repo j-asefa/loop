@@ -299,7 +299,14 @@ export class BeadsPreconditionFailed extends Error {
 type BeadsGuard =
   | { ready: { bead: string; generation: string } }
   | { release: string }
-  | { current: { id: string; status: string; assignee: string | null } };
+  | {
+      current: {
+        id: string;
+        status: string;
+        assignee: string | null;
+        marker: string;
+      };
+    };
 
 export class BeadsStore {
   readonly id: string;
@@ -341,6 +348,10 @@ export class BeadsStore {
       [],
       ["--settle", JSON.stringify({ bead, generation, release })],
     );
+  }
+
+  async settleClose(bead: string, marker: string): Promise<unknown> {
+    return this.json([], ["--settle-close", JSON.stringify({ bead, marker })]);
   }
 
   async write(args: readonly string[], guard?: BeadsGuard): Promise<unknown> {

@@ -311,7 +311,15 @@ export async function changeBeadAssignment(
     throw new Problem(409, "This assignment changed. Reopen the bead.");
   }
   const row = await reconcile(store, active, input.action === "recover");
-  if (input.action === "recover") return publicAssignment(row);
+  if (input.action === "recover") {
+    const view = publicAssignment(row);
+    if (view.recovery === "run")
+      throw new Problem(
+        409,
+        "The linked run has an unconfirmed native outcome. Open its thread for details.",
+      );
+    return view;
+  }
   if (row.generation !== input.generation)
     throw new Problem(409, "This assignment changed. Reopen the bead.");
   if (input.action === "resume") return claimAndStart(store, row, project);
