@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useMemo, useRef } from "react";
+import React, { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import {
   Pressable,
   RefreshControl,
@@ -705,6 +705,31 @@ export function FeedScreen({
   );
 }
 
+function useSwipeActions(
+  cardId: string,
+  onSwipeDone: () => void,
+  onSwipeSave: () => void,
+) {
+  // The mounted gesture outlives card updates, including changes to Saved.
+  const actions = useRef({ cardId, onSwipeDone, onSwipeSave });
+  useLayoutEffect(() => {
+    actions.current = { cardId, onSwipeDone, onSwipeSave };
+  }, [cardId, onSwipeDone, onSwipeSave]);
+
+  const fireDone = useCallback((gestureCardId: string) => {
+    if (actions.current.cardId !== gestureCardId) return;
+    haptics.success();
+    actions.current.onSwipeDone();
+  }, []);
+  const fireSave = useCallback((gestureCardId: string) => {
+    if (actions.current.cardId !== gestureCardId) return;
+    haptics.medium();
+    actions.current.onSwipeSave();
+  }, []);
+
+  return { fireDone, fireSave };
+}
+
 const SwipeableStackCard = React.memo(function SwipeableStackCard({
   entry,
   theme,
@@ -723,6 +748,7 @@ const SwipeableStackCard = React.memo(function SwipeableStackCard({
   onSwipeSave: () => void;
 }) {
   const item = entry.top;
+  const cardId = item.id;
   const stackCount = entry.cards.length;
   const header = useMemo(
     () =>
@@ -739,21 +765,12 @@ const SwipeableStackCard = React.memo(function SwipeableStackCard({
   const pressScale = useSharedValue(1);
   const crossedThreshold = useSharedValue<0 | 1 | -1>(0);
 
-  // The mounted gesture outlives card updates, including changes to Saved.
-  const swipeActions = useRef({ onSwipeDone, onSwipeSave });
-  useLayoutEffect(() => {
-    swipeActions.current = { onSwipeDone, onSwipeSave };
-  }, [onSwipeDone, onSwipeSave]);
-
   const fireTick = () => haptics.light();
-  const fireDone = () => {
-    haptics.success();
-    swipeActions.current.onSwipeDone();
-  };
-  const fireSave = () => {
-    haptics.medium();
-    swipeActions.current.onSwipeSave();
-  };
+  const { fireDone, fireSave } = useSwipeActions(
+    cardId,
+    onSwipeDone,
+    onSwipeSave,
+  );
 
   const panGesture = useMemo(
     () =>
@@ -789,16 +806,16 @@ const SwipeableStackCard = React.memo(function SwipeableStackCard({
             mass: 0.85,
           });
           if (finalDir === 1) {
-            runOnJS(fireSave)();
+            runOnJS(fireSave)(cardId);
           } else if (finalDir === -1) {
-            runOnJS(fireDone)();
+            runOnJS(fireDone)(cardId);
           }
         })
         .onFinalize(() => {
           crossedThreshold.value = 0;
           translateX.value = withSpring(0, { damping: 22, stiffness: 280 });
         }),
-    [interactive, item.id],
+    [interactive, cardId, crossedThreshold, fireDone, fireSave, translateX],
   );
 
   const cardAnimatedStyle = useAnimatedStyle(() => ({
