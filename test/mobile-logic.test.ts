@@ -3850,6 +3850,63 @@ describe("queued messages sheet", () => {
   });
 });
 
+describe("reply composer controls", () => {
+  const carousel = readFileSync(
+    "apps/mobile/src/components/SpotlightCarousel.tsx",
+    "utf8",
+  );
+  const pill = carousel.slice(
+    carousel.indexOf("styles.replyPill"),
+    carousel.indexOf("</KeyboardAvoidingView>"),
+  );
+
+  it("keeps only the menu button, input and one mic-or-send slot in the pill", () => {
+    expect(pill).toContain(
+      'accessibilityLabel="Attach, quick replies and schedule"',
+    );
+    expect(pill).toContain("<TextInput");
+    expect(pill).toMatch(/\{showMicSlot \? \(\s*<VoiceRecorderButton/);
+    expect(pill).toContain('accessibilityLabel="Send reply"');
+    for (const moved of [
+      "Attach photo or file",
+      "Quick replies and snippets",
+      "Open full thread",
+      "<Paperclip",
+      "<Zap",
+    ]) {
+      expect(pill).not.toContain(moved);
+    }
+    // The schedule clock only returns to the pill for a pending scheduled reply.
+    expect(pill).toMatch(/canSchedule && pendingSchedule && \(/);
+  });
+
+  it("keeps the mic mounted while a voice note is recording", () => {
+    expect(carousel).toMatch(/const showMicSlot =\s*recordingAudio \|\|/);
+  });
+
+  it("offers attach, quick replies and schedule from the composer menu", () => {
+    const menu = carousel.slice(
+      carousel.indexOf("Composer menu: attach, quick replies, schedule"),
+      carousel.indexOf("Frosted Quick Reply Sheet"),
+    );
+    expect(menu).toContain('key: "attach"');
+    expect(menu).toContain("replyAttachments.setPickerOpen(true)");
+    expect(menu).toContain('key: "quick"');
+    expect(menu).toContain("setQuickReplyOpen(true)");
+    expect(menu).toContain('key: "schedule"');
+    expect(menu).toContain("setScheduleOpen(true)");
+  });
+
+  it("moves open-thread to the active card's header", () => {
+    const card = carousel.slice(
+      carousel.indexOf("function FloatingCarouselCard"),
+    );
+    expect(card).toMatch(
+      /isActive && onOpenThread && \([\s\S]*?accessibilityLabel="Open full thread"[\s\S]*?onOpenThread\(slide\)/,
+    );
+  });
+});
+
 describe("mobile snippet usage sorting and quick-reply keyboard layout", () => {
   it("puts most used snippets at the top, breaks ties by recency, and preserves server order on equal ties", () => {
     const snippets = [

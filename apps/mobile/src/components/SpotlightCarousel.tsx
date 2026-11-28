@@ -54,6 +54,7 @@ import {
   Copy,
   CornerUpLeft,
   Paperclip,
+  Plus,
   Pause,
   Play,
   RotateCcw,
@@ -556,6 +557,7 @@ export function SpotlightCarousel({
   const [searchQuery, setSearchQuery] = useState("");
   const [committedQuery, setCommittedQuery] = useState("");
   const [quickReplyOpen, setQuickReplyOpen] = useState(false);
+  const [composerMenuOpen, setComposerMenuOpen] = useState(false);
   const [queuedSheetOpen, setQueuedSheetOpen] = useState(false);
   const [expandedQueuedRunId, setExpandedQueuedRunId] = useState<string | null>(
     null,
@@ -807,6 +809,38 @@ export function SpotlightCarousel({
     retryModeLocked ||
     sending ||
     scheduleBusy;
+  const canSchedule = Boolean(client && onScheduleReply && activeCard);
+  const scheduleDisabled =
+    (!draft.trim() &&
+      replyAttachments.readyIds.length === 0 &&
+      !pendingSchedule) ||
+    replyAttachments.uploading ||
+    (replyAttachments.hasErrors && !pendingSchedule) ||
+    recordingAudio ||
+    sending ||
+    scheduleBusy ||
+    retryModeLocked;
+  const sendDisabled =
+    !draftLoaded ||
+    replyConfirmed ||
+    (!draft.trim() && replyAttachments.readyIds.length === 0) ||
+    replyAttachments.uploading ||
+    replyAttachments.hasErrors ||
+    recordingAudio ||
+    sending ||
+    scheduleBusy ||
+    Boolean(pendingSchedule);
+  const attachDisabled = !replyAttachments.canAddMore || replyEditingLocked;
+  // Mic and send share one slot: the mic shows while there is nothing to
+  // send, and stays mounted while recording so a live note is not dropped.
+  const showMicSlot =
+    recordingAudio ||
+    (!draft.trim() &&
+      replyAttachments.attachments.length === 0 &&
+      !pendingSchedule &&
+      !retryModeLocked &&
+      !sending &&
+      !replyConfirmed);
 
   // If the user opened a synthetic working:* placeholder at slide 0 and the run
   // finishes (superseding the placeholder with a live Done card), promote it smoothly.
@@ -2130,6 +2164,7 @@ export function SpotlightCarousel({
                         onPullToSearch={handlePullToSearch}
                         onLongPress={handleLongPressCard}
                         onReplyButton={prefillReply}
+                        onOpenThread={onOpenThread}
                         onOpenFile={onOpenFile}
                         onOpenFileTarget={onOpenFileTarget}
                       />
@@ -2436,52 +2471,24 @@ export function SpotlightCarousel({
               ]}
             >
               <Pressable
-                accessibilityLabel="Attach photo or file"
-                disabled={!replyAttachments.canAddMore || replyEditingLocked}
+                accessibilityLabel="Attach, quick replies and schedule"
+                accessibilityRole="button"
+                accessibilityState={{ expanded: composerMenuOpen }}
                 onPress={() => {
                   haptics.light();
-                  Keyboard.dismiss();
-                  replyAttachments.setPickerOpen(true);
+                  setQuickReplyOpen(false);
+                  setComposerMenuOpen((open) => !open);
                 }}
-                style={[
-                  styles.replyQuickBtn,
-                  (!replyAttachments.canAddMore || replyEditingLocked) && {
-                    opacity: 0.4,
-                  },
-                ]}
+                style={styles.replyQuickBtn}
               >
-                <Paperclip
-                  size={16}
+                <Plus
+                  size={19}
                   color={
-                    replyAttachments.attachments.length > 0
+                    replyAttachments.attachments.length > 0 || pendingSchedule
                       ? theme.brassText
                       : theme.muted
                   }
                 />
-              </Pressable>
-              <VoiceRecorderButton
-                theme={theme}
-                disabled={!replyAttachments.canAddMore || replyEditingLocked}
-                onRecordingChange={setRecordingAudio}
-                onRecorded={(file) => {
-                  setReplyError("");
-                  void replyAttachments.addFiles([file]);
-                }}
-                onError={(msg) => setReplyError(msg)}
-              />
-              <Pressable
-                accessibilityLabel="Quick replies and snippets"
-                disabled={replyEditingLocked}
-                onPress={() => {
-                  haptics.light();
-                  setQuickReplyOpen(true);
-                }}
-                style={[
-                  styles.replyQuickBtn,
-                  replyEditingLocked && { opacity: 0.4 },
-                ]}
-              >
-                <Zap size={16} color={theme.brassText} />
               </Pressable>
               <TextInput
                 ref={replyInputRef}
@@ -2502,20 +2509,10 @@ export function SpotlightCarousel({
                 maxLength={1200}
                 returnKeyType="default"
               />
-              {client && onScheduleReply && activeCard && (
+              {canSchedule && pendingSchedule && (
                 <Pressable
-                  accessibilityLabel="Schedule reply"
-                  disabled={
-                    (!draft.trim() &&
-                      replyAttachments.readyIds.length === 0 &&
-                      !pendingSchedule) ||
-                    replyAttachments.uploading ||
-                    (replyAttachments.hasErrors && !pendingSchedule) ||
-                    recordingAudio ||
-                    sending ||
-                    scheduleBusy ||
-                    retryModeLocked
-                  }
+                  accessibilityLabel="Scheduled reply"
+                  disabled={scheduleDisabled}
                   onPress={() => {
                     haptics.light();
                     Keyboard.dismiss();
@@ -2524,74 +2521,40 @@ export function SpotlightCarousel({
                   }}
                   style={[
                     styles.replyOpenThreadBtn,
-                    ((!draft.trim() &&
-                      replyAttachments.readyIds.length === 0 &&
-                      !pendingSchedule) ||
-                      replyAttachments.uploading ||
-                      (replyAttachments.hasErrors && !pendingSchedule) ||
-                      recordingAudio ||
-                      sending ||
-                      scheduleBusy ||
-                      retryModeLocked) && { opacity: 0.35 },
+                    scheduleDisabled && { opacity: 0.35 },
                   ]}
                 >
-                  <Clock
-                    size={16}
-                    color={pendingSchedule ? theme.brassText : theme.muted}
-                  />
+                  <Clock size={16} color={theme.brassText} />
                 </Pressable>
               )}
-              {onOpenThread && activeCard && (
-                <Pressable
-                  accessibilityLabel="Open full thread"
-                  onPress={() => {
-                    haptics.light();
-                    onOpenThread(activeCard);
+              {showMicSlot ? (
+                <VoiceRecorderButton
+                  theme={theme}
+                  disabled={attachDisabled}
+                  onRecordingChange={setRecordingAudio}
+                  onRecorded={(file) => {
+                    setReplyError("");
+                    void replyAttachments.addFiles([file]);
                   }}
-                  style={styles.replyOpenThreadBtn}
+                  onError={(msg) => setReplyError(msg)}
+                />
+              ) : (
+                <Pressable
+                  accessibilityLabel="Send reply"
+                  disabled={sendDisabled}
+                  onPress={() => void submitReply()}
+                  style={({ pressed }) => [
+                    styles.replySendBtn,
+                    {
+                      backgroundColor: theme.brass,
+                      opacity: sendDisabled ? 0.36 : pressed ? 0.85 : 1,
+                      transform: [{ scale: pressed ? 0.93 : 1 }],
+                    },
+                  ]}
                 >
-                  <ArrowUpRight size={17} color={theme.muted} />
+                  <ArrowUp size={17} color={theme.onBrass} strokeWidth={2.4} />
                 </Pressable>
               )}
-              <Pressable
-                accessibilityLabel="Send reply"
-                disabled={
-                  !draftLoaded ||
-                  replyConfirmed ||
-                  (!draft.trim() && replyAttachments.readyIds.length === 0) ||
-                  replyAttachments.uploading ||
-                  replyAttachments.hasErrors ||
-                  recordingAudio ||
-                  sending ||
-                  scheduleBusy ||
-                  Boolean(pendingSchedule)
-                }
-                onPress={() => void submitReply()}
-                style={({ pressed }) => [
-                  styles.replySendBtn,
-                  {
-                    backgroundColor: theme.brass,
-                    opacity:
-                      !draftLoaded ||
-                      replyConfirmed ||
-                      (!draft.trim() &&
-                        replyAttachments.readyIds.length === 0) ||
-                      replyAttachments.uploading ||
-                      replyAttachments.hasErrors ||
-                      recordingAudio ||
-                      sending ||
-                      scheduleBusy ||
-                      Boolean(pendingSchedule)
-                        ? 0.36
-                        : pressed
-                          ? 0.85
-                          : 1,
-                    transform: [{ scale: pressed ? 0.93 : 1 }],
-                  },
-                ]}
-              >
-                <ArrowUp size={17} color={theme.onBrass} strokeWidth={2.4} />
-              </Pressable>
             </View>
           </View>
         </Animated.View>
@@ -3096,6 +3059,143 @@ export function SpotlightCarousel({
         </Pressable>
       </Modal>
 
+      {/* Composer menu: attach, quick replies, schedule */}
+      {composerMenuOpen &&
+        (() => {
+          const menuLayout = computeQuickSheetLayout({
+            windowHeight: effectiveStageHeight,
+            insetTop: insets.top,
+            insetBottom: insets.bottom,
+            keyboardInset,
+          });
+          const items: {
+            key: string;
+            label: string;
+            hint: string;
+            icon: React.ReactNode;
+            disabled: boolean;
+            onPress: () => void;
+          }[] = [
+            {
+              key: "attach",
+              label: "Photo or file",
+              hint: replyAttachments.canAddMore
+                ? "Photos, camera or files"
+                : "Attachment limit reached",
+              icon: <Paperclip size={16} color={theme.brassText} />,
+              disabled: attachDisabled,
+              onPress: () => {
+                Keyboard.dismiss();
+                replyAttachments.setPickerOpen(true);
+              },
+            },
+            {
+              key: "quick",
+              label: "Quick replies & snippets",
+              hint: "Insert a saved reply",
+              icon: <Zap size={16} color={theme.brassText} />,
+              disabled: replyEditingLocked,
+              onPress: () => setQuickReplyOpen(true),
+            },
+          ];
+          if (canSchedule) {
+            items.push({
+              key: "schedule",
+              label: pendingSchedule ? "Scheduled reply" : "Schedule send",
+              hint: pendingSchedule
+                ? "Review or discard the pending reply"
+                : scheduleDisabled
+                  ? "Write a reply first"
+                  : "Send this reply later",
+              icon: <Clock size={16} color={theme.brassText} />,
+              disabled: scheduleDisabled,
+              onPress: () => {
+                Keyboard.dismiss();
+                setScheduleError("");
+                setScheduleOpen(true);
+              },
+            });
+          }
+          return (
+            <View
+              style={[
+                StyleSheet.absoluteFill,
+                styles.quickSheetOverlay,
+                { paddingBottom: keyboardInset },
+              ]}
+            >
+              <Pressable
+                accessibilityLabel="Close composer menu"
+                style={[
+                  StyleSheet.absoluteFill,
+                  { backgroundColor: "rgba(0,0,0,0.45)" },
+                ]}
+                onPress={() => setComposerMenuOpen(false)}
+              />
+              <View
+                style={[
+                  styles.quickSheet,
+                  {
+                    backgroundColor: theme.surface,
+                    borderColor: theme.line,
+                    maxHeight: menuLayout.maxSheetHeight,
+                    paddingBottom: menuLayout.sheetPaddingBottom,
+                  },
+                ]}
+              >
+                <View style={styles.quickSheetList}>
+                  {items.map((item) => (
+                    <Pressable
+                      key={item.key}
+                      accessibilityRole="button"
+                      accessibilityLabel={item.label}
+                      accessibilityState={{ disabled: item.disabled }}
+                      disabled={item.disabled}
+                      onPress={() => {
+                        haptics.light();
+                        setComposerMenuOpen(false);
+                        item.onPress();
+                      }}
+                      style={({ pressed }) => [
+                        styles.quickOption,
+                        {
+                          backgroundColor: pressed
+                            ? theme.attention
+                            : theme.soft,
+                          borderColor: pressed
+                            ? theme.attentionLine
+                            : theme.line,
+                          opacity: item.disabled ? 0.45 : 1,
+                        },
+                      ]}
+                    >
+                      {item.icon}
+                      <View style={styles.quickOptionText}>
+                        <Text
+                          style={[
+                            styles.quickOptionLabel,
+                            { color: theme.text },
+                          ]}
+                        >
+                          {item.label}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.quickOptionHint,
+                            { color: theme.muted },
+                          ]}
+                        >
+                          {item.hint}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            </View>
+          );
+        })()}
+
       {/* Frosted Quick Reply Sheet */}
       {quickReplyOpen &&
         (() => {
@@ -3262,6 +3362,7 @@ const FloatingCarouselCard = React.memo(function FloatingCarouselCard({
   onPullToSearch,
   onLongPress,
   onReplyButton,
+  onOpenThread,
   onOpenFile,
   onOpenFileTarget,
 }: {
@@ -3280,6 +3381,7 @@ const FloatingCarouselCard = React.memo(function FloatingCarouselCard({
   onPullToSearch: () => void;
   onLongPress: (card: NativeResultCard) => void;
   onReplyButton: (prompt: string) => void;
+  onOpenThread?: (card: NativeResultCard) => void;
   onOpenFile?: (file: PublishedFileItem) => void;
   onOpenFileTarget?: (target: LoopFileTarget, label?: string) => void;
 }) {
@@ -3419,9 +3521,25 @@ const FloatingCarouselCard = React.memo(function FloatingCarouselCard({
             {relativeTime(slide.createdAt)}
           </Text>
         </View>
-        <Text style={[styles.cardModelTag, { color: theme.muted }]}>
-          {runModelLabel(slide.model)}
-        </Text>
+        <View style={styles.cardEyebrowEnd}>
+          <Text style={[styles.cardModelTag, { color: theme.muted }]}>
+            {runModelLabel(slide.model)}
+          </Text>
+          {isActive && onOpenThread && (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Open full thread"
+              hitSlop={10}
+              onPress={() => {
+                haptics.light();
+                onOpenThread(slide);
+              }}
+              style={styles.cardOpenThreadBtn}
+            >
+              <ArrowUpRight size={15} color={theme.muted} />
+            </Pressable>
+          )}
+        </View>
       </Pressable>
 
       {/* Pull-down-to-search tactile indicator */}
@@ -4076,6 +4194,17 @@ const styles = StyleSheet.create({
   cardModelTag: {
     fontSize: 11,
     fontWeight: "500",
+  },
+  cardEyebrowEnd: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  cardOpenThreadBtn: {
+    width: 22,
+    height: 22,
+    alignItems: "center",
+    justifyContent: "center",
   },
   cardScroll: {
     flex: 1,
