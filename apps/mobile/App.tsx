@@ -1,12 +1,14 @@
 import React, {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
 import {
   Linking,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -194,8 +196,18 @@ function LoopShell() {
 
   // Navigation
   const [appTab, setAppTab] = useState<AppTab>("feed");
+  const selectedTabRef = useRef(appTab);
   const feedScrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
   const lastFeedTapRef = useRef(0);
+  useLayoutEffect(() => {
+    selectedTabRef.current = appTab;
+  }, [appTab]);
+  const returnToFeedAfterCompose = useCallback(() => {
+    if (selectedTabRef.current !== "feed") {
+      feedScrollRef.current?.scrollTo({ y: 0, animated: false });
+    }
+    setAppTab("feed");
+  }, []);
 
   // Workspace state (live or demo fallback)
   const [demoCards, setDemoCards] = useState<NativeResultCard[]>(() =>
@@ -1121,7 +1133,7 @@ function LoopShell() {
             ? `Sent to @${agent.name} with ${input.attachmentIds.length} ${input.attachmentIds.length === 1 ? "file" : "files"}`
             : `Sent to @${agent.name}`,
         );
-        setAppTab("feed");
+        returnToFeedAfterCompose();
         scheduleSilentRefresh(400, gen);
         return;
       }
@@ -1133,11 +1145,11 @@ function LoopShell() {
         input.text,
       );
       setDemoCards((prev) => [nextCard, ...prev]);
-      setAppTab("feed");
+      returnToFeedAfterCompose();
       haptics.success();
       showToast(`@${agent.name} answered`);
     },
-    [client, scheduleSilentRefresh, showToast],
+    [client, returnToFeedAfterCompose, scheduleSilentRefresh, showToast],
   );
 
   const handleComposeCreate = useCallback(
@@ -1164,7 +1176,7 @@ function LoopShell() {
           throw new LoopApiError(401, "Workspace changed.");
         }
         showToast(`Started @${created.name}`);
-        setAppTab("feed");
+        returnToFeedAfterCompose();
         scheduleSilentRefresh(400, gen);
         return;
       }
@@ -1176,11 +1188,17 @@ function LoopShell() {
         input.text,
       );
       setDemoCards((prev) => [nextCard, ...prev]);
-      setAppTab("feed");
+      returnToFeedAfterCompose();
       haptics.success();
       showToast(`@${input.name} answered`);
     },
-    [client, session, scheduleSilentRefresh, showToast],
+    [
+      client,
+      returnToFeedAfterCompose,
+      session,
+      scheduleSilentRefresh,
+      showToast,
+    ],
   );
 
   const handleDecideApproval = useCallback(
@@ -1756,9 +1774,13 @@ function LoopShell() {
           setCarouselOverrideCards(null);
           setOpenConversationId(conversationId);
         }}
-        onSwipeDone={handleDismissCard}
+        onSwipeDone={(card) => {
+          if (selectedTabRef.current === "feed") handleDismissCard(card);
+        }}
         onSwipeSave={(card) => {
-          void handleToggleSaved(card).catch(() => {});
+          if (selectedTabRef.current === "feed") {
+            void handleToggleSaved(card).catch(() => {});
+          }
         }}
         onDecideApproval={handleDecideApproval}
         onAnswerDecision={handleAnswerDecision}
@@ -2353,7 +2375,10 @@ const TAB_FADE_HEIGHT = 22;
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  hiddenFeed: { opacity: 0 },
+  hiddenFeed: {
+    opacity: 0,
+    ...(Platform.OS === "web" ? { visibility: "hidden" } : {}),
+  },
   tabDock: {
     position: "absolute",
     left: 0,
