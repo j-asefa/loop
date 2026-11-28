@@ -1,0 +1,850 @@
+import { randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
+import type { AddressInfo } from "node:net";
+import { promisify } from "node:util";
+import { afterAll, expect, it, vi } from "vitest";
+import { testDirectory } from "./helpers/test-workspace.js";
+import {
+  BeadsNotStarted,
+  BeadsPreconditionFailed,
+  BeadsStore,
+  BeadsUnavailable,
+  BeadsWriteUnknown,
+} from "../src/beads-runtime.js";
+
+const data = testDirectory();
+const realBeads = process.env.LOOP_TEST_BEADS_ROOT;
+if (realBeads) process.env.LOOP_BAKED_BEADS = realBeads;
+const { db, id, now } = await import("../src/server/db.js");
+const { app } = await import("../src/server/index.js");
+const owner = "local-workspace";
+const server = app.listen(0, "127.0.0.1");
+await new Promise<void>((resolve, reject) =>
+  server.once("listening", resolve).once("error", reject),
+);
+const origin = "http://127.0.0.1:" + (server.address() as AddressInfo).port;
+
+afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())));
+
+async function request(path: string, method = "GET", body?: unknown) {
+  const response = await fetch(origin + "/api" + path, {
+    method,
+    headers: { "content-type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  return { status: response.status, body: await response.json() };
+}
+
+async function createProject(name: string) {
+  const project = await request("/folders", "POST", { name, kind: "project" });
+  expect(project.status, JSON.stringify(project.body)).toBe(201);
+  return project.body.id as string;
+}
+
+it("requires a project owned by the requesting workspace", async () => {
+  const project = await createProject("Work boundary");
+  expect(await request("/projects/" + project + "/work")).toEqual({
+    status: 200,
+    body: { enabled: false },
+  });
+
+  const foreign = id();
+  db.prepare(
+    "INSERT INTO folders(id,owner_id,name,kind,created_at) VALUES(?,?,?,'project',?)",
+  ).run(foreign, "another-owner", "Foreign", now());
+  const foreignWork = "/projects/" + foreign + "/work";
+  expect((await request(foreignWork)).status).toBe(404);
+  expect((await request(foreignWork, "PUT", {})).status).toBe(404);
+  expect(
+    (
+      await request(foreignWork, "POST", {
+        storeId: "a".repeat(64),
+        requestId: randomUUID(),
+        title: "Foreign",
+      })
+    ).status,
+  ).toBe(404);
+});
+
+it.skipIf(!realBeads)(
+  "keeps a native quoted comment recoverable by request after the receipt is lost",
+  async () => {
+    const project = await createProject("Real Beads");
+    const route = "/projects/" + project + "/work";
+    const enabled = await request(route, "PUT", {});
+    expect(enabled.status, JSON.stringify(enabled.body)).toBe(200);
+    const { storeId } = enabled.body;
+    const create = {
+      storeId,
+      requestId: randomUUID(),
+      title: "Use canonical answers",
+      description: "Published answers retain their durable identity.",
+    };
+    const created = await request(route, "POST", create);
+    expect(created).toEqual({
+      status: 200,
+      body: { status: "committed", beadId: expect.stringMatching(/^loop-/) },
+    });
+    const bead = created.body.beadId;
+    expect(await request(route, "POST", create)).toEqual(created);
+
+    const commentRoute = route + "/" + bead + "/comments";
+    const comment = {
+      storeId,
+      requestId: randomUUID(),
+      text: "Add a fixture.",
+      excerpt: "durable identity",
+    };
+    expect(
+      (
+        await request(commentRoute, "POST", {
+          ...comment,
+          storeId: "a".repeat(64),
+        })
+      ).status,
+    ).toBe(409);
+    expect(
+      (
+        await request(commentRoute, "POST", {
+          ...comment,
+          excerpt: "wrong passage",
+        })
+      ).status,
+    ).toBe(409);
+    const posted = await request(commentRoute, "POST", comment);
+    expect(posted).toEqual({
+      status: 200,
+      body: { status: "committed", beadId: bead },
+    });
+
+    // Simulate losing the Loop-side completion commit after Beads committed.
+    db.prepare(
+      "UPDATE bead_write_receipts SET completed_at=NULL WHERE owner_id=? AND request_id=?",
+    ).run(owner, comment.requestId);
+    expect(await request(commentRoute, "POST", comment)).toEqual(posted);
+    expect(
+      (await request(commentRoute, "POST", { ...comment, text: "Other text" }))
+        .status,
+    ).toBe(409);
+    const detail = await request(route + "/" + bead);
+    expect(detail.status).toBe(200);
+    expect(detail.body.comments).toEqual([
+      {
+        id: expect.any(String),
+        createdAt: expect.any(String),
+        author: "Loop user",
+        text: "> durable identity\n\nAdd a fixture.",
+      },
+    ]);
+    const store = new BeadsStore(data, {
+      ownerId: owner,
+      profile: "companion",
+      projectId: project,
+    });
+    const native = await store.read(["comments", bead]);
+    expect(native).toEqual([
+      expect.objectContaining({
+        author: "Loop user",
+        text: expect.stringContaining("> durable identity\n\nAdd a fixture."),
+      }),
+    ]);
+
+    const renamed = await request("/folders/" + project, "PATCH", {
+      name: "Renamed",
+    });
+    expect(renamed.status).toBe(200);
+    expect((await request(route + "/" + bead)).body).toEqual(detail.body);
+  },
+  25_000,
+);
+
+it.skipIf(!realBeads)(
+  "starts one run for a contested bead and unlocks its dependent only after explicit close",
+  async () => {
+    const { seal } = await import("../src/server/secrets.js");
+    const { createAgent, ownedRun } = await import("../src/server/domain.js");
+    const { seedConnection, seedMessage } = await import("./helpers/seed.js");
+    const { claim, transition } = await import("../src/server/queue.js");
+    const project = await createProject("Assignment");
+    const route = "/projects/" + project + "/work";
+    const enabled = await request(route, "PUT", {});
+    expect(enabled.status, JSON.stringify(enabled.body)).toBe(200);
+    const { storeId } = enabled.body;
+    const connection = id();
+    seedConnection(db, {
+      id: connection,
+      owner_id: owner,
+      secret: seal("fixture", owner),
+      models: JSON.stringify([{ id: "fixture", name: "Fixture" }]),
+      created_at: now(),
+    });
+    const agents = ["First", "Second"].map((name) =>
+      createAgent(owner, {
+        name,
+        connectionId: connection,
+        model: "fixture",
+        folderId: project,
+      }),
+    );
+    expect((await request(route + "/agents")).body).toHaveLength(2);
+    const create = async (title: string) => {
+      const result = await request(route, "POST", {
+        storeId,
+        requestId: randomUUID(),
+        title,
+      });
+      expect(result.body.status).toBe("committed");
+      return result.body.beadId as string;
+    };
+    const blocker = await create("Blocker");
+    const target = await create("Target");
+    const receipts = await import("../src/server/sql/bead-write-receipts.js");
+    expect(
+      (
+        await request(route + "/" + target + "/dependencies", "POST", {
+          storeId,
+          requestId: randomUUID(),
+          blocker: "loop-absent",
+        })
+      ).status,
+    ).toBe(404);
+    const dependency = { storeId, requestId: randomUUID(), blocker };
+    const dependencyRoute = route + "/" + target + "/dependencies";
+    const readBead = BeadsStore.prototype.read;
+    const unavailableDependency = vi
+      .spyOn(BeadsStore.prototype, "read")
+      .mockImplementationOnce(function (this: BeadsStore, args) {
+        return readBead.call(this, args);
+      })
+      .mockRejectedValueOnce(new BeadsUnavailable());
+    try {
+      expect((await request(dependencyRoute, "POST", dependency)).status).toBe(
+        503,
+      );
+      expect(
+        receipts.byRequest(db, owner, dependency.requestId),
+      ).toBeUndefined();
+    } finally {
+      unavailableDependency.mockRestore();
+    }
+    const readBeforeDispatch = function (
+      this: BeadsStore,
+      args: readonly string[],
+    ) {
+      return readBead.call(this, args);
+    };
+    const dependencyConfirmation = vi
+      .spyOn(BeadsStore.prototype, "read")
+      .mockImplementationOnce(readBeforeDispatch)
+      .mockImplementationOnce(readBeforeDispatch)
+      .mockRejectedValueOnce(new BeadsNotStarted());
+    const dependencyWrites = vi.spyOn(BeadsStore.prototype, "write");
+    try {
+      expect(
+        (await request(dependencyRoute, "POST", dependency)).body.status,
+      ).toBe("unknown");
+      expect(
+        receipts.byRequest(db, owner, dependency.requestId)?.completed_at,
+      ).toBeNull();
+      expect(
+        (await request(dependencyRoute, "POST", dependency)).body.status,
+      ).toBe("committed");
+      expect(dependencyWrites).toHaveBeenCalledOnce();
+    } finally {
+      dependencyConfirmation.mockRestore();
+      dependencyWrites.mockRestore();
+    }
+    expect((await request(route + "/" + target)).body).toMatchObject({
+      status: "blocked",
+      blockedBy: [blocker],
+    });
+    const start = (bead: string, agentId: string, requestId: string) =>
+      request(route + "/" + bead + "/start", "POST", {
+        storeId,
+        requestId,
+        agentId,
+      });
+    expect((await start(target, agents[0].id, randomUUID())).body.state).toBe(
+      "refused",
+    );
+
+    const requestIds = [randomUUID(), randomUUID()];
+    const competing = await Promise.all(
+      agents.map((agent, index) => start(blocker, agent.id, requestIds[index])),
+    );
+    const won = competing.findIndex((reply) => reply.body.state === "started");
+    expect(won).toBeGreaterThanOrEqual(0);
+    expect(competing[1 - won].status).toBe(409);
+    const winner = competing[won].body;
+    expect(await start(blocker, agents[won].id, requestIds[won])).toEqual(
+      competing[won],
+    );
+    expect(winner.canRelease).toBe(false);
+    const assignment = route + "/" + blocker + "/assignment";
+    expect(
+      (
+        await request(assignment, "POST", {
+          storeId,
+          generation: winner.generation,
+          action: "release",
+        })
+      ).status,
+    ).toBe(409);
+    expect(
+      (
+        await request(assignment, "POST", {
+          storeId,
+          generation: randomUUID(),
+          action: "resume",
+        })
+      ).status,
+    ).toBe(409);
+
+    const run = claim("beads-fixture")!;
+    expect(run.conversation_id).toBe(winner.conversationId);
+    expect(run.input).toContain("Work on " + blocker + ".");
+    expect(run.input).not.toContain("Blocker");
+    const { projectWorkAvailable, invokeProjectWork } =
+      await import("../src/server/bead-tools.js");
+    const leasedRun = ownedRun(run.id, owner);
+    expect(projectWorkAvailable(leasedRun)).toBe(true);
+    expect(
+      await invokeProjectWork(leasedRun, {
+        action: "read",
+        bead: blocker,
+      }),
+    ).toMatchObject({ id: blocker });
+    await expect(
+      invokeProjectWork(leasedRun, {
+        action: "close",
+        bead: target,
+        reason: "Wrong bead",
+      }),
+    ).rejects.toThrow(/only close its own/);
+    const toolComment = {
+      action: "comment",
+      bead: blocker,
+      text: "One native comment",
+    };
+    const nativeWrite = BeadsStore.prototype.write;
+    const lostComment = vi
+      .spyOn(BeadsStore.prototype, "write")
+      .mockImplementationOnce(async function (this: BeadsStore, ...args) {
+        await nativeWrite.apply(this, args);
+        throw new BeadsWriteUnknown();
+      });
+    try {
+      expect(await invokeProjectWork(leasedRun, toolComment)).toMatchObject({
+        status: "unknown",
+      });
+      expect(await invokeProjectWork(leasedRun, toolComment)).toMatchObject({
+        status: "committed",
+      });
+      expect(lostComment).toHaveBeenCalledOnce();
+    } finally {
+      lostComment.mockRestore();
+    }
+    const answer = "Work finished. https://github.com/example/repo/pull/42";
+    const messageId = id();
+    seedMessage(db, {
+      id: messageId,
+      owner_id: owner,
+      run_id: run.id,
+      conversation_id: run.conversation_id!,
+      role: "assistant",
+      content: answer,
+      created_at: now(),
+    });
+    db.prepare("UPDATE runs SET result=? WHERE id=?").run(answer, run.id);
+    expect(transition(run, "completed")).toBe(true);
+    expect(claim("beads-fixture")).toBeUndefined();
+
+    const link = (await request(route + "/" + blocker)).body;
+    expect(link).toMatchObject({
+      status: "in_progress",
+      assignment: {
+        canRelease: true,
+        result: {
+          id: "run:" + run.id,
+          conversationId: run.conversation_id,
+          messageId,
+        },
+        pulls: ["https://github.com/example/repo/pull/42"],
+      },
+    });
+    expect((await request("/result-work/" + messageId)).body).toEqual({
+      projectId: project,
+      beadId: blocker,
+    });
+    const reopened = await promisify(execFile)(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        "--input-type=module",
+        "-e",
+        'import { beadAssignmentStatus } from "./src/server/bead-assignments.ts"; console.log(JSON.stringify(await beadAssignmentStatus(...process.argv.slice(1))));',
+        owner,
+        project,
+        blocker,
+      ],
+      { env: { ...process.env, LOOP_DATA_DIR: data } },
+    );
+    expect(JSON.parse(reopened.stdout).linkedRuns).toEqual(link.linkedRuns);
+    expect((await request(route + "/" + target)).body.status).toBe("blocked");
+    const closeRoute = route + "/" + blocker + "/close";
+    const closing = {
+      storeId,
+      requestId: randomUUID(),
+      reason: "Verified acceptance criteria.",
+      generation: winner.generation,
+    };
+    const unavailableClose = vi
+      .spyOn(BeadsStore.prototype, "read")
+      .mockRejectedValueOnce(new BeadsUnavailable());
+    try {
+      expect((await request(closeRoute, "POST", closing)).status).toBe(503);
+      expect(receipts.byRequest(db, owner, closing.requestId)).toBeUndefined();
+    } finally {
+      unavailableClose.mockRestore();
+    }
+    const closeConfirmation = vi
+      .spyOn(BeadsStore.prototype, "read")
+      .mockImplementationOnce(readBeforeDispatch)
+      .mockRejectedValueOnce(new BeadsNotStarted());
+    const closeWrites = vi.spyOn(BeadsStore.prototype, "write");
+    try {
+      expect((await request(closeRoute, "POST", closing)).body.status).toBe(
+        "unknown",
+      );
+      expect(
+        receipts.byRequest(db, owner, closing.requestId)?.completed_at,
+      ).toBeNull();
+      expect((await request(closeRoute, "POST", closing)).body.status).toBe(
+        "committed",
+      );
+      expect(closeWrites).toHaveBeenCalledOnce();
+    } finally {
+      closeConfirmation.mockRestore();
+      closeWrites.mockRestore();
+    }
+    expect((await request(route + "/" + target)).body.status).toBe("ready");
+
+    const source = await request(route, "POST", {
+      storeId,
+      requestId: randomUUID(),
+      sourceResultId: "run:" + run.id,
+      title: "Follow-up",
+    });
+    const linked = await request(route + "/" + source.body.beadId);
+    expect(linked.body.sourceResult).toMatchObject({
+      id: "run:" + run.id,
+      messageId,
+    });
+
+    const recovery = await create("Recover committed claim");
+    const requestId = randomUUID();
+    const generation = randomUUID();
+    const { prepare, transition: move } =
+      await import("../src/server/sql/bead-assignments.js");
+    const { byRequest } = await import("../src/server/sql/bead-assignments.js");
+    prepare(db, {
+      owner_id: owner,
+      store_id: storeId,
+      bead_id: recovery,
+      request_id: requestId,
+      generation,
+      agent_id: agents[0].id,
+      created_at: now(),
+    });
+    const receipt = byRequest(db, owner, requestId)!;
+    const resume = route + "/" + recovery + "/assignment";
+    expect(
+      (await request(route + "/" + recovery)).body.assignment,
+    ).toMatchObject({
+      state: "prepared",
+      canResume: true,
+      conversationId: null,
+    });
+    expect(move(db, receipt, "claiming")).toBe(true);
+    const store = new BeadsStore(data, {
+      ownerId: owner,
+      profile: "companion",
+      projectId: project,
+    });
+    await store.write([
+      "--actor",
+      "loop-start-" + generation,
+      "update",
+      recovery,
+      "--claim",
+    ]);
+    expect((await start(recovery, agents[0].id, requestId)).body).toMatchObject(
+      {
+        state: "claimed",
+        canResume: true,
+        conversationId: null,
+      },
+    );
+    expect(claim("beads-fixture")).toBeUndefined();
+    expect(
+      (
+        await request(route + "/" + recovery + "/close", "POST", {
+          storeId,
+          requestId: randomUUID(),
+          generation,
+          reason: "Pending claim",
+        })
+      ).status,
+    ).toBe(409);
+    const resumed = await request(resume, "POST", {
+      storeId,
+      generation,
+      action: "resume",
+    });
+    expect(resumed.body.state).toBe("started");
+    expect(
+      (await request(resume, "POST", { storeId, generation, action: "resume" }))
+        .body,
+    ).toEqual(resumed.body);
+    const resumedRun = claim("beads-fixture")!;
+    expect(resumedRun.conversation_id).toBe(resumed.body.conversationId);
+    expect(transition(resumedRun, "cancelled")).toBe(true);
+    const dispatch = await import("../src/server/sql/native-dispatch.js");
+    dispatch.insertUnknown(db, resumedRun.id, randomUUID(), "fixture", now());
+    expect(
+      (await request(route + "/" + recovery)).body.assignment,
+    ).toMatchObject({ recovery: "run", canRelease: false });
+    const disputed = await request(resume, "POST", {
+      storeId,
+      generation,
+      action: "recover",
+    });
+    expect(disputed.status).toBe(409);
+    expect(
+      (
+        await request(resume, "POST", {
+          storeId,
+          generation,
+          action: "release",
+        })
+      ).status,
+    ).toBe(409);
+    dispatch.setState(db, "interrupted", resumedRun.id);
+    const interruptedRelease = randomUUID();
+    const started = byRequest(db, owner, requestId)!;
+    expect(
+      move(db, started, "releasing", started.run_id, interruptedRelease),
+    ).toBe(true);
+    expect(
+      (
+        await request(resume, "POST", {
+          storeId,
+          generation,
+          action: "recover",
+        })
+      ).body,
+    ).toMatchObject({ state: "started", canRelease: true });
+    await expect(
+      store.write(["update", recovery, "--status", "open", "--assignee", ""], {
+        release: interruptedRelease,
+      }),
+    ).rejects.toBeInstanceOf(BeadsNotStarted);
+    expect((await request(route + "/" + recovery)).body.status).toBe(
+      "in_progress",
+    );
+    const refused = vi
+      .spyOn(BeadsStore.prototype, "write")
+      .mockRejectedValueOnce(new BeadsNotStarted());
+    try {
+      const refusedRelease = await request(resume, "POST", {
+        storeId,
+        generation,
+        action: "release",
+      });
+      expect(refusedRelease.body).toMatchObject({
+        state: "started",
+        canRelease: true,
+      });
+    } finally {
+      refused.mockRestore();
+    }
+    expect(
+      (
+        await request(resume, "POST", {
+          storeId,
+          generation,
+          action: "release",
+        })
+      ).body.state,
+    ).toBe("released");
+    expect((await request(route + "/" + recovery)).body.status).toBe("ready");
+
+    const unsent = randomUUID();
+    const oldGeneration = randomUUID();
+    prepare(db, {
+      owner_id: owner,
+      store_id: storeId,
+      bead_id: recovery,
+      request_id: unsent,
+      generation: oldGeneration,
+      agent_id: agents[0].id,
+      created_at: now(),
+    });
+    expect(move(db, byRequest(db, owner, unsent)!, "claiming")).toBe(true);
+    expect((await request(route + "/" + recovery)).body.assignment.state).toBe(
+      "claiming",
+    );
+    const intercepted = Promise.withResolvers<void>();
+    const continueRead = Promise.withResolvers<void>();
+    const waitForRecovery = vi
+      .spyOn(BeadsStore.prototype, "read")
+      .mockImplementationOnce(async function (this: BeadsStore, args) {
+        intercepted.resolve();
+        await continueRead.promise;
+        return readBead.call(this, args);
+      });
+    const stale = request(resume, "POST", {
+      storeId,
+      generation: oldGeneration,
+      action: "resume",
+    });
+    let fenced;
+    try {
+      await intercepted.promise;
+      fenced = (
+        await request(resume, "POST", {
+          storeId,
+          generation: oldGeneration,
+          action: "recover",
+        })
+      ).body;
+    } finally {
+      continueRead.resolve();
+      waitForRecovery.mockRestore();
+    }
+    expect((await stale).status).toBe(409);
+    expect(fenced).toMatchObject({
+      state: "prepared",
+      requestId: unsent,
+      canResume: true,
+    });
+    expect(fenced.generation).not.toBe(oldGeneration);
+    await expect(
+      store.write(
+        [
+          "--actor",
+          "loop-start-" + oldGeneration,
+          "update",
+          recovery,
+          "--claim",
+        ],
+        { ready: { bead: recovery, generation: oldGeneration } },
+      ),
+    ).rejects.toBeInstanceOf(BeadsNotStarted);
+    expect(claim("beads-fixture")).toBeUndefined();
+
+    const interruptedClose = await create("Close before dispatch");
+    const closeAttempt = {
+      storeId,
+      requestId: randomUUID(),
+      generation: null,
+      reason: "First reason",
+    };
+    const interruptedCloseRoute = route + "/" + interruptedClose + "/close";
+    const { requestHash } = await import("../src/server/request-receipts.js");
+    const marker = randomUUID();
+    receipts.reserve(db, {
+      owner_id: owner,
+      store_id: storeId,
+      request_id: closeAttempt.requestId,
+      operation: "close",
+      request_hash: requestHash({
+        operation: "close",
+        input: closeAttempt,
+        target: interruptedClose,
+      }),
+      bead_id: interruptedClose,
+      correlation_id: marker,
+      source_result_id: null,
+    });
+    expect(
+      (await request(interruptedCloseRoute, "POST", closeAttempt)).body.status,
+    ).toBe("refused");
+    await expect(
+      store.write(
+        ["close", interruptedClose, "--reason", closeAttempt.reason],
+        {
+          current: {
+            id: interruptedClose,
+            status: "open",
+            assignee: null,
+            marker,
+            release: null,
+          },
+        },
+      ),
+    ).rejects.toBeInstanceOf(BeadsNotStarted);
+    await store.write([
+      "update",
+      interruptedClose,
+      "--set-metadata",
+      "loop_release=" + randomUUID(),
+    ]);
+    await expect(
+      store.write(["close", interruptedClose, "--reason", "Stale close"], {
+        current: {
+          id: interruptedClose,
+          status: "open",
+          assignee: null,
+          marker: randomUUID(),
+          release: null,
+        },
+      }),
+    ).rejects.toBeInstanceOf(BeadsPreconditionFailed);
+    expect(
+      (
+        await request(interruptedCloseRoute, "POST", {
+          ...closeAttempt,
+          requestId: randomUUID(),
+          reason: "Replacement reason",
+        })
+      ).body.status,
+    ).toBe("committed");
+    expect(
+      (await request(route + "/" + interruptedClose)).body.closeReason,
+    ).toBe("Replacement reason");
+
+    const { submit } = await import("../src/server/agent-runtime.js");
+    const shared = submit(owner, {
+      agentId: agents[0].id,
+      folderId: project,
+      input: "Shared test input",
+      idempotencyKey: randomUUID(),
+      shared: true,
+    });
+    const sharedRun = claim("beads-fixture")!;
+    expect(sharedRun.id).toBe(shared.id);
+    const leasedSharedRun = ownedRun(sharedRun.id, owner);
+    expect(projectWorkAvailable(leasedSharedRun)).toBe(false);
+    await expect(
+      invokeProjectWork(leasedSharedRun, { action: "list" }),
+    ).rejects.toThrow(/disabled/);
+    expect(transition(sharedRun, "cancelled")).toBe(true);
+
+    for (const automation of [
+      { kind: "github_watch", watchId: id() },
+      { kind: "feed_digest", digestId: id() },
+    ] as const) {
+      const automated = submit(owner, {
+        agentId: agents[0].id,
+        folderId: project,
+        input: "Automation fixture carrying another author's text",
+        idempotencyKey: randomUUID(),
+        automation,
+      });
+      const leased = claim("beads-fixture")!;
+      expect(leased.id).toBe(automated.id);
+      const current = ownedRun(leased.id, owner);
+      expect(projectWorkAvailable(current)).toBe(false);
+      await expect(
+        invokeProjectWork(current, { action: "list" }),
+      ).rejects.toThrow(/disabled/);
+      expect(transition(leased, "cancelled")).toBe(true);
+      const followUp = submit(owner, {
+        agentId: agents[0].id,
+        conversationId: leased.conversation_id!,
+        input: "A personal follow-up",
+        idempotencyKey: randomUUID(),
+        personal: true,
+        mailScope: "direct",
+      });
+      const followUpRun = claim("beads-fixture")!;
+      expect(followUpRun.id).toBe(followUp.id);
+      expect(projectWorkAvailable(ownedRun(followUpRun.id, owner))).toBe(false);
+      expect(transition(followUpRun, "cancelled")).toBe(true);
+    }
+  },
+  100_000,
+);
+
+it.skipIf(!realBeads)(
+  "fences interrupted creates, comments and dependencies before allowing a new attempt",
+  async () => {
+    const project = await createProject("Fenced writes");
+    const route = "/projects/" + project + "/work";
+    const { storeId } = (await request(route, "PUT", {})).body;
+    const create = async (title: string) =>
+      (
+        await request(route, "POST", {
+          storeId,
+          requestId: randomUUID(),
+          title,
+        })
+      ).body.beadId as string;
+    const target = await create("Target");
+    const blocker = await create("Blocker");
+    const newBead = "loop-" + randomUUID().replaceAll("-", "");
+    const writes = [
+      {
+        operation: "create",
+        path: route,
+        bead: newBead,
+        input: { title: "Interrupted create", description: "" },
+        args: ["create", "--id", newBead, "--title", "Interrupted create"],
+      },
+      {
+        operation: "comment",
+        path: route + "/" + target + "/comments",
+        bead: target,
+        input: { text: "Interrupted comment" },
+        args: ["comments", "add", target, "--", "Interrupted comment"],
+      },
+      {
+        operation: "dependency",
+        path: route + "/" + target + "/dependencies",
+        bead: target,
+        input: { blocker },
+        args: ["dep", "add", target, blocker, "--type", "blocks"],
+      },
+    ] as const;
+    const receipts = await import("../src/server/sql/bead-write-receipts.js");
+    const { requestHash } = await import("../src/server/request-receipts.js");
+    const store = new BeadsStore(data, {
+      ownerId: owner,
+      profile: "companion",
+      projectId: project,
+    });
+    for (const { operation, path, bead, input: fields, args } of writes) {
+      const requestId = randomUUID();
+      const input = { storeId, requestId, ...fields };
+      const marker = randomUUID();
+      receipts.reserve(db, {
+        owner_id: owner,
+        store_id: storeId,
+        request_id: requestId,
+        operation,
+        request_hash: requestHash({
+          operation,
+          input,
+          target: operation === "create" ? null : bead,
+        }),
+        bead_id: bead,
+        correlation_id: marker,
+        source_result_id: null,
+      });
+      expect((await request(path, "POST", input)).body).toEqual({
+        status: "refused",
+        beadId: bead,
+      });
+      expect(receipts.byRequest(db, owner, requestId)).toBeUndefined();
+      await expect(
+        store.write(args, { attempt: marker }),
+      ).rejects.toBeInstanceOf(BeadsNotStarted);
+      expect((await request(path, "POST", input)).body.status).toBe(
+        "committed",
+      );
+    }
+  },
+  45_000,
+);

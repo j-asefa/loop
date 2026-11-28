@@ -1,3 +1,4 @@
+import { useResultWorkActions } from "./result-work-actions";
 import { useId, useState, type ReactNode } from "react";
 import {
   AlarmClock,
@@ -210,6 +211,10 @@ export function ContentCard({
 }) {
   const source = useSourceId();
   const [menu, setMenu] = useState(false);
+  const workActions = useResultWorkActions(
+    menu && card.type === "result" ? card.source.message_id : null,
+    source,
+  );
   const swipe = useSwipe({ onLeft: onArchive, onRight: onSave });
   const press = useLongPress(() => setMenu(true));
   const merged = (name: string) => (event: any) => {
@@ -245,6 +250,7 @@ export function ContentCard({
           },
         ]
       : []),
+    ...workActions,
     ...(onSave
       ? [
           {

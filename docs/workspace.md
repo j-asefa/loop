@@ -31,6 +31,23 @@ Keyword search works without a provider. Semantic search can use a local embeddi
 
 The default **Workspace** project collects work without a named project, including ordinary folders outside a project. It appears alongside named projects in Projects. Existing work is included when the default project is first opened; its saved task locations stay intact. Each linked workspace has its own default project.
 
+### Project Work
+
+Open a project and choose **Work → Enable Beads**. Ready, In progress, Blocked
+and Closed show the project's issues. Open a bead to read its blockers and
+discussion, quote selected text in a comment, or pick a project agent with
+**Work on this**. Comments stay on the bead. Use **Reply** in its linked
+thread to direct an active run. Closing a bead requires an explicit reason.
+On a phone, swipe between beads in the current Work view.
+
+If a close is interrupted, **Check close** recovers the result or confirms
+the old request can no longer close the bead. When a linked run's outcome
+is still unconfirmed, open its thread for details. Release becomes available
+after Loop confirms that run ended or never started.
+
+See [managed Beads storage](server.md#managed-beads-storage) for backup and
+runtime requirements.
+
 ### Feed and reading position
 
 The Feed tab shows the total of Working, Queued, unread Replies and unread Done (9+ above nine). The Feed keeps completed results in Done and lists active conversations by latest activity ([mobile-return.ts](../src/server/mobile-return.ts)). Each card shows the agent, project, run status and the message for that card's run. Checkout totals, branch details and observed test results stay out of Feed cards. The reading sheet shows the conversation’s current [pull requests](mcp.md#github-pull-requests), including review information.

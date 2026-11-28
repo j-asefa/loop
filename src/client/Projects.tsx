@@ -1,3 +1,4 @@
+import { ProjectWork } from "./ProjectWork";
 import { ErrorNotice } from "./ErrorNotice";
 import { emitClientEvent } from "./clientEvents";
 import { ProjectId, parseId } from "../shared/contract-ids.js";
@@ -31,7 +32,7 @@ import { belongsToProject } from "../shared/projects";
 import type { Agent, Folder as Project } from "../shared/types";
 
 const projectTab = (value: string | null) =>
-  value && ["threads", "agents", "activity", "files"].includes(value)
+  value && ["threads", "agents", "activity", "files", "work"].includes(value)
     ? value
     : "threads";
 
@@ -96,6 +97,9 @@ export function Projects({
   const requestedTab = useRef(
     new URLSearchParams(location.search).get("projectTab"),
   );
+  const requestedProject = useRef(
+    new URLSearchParams(location.search).get("projectView"),
+  );
   const consumeRequestedTab = () => {
     requestedTab.current = null;
     const url = new URL(location.href);
@@ -108,8 +112,12 @@ export function Projects({
     );
   };
   useEffect(() => {
-    const requested = requestedTab.current;
+    if (requestedTab.current && requestedProject.current && !selected) return;
+    const requested =
+      requestedProject.current === selected ? requestedTab.current : null;
     consumeRequestedTab();
+    if (requested === "work")
+      sessionStorage.setItem("loop-project-tab:" + selected, requested);
     setPage(
       projectTab(
         requested ||
@@ -291,7 +299,7 @@ export function Projects({
             </div>
           </div>
           <div className="segmented project-tabs" aria-label="Project view">
-            {["threads", "agents", "activity", "files"].map((value) => (
+            {["threads", "agents", "activity", "files", "work"].map((value) => (
               <button
                 key={value}
                 className={!history && page === value ? "selected" : ""}
@@ -327,6 +335,12 @@ export function Projects({
           )}
           {history && renderHistory(current.id, history, submitted)}
           {!history && page === "threads" && renderThreads(current.id)}
+          {!history && page === "work" && (
+            <ProjectWork
+              key={current.id}
+              project={parseId(ProjectId, current.id)}
+            />
+          )}
           {!history && page === "activity" && renderActivity(current.id)}
           {!history && page === "files" && renderFiles(current.id)}
           {!history && page === "agents" && (

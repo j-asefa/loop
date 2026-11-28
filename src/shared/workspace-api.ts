@@ -17,6 +17,7 @@ import { teamRoutes } from "./team-routes.js";
 import { notificationRoutes } from "./notification-routes.js";
 import { companionRoutes } from "./companion-routes.js";
 import { cardRoutes } from "./card-routes.js";
+import { beadRoutes } from "./bead-routes.js";
 import { webhookRoutes } from "./webhook-routes.js";
 import { agentRoutes } from "./agent-routes.js";
 import { libraryRoutes } from "./library-routes.js";
@@ -59,6 +60,7 @@ export const workspaceRoutes = {
   ...notificationRoutes,
   ...companionRoutes,
   ...cardRoutes,
+  ...beadRoutes,
   ...webhookRoutes,
   ...agentRoutes,
   ...libraryRoutes,

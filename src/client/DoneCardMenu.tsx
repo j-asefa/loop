@@ -1,3 +1,4 @@
+import { useResultWorkActions } from "./result-work-actions";
 import {
   ArrowUpRight,
   Check,
@@ -59,12 +60,16 @@ export function DoneCardMenu({
   title,
   subtitle,
   threadCount,
+  resultMessage,
+  source = "",
   actions,
   onClose,
 }: {
   title: string;
   subtitle: string;
   threadCount?: number;
+  resultMessage?: string | null;
+  source?: string;
   actions: Action[];
   onClose: () => void;
 }) {
@@ -78,7 +83,8 @@ export function DoneCardMenu({
   const remove = actions.find(
     (action) => action.id === "remove-done" || action.id === "ungroup",
   );
-  const rest = actions.filter(
+  const work = useResultWorkActions(resultMessage, source);
+  const rest = [...actions, ...work].filter(
     (action) =>
       !quick.includes(action) &&
       action !== combine &&
