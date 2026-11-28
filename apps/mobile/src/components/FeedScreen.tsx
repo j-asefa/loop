@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useLayoutEffect, useMemo, useRef } from "react";
 import {
   Pressable,
   RefreshControl,
@@ -739,14 +739,20 @@ const SwipeableStackCard = React.memo(function SwipeableStackCard({
   const pressScale = useSharedValue(1);
   const crossedThreshold = useSharedValue<0 | 1 | -1>(0);
 
+  // The mounted gesture outlives card updates, including changes to Saved.
+  const swipeActions = useRef({ onSwipeDone, onSwipeSave });
+  useLayoutEffect(() => {
+    swipeActions.current = { onSwipeDone, onSwipeSave };
+  }, [onSwipeDone, onSwipeSave]);
+
   const fireTick = () => haptics.light();
   const fireDone = () => {
     haptics.success();
-    onSwipeDone();
+    swipeActions.current.onSwipeDone();
   };
   const fireSave = () => {
     haptics.medium();
-    onSwipeSave();
+    swipeActions.current.onSwipeSave();
   };
 
   const panGesture = useMemo(
