@@ -77,6 +77,23 @@ Liveness heartbeats and periodic native display updates skip a tick rather
 than wait when another process holds SQLite's write lock; ordinary and
 completion writes keep their normal timeout ([busy-wait.ts](../src/server/busy-wait.ts)).
 
+### Managed Beads storage
+
+The companion's pinned Beads runtime supports Linux and macOS on x64 and
+arm64. Desktop use requires Python 3 and access to the upstream release for
+the first download of a new pin. The companion image includes both. Loop
+verifies the executable and keeps the embedded Dolt stores in
+`beads-stores/` under the workspace data directory. The scope is independent
+of project names and checkout paths.
+
+Stop the companion before backing up or restoring managed Beads data.
+Snapshot the workspace database and the entire `beads-stores/` directory
+together, including hidden files. The SQLite-only `npm run backup` command
+does not include Dolt data. Keep the same workspace data directory or Docker
+volume when upgrading. If Work is unavailable, restore access to that data
+or resolve the missing runtime prerequisite, then retry the read. A failed
+read should never trigger reinitialization.
+
 ## Archive deployment backups
 
 Deployments that keep a full `workspace-backup` in each
