@@ -506,7 +506,7 @@ export function resultWork(owner: string, message: string) {
   const result = resultsQueries.canonicalByMessage(db, owner, message);
   if (!result) return null;
   const projectId = resultProject(owner, result);
-  if (!projectId) return null;
+  if (!projectId || !foldersQueries.owned(db, projectId, owner)) return null;
   const binding = storesQueries.forProject(db, owner, projectId);
   if (!binding) return null;
   const assignment = result.provenance.runId

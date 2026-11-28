@@ -5266,6 +5266,8 @@ export function Feed({
               .filter(Boolean)
               .join(" · ")}
             threadCount={menuThread?.cardIds.length}
+            resultMessage={menuThread ? null : menu.last_message?.id}
+            source={menu.sourceId ?? scopedSource}
             actions={actionsFor(menu, menuThread)}
             onClose={() => setMenu(null)}
           />
