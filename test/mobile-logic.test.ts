@@ -144,6 +144,19 @@ import {
   sortSnippetsByUsage,
 } from "../apps/mobile/src/snippet-usage-codec.js";
 import type { ApiFeedItem } from "../apps/mobile/src/api/types.js";
+import type { ApiNativeDecision } from "../apps/mobile/src/api/types.js";
+import {
+  decisionDelivered,
+  questionAnswer,
+  readNativeDecision,
+  type NativeDecisionRequest,
+} from "../apps/mobile/src/native-decision.js";
+import { LAYERS } from "../apps/mobile/src/layers.js";
+import {
+  validateAnswer,
+  type Request as ServerNativeRequest,
+} from "../src/shared/protocol.js";
+import type { NativeDecision as ServerNativeDecision } from "../src/shared/workspace-contract-schemas.js";
 
 function makeFeedItem(overrides: Partial<ApiFeedItem> = {}): ApiFeedItem {
   return {
@@ -2925,10 +2938,21 @@ describe("mobile native notification diffing, preferences, and workspace isolati
           id: "dec-1",
           run_id: "r2",
           conversation_id: "conv-2",
-          title: "Pick strategy",
-          question: "Merge or rebase?",
+          generation: "g1",
+          native_id: "n1",
+          request: JSON.stringify({
+            kind: "question",
+            title: "Pick strategy",
+            detail: "Merge or rebase?",
+            questions: [{ id: "q1", title: "Strategy" }],
+          }),
           state: "pending",
+          command_id: null,
+          digest: null,
           created_at: 1150,
+          name: "willow",
+          provider: "claude",
+          input: "{}",
         },
       ],
       cards: [
@@ -4367,4 +4391,113 @@ it("recovers an expired pairing's scope only with the authenticated workspace id
     "nonce",
   );
   expect(localDataScope(other)).not.toBe(localDataScope(fresh));
+});
+
+describe("mobile native decisions", () => {
+  // Compile-time pins: the mobile mirrors stay assignable to the server types.
+  const pinRequest = (r: ServerNativeRequest): NativeDecisionRequest => r;
+  const pinRequestBack = (r: NativeDecisionRequest): ServerNativeRequest => r;
+  const pinDecision = (d: ServerNativeDecision): ApiNativeDecision => d;
+  void [pinRequest, pinRequestBack, pinDecision];
+
+  function decision(request: ServerNativeRequest): ApiNativeDecision {
+    return {
+      id: "dec-1",
+      run_id: "run-1",
+      conversation_id: "conv-1",
+      generation: "gen-1",
+      native_id: "native-1",
+      request: JSON.stringify(request),
+      state: "pending",
+      command_id: null,
+      digest: null,
+      created_at: 1000,
+      name: "ibex",
+      provider: "claude",
+      input: "{}",
+    };
+  }
+
+  it("reads an approval from the request JSON and answers with a listed choice", () => {
+    const request: ServerNativeRequest = {
+      id: "r1",
+      kind: "approval",
+      title: "Run Bash",
+      detail: JSON.stringify({ input: { command: "git push origin main" } }),
+      choices: ["allow", "deny"],
+    };
+    const view = readNativeDecision(decision(request));
+    expect(view).toMatchObject({
+      kind: "approval",
+      title: "Run Bash",
+      agentName: "ibex",
+      detail: "git push origin main",
+      choices: ["allow", "deny"],
+    });
+    expect(() => validateAnswer(request, { choice: "allow" })).not.toThrow();
+    // The shape the old card sent is refused by the server.
+    expect(() =>
+      validateAnswer(request, { optionId: "allow", label: "allow" }),
+    ).toThrow();
+  });
+
+  it("answers every question with a string list", () => {
+    const request: ServerNativeRequest = {
+      id: "r2",
+      kind: "question",
+      title: "Pick a strategy",
+      detail: "How should I land this?",
+      questions: [
+        { id: "how", title: "Method", options: ["Merge", "Rebase"] },
+        { id: "note", title: "Anything else?" },
+      ],
+    };
+    const view = readNativeDecision(decision(request));
+    expect(view.detail).toBe("How should I land this?");
+    expect(view.questions.map((q) => q.options)).toEqual([
+      ["Merge", "Rebase"],
+      [],
+    ]);
+    const answer = questionAnswer(view.questions, { how: ["Rebase"] });
+    expect(answer).toEqual({ how: ["Rebase"], note: [] });
+    expect(() => validateAnswer(request, answer)).not.toThrow();
+  });
+
+  it("falls back to safe defaults for malformed request JSON and drops non-https completion links", () => {
+    const broken = { ...decision({} as ServerNativeRequest), request: "{" };
+    expect(readNativeDecision(broken)).toMatchObject({
+      kind: "question",
+      title: "Question",
+      detail: "",
+      choices: [],
+      questions: [],
+    });
+    const view = readNativeDecision(
+      decision({
+        id: "r3",
+        kind: "approval",
+        title: "Sign in",
+        detail: "",
+        choices: ["accept"],
+        completionUrl: "javascript:alert(1)",
+      }),
+    );
+    expect(view.completionUrl).toBeUndefined();
+  });
+
+  it("treats only a resolved answer as delivered", () => {
+    expect(decisionDelivered({ state: "resolved" })).toBe(true);
+    for (const state of ["deciding", "pending", "unknown"]) {
+      expect(decisionDelivered({ state })).toBe(false);
+    }
+  });
+});
+
+describe("mobile overlay layers", () => {
+  it("keeps full-screen overlays above the tab dock and below the toast", () => {
+    for (const layer of [LAYERS.compose, LAYERS.pairing]) {
+      expect(layer).toBeGreaterThan(LAYERS.tabDock);
+      expect(layer).toBeLessThan(LAYERS.toast);
+    }
+  });
 });

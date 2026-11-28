@@ -30,6 +30,7 @@ import {
   settlePendingAgentCreate,
   type PendingAgentCreate,
 } from "../drafts";
+import { LAYERS } from "../layers";
 import { haptics } from "../haptics";
 import {
   agentModelLabel,
@@ -545,7 +546,7 @@ export function ComposeSheet({
       : "";
 
   return (
-    <View style={StyleSheet.absoluteFill}>
+    <View style={[StyleSheet.absoluteFill, { zIndex: LAYERS.compose }]}>
       <Pressable
         style={StyleSheet.absoluteFill}
         onPress={() => {
