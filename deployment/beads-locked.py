@@ -2,6 +2,7 @@
 import fcntl
 import hashlib
 import os
+import stat
 import sys
 import time
 
@@ -25,11 +26,15 @@ def acquire():
 def installed(destination, expected):
     digest = hashlib.sha256()
     try:
-        with open(destination, "rb") as binary:
+        fd = os.open(destination, os.O_RDONLY | os.O_NONBLOCK)
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            os.close(fd)
+            return False
+        with os.fdopen(fd, "rb") as binary:
             for chunk in iter(lambda: binary.read(1024 * 1024), b""):
                 digest.update(chunk)
             return digest.hexdigest() == expected
-    except FileNotFoundError:
+    except (FileNotFoundError, PermissionError, IsADirectoryError):
         return False
 
 

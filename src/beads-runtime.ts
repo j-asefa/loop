@@ -1,7 +1,15 @@
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { constants, createReadStream, createWriteStream } from "node:fs";
-import { access, chmod, mkdir, mkdtemp, rm, stat } from "node:fs/promises";
+import { constants, createWriteStream } from "node:fs";
+import {
+  access,
+  chmod,
+  mkdir,
+  mkdtemp,
+  open,
+  rm,
+  stat,
+} from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Readable, Transform } from "node:stream";
@@ -41,9 +49,17 @@ const builds: Record<string, [string, string, string, string]> = {
 };
 
 async function digest(path: string) {
-  const hash = createHash("sha256");
-  for await (const chunk of createReadStream(path)) hash.update(chunk);
-  return hash.digest("hex");
+  const file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK);
+  try {
+    if (!(await file.stat()).isFile())
+      throw new Error("The Beads cache entry is not a regular file");
+    const hash = createHash("sha256");
+    for await (const chunk of file.createReadStream({ autoClose: false }))
+      hash.update(chunk);
+    return hash.digest("hex");
+  } finally {
+    await file.close();
+  }
 }
 
 async function extract(archive: string, entry: string, destination: string) {

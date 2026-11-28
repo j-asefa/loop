@@ -152,3 +152,48 @@ it("keeps the first verified binary when independent installers publish together
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+it("replaces an unreadable helper or a FIFO without opening it for a blocking read", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "loop-beads-damaged-cache-"));
+  const cache = join(directory, "beads-runtime", beadsRelease);
+  const destination = join(cache, "bd");
+  const candidate = join(cache, "candidate");
+  const content = "verified candidate";
+  const expected = createHash("sha256").update(content).digest("hex");
+  try {
+    await mkdir(cache, { recursive: true });
+    await writeFile(destination, "unreadable helper", { mode: 0 });
+    await writeFile(candidate, content, { mode: 0o700 });
+    const publish = () =>
+      once(
+        spawn(
+          "python3",
+          [lock, "--install", candidate, destination, expected],
+          {
+            cwd: cache,
+            stdio: "ignore",
+            timeout: 1000,
+          },
+        ),
+        "close",
+      );
+    expect(await publish()).toEqual([0, null]);
+    expect(await readFile(destination, "utf8")).toBe(content);
+
+    await rm(destination);
+    expect(await once(spawn("mkfifo", [destination]), "close")).toEqual([
+      0,
+      null,
+    ]);
+    vi.stubGlobal("fetch", async () => new Response("bad archive"));
+    await expect(beadsBinary(directory)).rejects.toThrow(
+      "Beads archive integrity check failed",
+    );
+    await writeFile(candidate, content, { mode: 0o700 });
+    expect(await publish()).toEqual([0, null]);
+    expect(await readFile(destination, "utf8")).toBe(content);
+  } finally {
+    vi.unstubAllGlobals();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
