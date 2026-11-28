@@ -11,8 +11,14 @@ import Database from "better-sqlite3";
 testDirectory();
 
 const { db, id } = await import("../src/server/db");
-const { conversationMessages, transcriptPageSql } =
-  await import("../src/server/conversation-messages");
+const {
+  boundReplyQuote,
+  carouselPageSql,
+  conversationMessages,
+  REPLY_QUOTE_PREVIEW_CHARS,
+  transcriptPageSql,
+} = await import("../src/server/conversation-messages");
+const { readMessageMetadata } = await import("../src/shared/message-metadata");
 const { recordConversationUpdate } =
   await import("../src/server/conversation-updates");
 // Initialize the route graph with the fixture, so the HTTP case's timeout
@@ -148,6 +154,32 @@ it("range-reads only a transcript page without scanning source history, before o
     const page = conversationMessages("alice", conversation);
     expect(page.messages).toHaveLength(50);
     expect(page.next).not.toBeNull();
+    // The carousel's UNION ALL page must stay the outer loop of the content
+    // join; otherwise every message behind message_projection is scanned.
+    const carouselPlan = (
+      db
+        .prepare("EXPLAIN QUERY PLAN " + carouselPageSql)
+        .all(
+          "alice",
+          conversation,
+          Number.MAX_SAFE_INTEGER,
+          Number.MAX_SAFE_INTEGER,
+          Number.MAX_SAFE_INTEGER,
+        ) as { detail: string }[]
+    )
+      .map((step) => step.detail)
+      .join("\n");
+    expect(carouselPlan).not.toMatch(/^SCAN (m|messages|prompt)$/m);
+    expect(carouselPlan).not.toMatch(/AUTOMATIC/);
+    const carousel = conversationMessages(
+      "alice",
+      conversation,
+      undefined,
+      undefined,
+      "carousel",
+    );
+    expect(carousel.messages.some((m) => m.role === "assistant")).toBe(true);
+    expect(carousel.next).not.toBeNull();
   }
   const entries = all(conversation);
   expect(entries).toHaveLength(3000);
@@ -484,4 +516,74 @@ it("serves a saved-position page in one resume request while ordinary refreshes,
   } finally {
     await app.close();
   }
+});
+
+it("bounds a reply's quoted copy in conversation pages without changing the stored reply", async () => {
+  const conversation = thread();
+  const quoted = "😀".repeat(REPLY_QUOTE_PREVIEW_CHARS) + " and the rest";
+  const replyTo = {
+    id: id(),
+    content: quoted,
+    name: "ibex",
+    created_at: 5,
+  };
+  const reply = message(
+    conversation,
+    null,
+    "user",
+    JSON.stringify({ name: "ibex", replyTo }),
+  );
+  const short = message(
+    conversation,
+    null,
+    "user",
+    JSON.stringify({ replyTo: { ...replyTo, content: "short quote" } }),
+  );
+  const app = await productionApp("alice", [core], {
+    ownerHeader: "x-owner",
+    json: false,
+  });
+  try {
+    for (const query of ["", "?view=carousel"]) {
+      const response = await fetch(
+        `${app.url}/api/conversations/${conversation}${query}`,
+        { headers: { "x-owner": "alice" } },
+      );
+      expect(response.status).toBe(200);
+      if (query) continue;
+      const body = (await response.json()) as {
+        messages: { id: string; metadata: string }[];
+      };
+      const byId = new Map(body.messages.map((m) => [m.id, m.metadata]));
+      // The web reader parses the bounded quote with the stored schema.
+      const bounded = readMessageMetadata(byId.get(reply), "throw");
+      expect(bounded.name).toBe("ibex");
+      expect(bounded.replyTo).toEqual({
+        ...replyTo,
+        content: "😀".repeat(REPLY_QUOTE_PREVIEW_CHARS),
+        truncated: true,
+      });
+      expect(readMessageMetadata(byId.get(short), "throw").replyTo).toEqual({
+        ...replyTo,
+        content: "short quote",
+      });
+    }
+    const stored = db
+      .prepare("SELECT metadata FROM messages WHERE id=?")
+      .get(reply) as { metadata: string };
+    expect(JSON.parse(stored.metadata).replyTo.content).toBe(quoted);
+  } finally {
+    await app.close();
+  }
+});
+
+it("leaves metadata without a long quote byte-for-byte unchanged", () => {
+  for (const metadata of [
+    "{}",
+    "not json",
+    '{"replyTo":null}',
+    '{"replyTo":{"content":7}}',
+    JSON.stringify({ replyTo: { id: "m", content: "x".repeat(600) } }),
+  ])
+    expect(boundReplyQuote(metadata)).toBe(metadata);
 });

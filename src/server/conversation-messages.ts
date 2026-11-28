@@ -14,7 +14,10 @@ const position = (item: TranscriptPosition): Position => [
   item.phase,
   item.ordinal,
 ];
-export { transcriptPageSql } from "./sql/conversation-transcript.js";
+export {
+  carouselPageSql,
+  transcriptPageSql,
+} from "./sql/conversation-transcript.js";
 
 export function conversationMessages(
   owner: string,
@@ -96,9 +99,42 @@ export function conversationMessages(
       .reverse()
       .map(({ position: p, phase, ordinal, ...message }) => ({
         ...message,
+        metadata:
+          typeof message.metadata === "string"
+            ? boundReplyQuote(message.metadata)
+            : message.metadata,
         cursor: [p, phase, ordinal] as Position,
       })),
   };
+}
+
+// Replies store a full copy of the message they quote. A page lists the quoted
+// message itself, so its reply rows carry only a preview of the copy.
+export const REPLY_QUOTE_PREVIEW_CHARS = 600;
+export function boundReplyQuote(metadata: string): string {
+  if (!metadata.includes('"replyTo"')) return metadata;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(metadata);
+  } catch {
+    return metadata;
+  }
+  if (!parsed || typeof parsed !== "object") return metadata;
+  const reply = (parsed as { replyTo?: unknown }).replyTo;
+  if (!reply || typeof reply !== "object") return metadata;
+  const content = (reply as { content?: unknown }).content;
+  if (typeof content !== "string") return metadata;
+  // Count code points so a preview never splits a surrogate pair.
+  const chars = Array.from(content);
+  if (chars.length <= REPLY_QUOTE_PREVIEW_CHARS) return metadata;
+  return JSON.stringify({
+    ...parsed,
+    replyTo: {
+      ...reply,
+      content: chars.slice(0, REPLY_QUOTE_PREVIEW_CHARS).join("").trimEnd(),
+      truncated: true,
+    },
+  });
 }
 
 /** The agent's latest message in the visible transcript, wherever the page

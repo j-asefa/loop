@@ -12,6 +12,9 @@ export const Reply = z.strictObject({
   created_at: z.number(),
   mine: z.boolean().optional(),
   excerpt: z.boolean().optional(),
+  // Set only on conversation page responses, whose quote carries a bounded
+  // preview; the stored reply keeps the full content. No writer stores it.
+  truncated: z.boolean().optional(),
 });
 export const Source = z.strictObject({
   url: z.string(),
