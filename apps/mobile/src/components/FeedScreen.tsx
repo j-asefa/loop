@@ -138,7 +138,7 @@ export function FeedScreen({
 }: FeedScreenProps) {
   const insets = useSafeAreaInsets();
 
-  // Unified Feed: Done results + Replies stacked by conversation, newest first
+  // Keep each conversation newest-first and show unread stacks above read ones.
   const stacks = useMemo<StackedCardEntry<NativeResultCard>[]>(() => {
     const visible = cards
       .filter((c) => c.tab === "done" || c.tab === "replies")
@@ -151,6 +151,7 @@ export function FeedScreen({
         conversationKey: item.conversationId,
         unread: item.unread,
       })),
+      { unreadFirst: true },
     );
   }, [cards]);
 

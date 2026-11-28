@@ -72,6 +72,32 @@ describe("done-stack", () => {
     });
   });
 
+  it("puts unread stacks first without changing Feed order within either group or carousel order", () => {
+    const rows = [
+      { key: "read-new", conversationKey: "read-new", unread: false },
+      { key: "mixed-new", conversationKey: "mixed", unread: false },
+      { key: "unread-new", conversationKey: "unread", unread: true },
+      { key: "read-old", conversationKey: "read-old", unread: false },
+      { key: "unread-old", conversationKey: "unread", unread: true },
+      { key: "mixed-old", conversationKey: "mixed", unread: true },
+    ].map((row) => ({ ...row, item: row.key, isManualGroup: false }));
+
+    const stacks = stackDoneCards(rows, { unreadFirst: true });
+    expect(stacks.map(({ key }) => key)).toEqual([
+      "mixed-new",
+      "unread-new",
+      "read-new",
+      "read-old",
+    ]);
+    expect(stacks[0].cards).toEqual(["mixed-new", "mixed-old"]);
+    expect(stackDoneCards(rows).map(({ key }) => key)).toEqual([
+      "read-new",
+      "mixed-new",
+      "unread-new",
+      "read-old",
+    ]);
+  });
+
   it("searches discrete cards across title, prompt, and body with highlighted snippets in carousel order", () => {
     const cards: SearchableThreadCard[] = [
       {
