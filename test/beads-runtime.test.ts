@@ -9,6 +9,7 @@ import {
   rm,
   stat,
   symlink,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -79,9 +80,16 @@ it("rejects an invalid archive and refuses to use a tampered baked binary", asyn
   const bakedRoot = join(directory, "baked");
   const baked = join(bakedRoot, "beads-runtime", beadsRelease);
   const installedRoot = join(directory, "installed");
+  const cache = join(installedRoot, "beads-runtime", beadsRelease);
+  const abandoned = join(cache, "download-Abc123");
+  const active = join(cache, "download-Def456");
   const realFetch = vi.fn(async () => new Response("not the pinned archive"));
   try {
     await mkdir(baked, { recursive: true });
+    await mkdir(abandoned, { recursive: true });
+    await mkdir(active);
+    await writeFile(join(abandoned, "beads.tar.gz"), "interrupted download");
+    await utimes(abandoned, 0, 0);
     await writeFile(join(baked, "bd"), "#!/bin/sh\nexit 0", { mode: 0o700 });
     vi.stubEnv("LOOP_BAKED_BEADS", bakedRoot);
     vi.stubGlobal("fetch", realFetch);
@@ -90,9 +98,7 @@ it("rejects an invalid archive and refuses to use a tampered baked binary", asyn
       "Beads archive integrity check failed",
     );
     expect(realFetch).toHaveBeenCalledOnce();
-    expect(
-      await readdir(join(installedRoot, "beads-runtime", beadsRelease)),
-    ).toEqual([]);
+    expect(await readdir(cache)).toEqual(["download-Def456"]);
   } finally {
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();

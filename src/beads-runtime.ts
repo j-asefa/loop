@@ -8,6 +8,7 @@ import {
   mkdir,
   mkdtemp,
   open,
+  readdir,
   rm,
 } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -163,10 +164,34 @@ async function publishBinary(
   );
 }
 
+async function cleanInterruptedDownloads(directory: string) {
+  // Install work is time-bounded to a few minutes. Keep recent staging for
+  // concurrent installers, including those in other process namespaces.
+  const cutoff = Date.now() - 60 * 60 * 1000;
+  const entries = await readdir(directory, { withFileTypes: true }).catch(
+    () => [],
+  );
+  await Promise.all(
+    entries
+      .filter(
+        (entry) =>
+          entry.isDirectory() && /^download-[A-Za-z0-9]{6}$/.test(entry.name),
+      )
+      .map(async (entry) => {
+        const path = join(directory, entry.name);
+        const info = await lstat(path).catch(() => undefined);
+        if (info?.isDirectory() && info.mtimeMs < cutoff)
+          await rm(path, { recursive: true, force: true }).catch(() => {});
+      }),
+  );
+}
+
 async function install(path: string) {
   const build = builds[`${process.platform}-${process.arch}`];
   if (!build) throw new Error("Beads requires macOS or Linux on x64 or arm64");
   const [platform, entry, archiveHash, executableHash] = build;
+  const dir = resolve(path, "..");
+  await cleanInterruptedDownloads(dir);
   const baked =
     process.env.LOOP_BAKED_BEADS &&
     resolve(process.env.LOOP_BAKED_BEADS, "beads-runtime", beadsRelease, "bd");
@@ -184,7 +209,6 @@ async function install(path: string) {
     return path;
   }
 
-  const dir = resolve(path, "..");
   await mkdir(dir, { recursive: true, mode: 0o700 });
   const staging = await mkdtemp(join(dir, "download-"));
   const archive = join(staging, "beads.tar.gz");
