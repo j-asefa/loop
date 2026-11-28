@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
+import { z } from "zod";
 import {
   BeadsNotStarted,
   BeadsPreconditionFailed,
+  BeadsUnavailable,
   type BeadsStore,
 } from "../beads-runtime.js";
 import { parsePullRequestUrls, pullRequestUrl } from "../shared/github.js";
@@ -102,23 +104,33 @@ function publicAssignment(row: Assignment): BeadAssignmentView {
   };
 }
 
-/** Read-only recovery. Finding a claim proves only the claim, never a launch. */
-async function reconcile(store: BeadsStore, row: Assignment) {
+const claimOutcome = z.enum(["claimed", "unsent", "refused"]);
+
+/** Recover the claim or fence its old generation before offering a resume. */
+async function reconcile(store: BeadsStore, row: Assignment, fence = false) {
   if (row.state !== "claiming" && row.state !== "releasing") return row;
-  const bead = await issue(store, row.bead_id);
-  let next: "claimed" | "released" | undefined;
-  if (
-    row.state === "claiming" &&
-    bead.assignee === claimActor(row) &&
-    bead.status === "in_progress"
-  )
-    next = "claimed";
-  if (
-    row.state === "releasing" &&
-    bead.metadata?.loop_release === row.generation
-  )
-    next = "released";
-  if (next) assignmentsQueries.transition(db, row, next);
+  if (row.state === "claiming" && fence) {
+    const result = claimOutcome.safeParse(
+      await store.settleClaim(row.bead_id, row.generation),
+    );
+    if (!result.success) throw new BeadsUnavailable({ cause: result.error });
+    if (result.data === "unsent")
+      assignmentsQueries.resetFencedClaim(db, row, randomUUID());
+    else assignmentsQueries.transition(db, row, result.data);
+  } else {
+    const bead = await issue(store, row.bead_id);
+    if (
+      row.state === "claiming" &&
+      bead.status === "in_progress" &&
+      bead.assignee === claimActor(row)
+    )
+      assignmentsQueries.transition(db, row, "claimed");
+    if (
+      row.state === "releasing" &&
+      bead.metadata?.loop_release === row.generation
+    )
+      assignmentsQueries.transition(db, row, "released");
+  }
   return assignmentsQueries.byRequest(db, row.owner_id, row.request_id)!;
 }
 
@@ -186,17 +198,18 @@ async function claimAndStart(
           "--assignee",
           actor,
         ],
-        { ready: row.bead_id },
+        { ready: { bead: row.bead_id, generation: row.generation } },
       );
     } catch (error) {
       if (error instanceof BeadsPreconditionFailed)
         assignmentsQueries.transition(db, claiming, "refused");
       if (error instanceof BeadsNotStarted)
-        assignmentsQueries.transition(db, claiming, "prepared");
+        assignmentsQueries.resetFencedClaim(db, claiming, randomUUID());
       return publicAssignment(
         await reconcile(
           store,
           assignmentsQueries.byRequest(db, row.owner_id, row.request_id)!,
+          true,
         ),
       );
     }
@@ -260,7 +273,11 @@ export async function changeBeadAssignment(
   owner: string,
   project: string,
   beadId: string,
-  input: { storeId: string; generation: string; action: "resume" | "release" },
+  input: {
+    storeId: string;
+    generation: string;
+    action: "resume" | "release" | "recover";
+  },
 ) {
   const store = enabledStore(owner, project, input.storeId);
   const active = assignmentsQueries.active(db, owner, store.id, beadId);
@@ -276,7 +293,8 @@ export async function changeBeadAssignment(
       return publicAssignment(previous);
     throw new Problem(409, "This assignment changed. Reopen the bead.");
   }
-  const row = await reconcile(store, active);
+  const row = await reconcile(store, active, input.action === "recover");
+  if (input.action === "recover") return publicAssignment(row);
   if (input.action === "resume") return claimAndStart(store, row, project);
   if (row.state === "releasing" || row.state === "released")
     return publicAssignment(row);
@@ -316,6 +334,18 @@ export async function changeBeadAssignment(
       if (error instanceof BeadsNotStarted) {
         assignmentsQueries.transition(db, reserved, row.state);
         return publicAssignment(row);
+      }
+      if (error instanceof BeadsPreconditionFailed) {
+        const current = await issue(store, beadId);
+        const next =
+          current.status === "in_progress" &&
+          current.assignee === claimActor(row)
+            ? row.state
+            : "released";
+        assignmentsQueries.transition(db, reserved, next);
+        return publicAssignment(
+          assignmentsQueries.byRequest(db, owner, row.request_id)!,
+        );
       }
       // The attempt may have committed. Reconcile by marker, without replay.
     }

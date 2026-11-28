@@ -388,6 +388,15 @@ export async function linkBeadDependency(
   const store = enabledStore(owner, project, body.storeId);
   if (bead === body.blocker)
     throw new Problem(400, "A bead cannot block itself.");
+  if (!receiptsQueries.byRequest(db, owner, body.requestId)) {
+    const blockers = await read(
+      store,
+      ["list", "--all", "--id", body.blocker],
+      issueList,
+    );
+    if (!blockers.some(({ id }) => id === body.blocker))
+      throw new Problem(404, "Blocking bead not found.");
+  }
   const dependencyStored = async () => {
     const result = await issue(store, bead);
     return (result.dependencies ?? []).some(
@@ -402,7 +411,6 @@ export async function linkBeadDependency(
     bead,
     null,
     async () => {
-      await issue(store, body.blocker);
       if (await dependencyStored()) return true;
       await store.write(["dep", "add", bead, body.blocker, "--type", "blocks"]);
       return dependencyStored();

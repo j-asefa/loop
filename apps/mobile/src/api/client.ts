@@ -964,7 +964,7 @@ export class LoopClient {
     body: {
       storeId: string;
       generation: string;
-      action: "resume" | "release";
+      action: "resume" | "release" | "recover";
     },
   ) {
     return this.request<BeadAssignmentView>(

@@ -92,7 +92,11 @@ export async function tick(
     RUN_HEARTBEAT_MS,
   );
   try {
-    applyRunOutcome(run, workerId, await execute(run));
+    applyRunOutcome(
+      run,
+      workerId,
+      await execute({ ...run, worker_id: workerId }),
+    );
   } catch (error) {
     if (error instanceof RunDeferred && deferUndispatched(run, workerId))
       return true;

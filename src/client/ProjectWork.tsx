@@ -54,11 +54,15 @@ export function ProjectWork({ project }: { project: ProjectId }) {
   const [revision, refresh] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [comment, setComment] = useState<ReturnType<typeof storedDraft>>({
-    text: "",
-  });
+  const [commentState, setComment] = useState<{
+    key: string;
+    draft: ReturnType<typeof storedDraft>;
+  }>();
+  const [createPending, setCreatePending] = useState(false);
+  const [sourceMessageId, setSourceMessageId] = useState(
+    nav.get("beadFromMessage") || undefined,
+  );
   const passage = useRef<HTMLDivElement>(null);
-  const createRequest = useRef("");
   const closeRequest = useRef("");
   const bead = detail?.id === selected ? detail : undefined;
   const draftKey = bead
@@ -71,6 +75,38 @@ export function ProjectWork({ project }: { project: ProjectId }) {
         bead.id,
       ])
     : "";
+
+  const comment =
+    commentState?.key === draftKey ? commentState.draft : { text: "" };
+  const createKey = work?.enabled
+    ? JSON.stringify([
+        "loop-bead-create",
+        viewOwner(),
+        source,
+        project,
+        work.storeId,
+      ])
+    : "";
+
+  useEffect(() => {
+    if (!createKey) return;
+    const pending = localStorage.getItem(createKey);
+    if (!pending) return;
+    try {
+      const draft = JSON.parse(pending) as {
+        title: string;
+        description: string;
+        sourceMessageId?: string;
+      };
+      setTitle(draft.title);
+      setDescription(draft.description);
+      setSourceMessageId(draft.sourceMessageId);
+      setAdding(true);
+      setCreatePending(true);
+    } catch {
+      setError("The saved bead draft could not be opened.");
+    }
+  }, [createKey]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -114,7 +150,7 @@ export function ProjectWork({ project }: { project: ProjectId }) {
     return () => controller.abort();
   }, [project, selected, source, revision]);
   useEffect(() => {
-    if (draftKey) setComment(storedDraft(draftKey));
+    if (draftKey) setComment({ key: draftKey, draft: storedDraft(draftKey) });
     setReason("");
     setClosing(false);
     setAgent("");
@@ -139,7 +175,7 @@ export function ProjectWork({ project }: { project: ProjectId }) {
   function saveComment(next: typeof comment) {
     if (!draftKey) return;
     localStorage.setItem(draftKey, JSON.stringify(next));
-    setComment(next);
+    setComment({ key: draftKey, draft: next });
   }
   function quoteSelection() {
     const range = document.getSelection();
@@ -151,7 +187,8 @@ export function ProjectWork({ project }: { project: ProjectId }) {
     )
       return;
     const excerpt = range.toString().trim();
-    if (excerpt) saveComment({ ...comment, excerpt });
+    if (excerpt.length > 4000) setError("Select up to 4,000 characters.");
+    else if (excerpt) saveComment({ ...comment, excerpt });
   }
 
   return (
@@ -207,29 +244,39 @@ export function ProjectWork({ project }: { project: ProjectId }) {
               onSubmit={(event) => {
                 event.preventDefault();
                 handle(async () => {
-                  createRequest.current ||= crypto.randomUUID();
-                  const result = await callRoute(
-                    workspaceApi.projectBeadCreate,
-                    {
-                      params: { project },
-                      body: {
+                  const existing = localStorage.getItem(createKey);
+                  const draft = existing
+                    ? (JSON.parse(existing) as {
+                        storeId: string;
+                        title: string;
+                        description: string;
+                        sourceMessageId?: string;
+                        requestId: string;
+                      })
+                    : {
                         storeId: work.storeId,
-                        requestId: createRequest.current,
+                        requestId: crypto.randomUUID(),
                         title,
                         description,
-                        sourceMessageId:
-                          nav.get("beadFromMessage") || undefined,
-                      },
-                    },
+                        sourceMessageId,
+                      };
+                  localStorage.setItem(createKey, JSON.stringify(draft));
+                  setCreatePending(true);
+                  const result = await callRoute(
+                    workspaceApi.projectBeadCreate,
+                    { params: { project }, body: draft },
                     source,
                   );
+                  if (result.status !== "unknown") {
+                    localStorage.removeItem(createKey);
+                    setCreatePending(false);
+                  }
                   checkWrite(result);
-                  createRequest.current = "";
                   setSelected(result.beadId);
                   setAdding(false);
                   setTitle("");
                   setDescription("");
-                  nav.delete("beadFromMessage");
+                  setSourceMessageId(undefined);
                 });
               }}
             >
@@ -239,10 +286,8 @@ export function ProjectWork({ project }: { project: ProjectId }) {
                   value={title}
                   required
                   maxLength={256}
-                  onChange={(event) => {
-                    createRequest.current = "";
-                    setTitle(event.target.value);
-                  }}
+                  readOnly={createPending}
+                  onChange={(event) => setTitle(event.target.value)}
                 />
               </label>
               <label>
@@ -250,17 +295,29 @@ export function ProjectWork({ project }: { project: ProjectId }) {
                 <textarea
                   value={description}
                   maxLength={16000}
-                  onChange={(event) => {
-                    createRequest.current = "";
-                    setDescription(event.target.value);
-                  }}
+                  readOnly={createPending}
+                  onChange={(event) => setDescription(event.target.value)}
                 />
               </label>
               <button disabled={busy || !title.trim()}>
-                {nav.has("beadFromMessage")
-                  ? "Create bead from result"
-                  : "Create bead"}
+                {createPending
+                  ? "Check new bead"
+                  : sourceMessageId
+                    ? "Create bead from result"
+                    : "Create bead"}
               </button>
+              {createPending && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    localStorage.removeItem(createKey);
+                    setCreatePending(false);
+                  }}
+                >
+                  Discard new bead draft
+                </button>
+              )}
             </form>
           )}
           <ul>
@@ -342,11 +399,13 @@ export function ProjectWork({ project }: { project: ProjectId }) {
                           ({ id }) => id === bead.assignment!.agentId,
                         )?.name || "project agent")}
                   </p>
-                  {(["resume", "release"] as const)
+                  {(["resume", "release", "recover"] as const)
                     .filter((action) =>
                       action === "resume"
                         ? bead.assignment!.canResume
-                        : bead.assignment!.canRelease,
+                        : action === "release"
+                          ? bead.assignment!.canRelease
+                          : !!bead.assignment!.recovery,
                     )
                     .map((action) => (
                       <button
@@ -369,7 +428,11 @@ export function ProjectWork({ project }: { project: ProjectId }) {
                           })
                         }
                       >
-                        {action === "resume" ? "Resume start" : "Release"}
+                        {action === "resume"
+                          ? "Resume start"
+                          : action === "release"
+                            ? "Release"
+                            : "Check recovery"}
                       </button>
                     ))}
                 </div>
@@ -487,23 +550,56 @@ export function ProjectWork({ project }: { project: ProjectId }) {
                       requestId: comment.requestId || crypto.randomUUID(),
                     };
                     saveComment(draft);
-                    checkWrite(
-                      await callRoute(
+                    try {
+                      const result = await callRoute(
                         workspaceApi.projectBeadComment,
                         {
                           params: { project, bead: bead.id },
-                          body: {
-                            storeId: bead.storeId,
-                            text: draft.text,
-                            excerpt: draft.excerpt,
-                            requestId: draft.requestId,
-                          },
+                          body: { storeId: bead.storeId, ...draft },
                         },
                         source,
-                      ),
-                    );
-                    localStorage.removeItem(draftKey);
-                    setComment({ text: "" });
+                      );
+                      if (result.status === "refused") {
+                        const editable = { ...draft, requestId: undefined };
+                        localStorage.setItem(
+                          draftKey,
+                          JSON.stringify(editable),
+                        );
+                        setComment((current) =>
+                          current?.key === draftKey
+                            ? { key: draftKey, draft: editable }
+                            : current,
+                        );
+                      }
+                      checkWrite(result);
+                      localStorage.removeItem(draftKey);
+                      setComment((current) =>
+                        current?.key === draftKey
+                          ? { key: draftKey, draft: { text: "" } }
+                          : current,
+                      );
+                    } catch (error) {
+                      const response = error as {
+                        status?: number;
+                        executionOutcome?: string;
+                      };
+                      if (
+                        [400, 404, 409, 422].includes(response.status || 0) &&
+                        response.executionOutcome !== "unknown"
+                      ) {
+                        const editable = { ...draft, requestId: undefined };
+                        localStorage.setItem(
+                          draftKey,
+                          JSON.stringify(editable),
+                        );
+                        setComment((current) =>
+                          current?.key === draftKey
+                            ? { key: draftKey, draft: editable }
+                            : current,
+                        );
+                      }
+                      throw error;
+                    }
                   });
                 }}
               >
@@ -525,6 +621,18 @@ export function ProjectWork({ project }: { project: ProjectId }) {
                     saveComment({ ...comment, text: event.target.value })
                   }
                 />
+                {comment.requestId && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      localStorage.removeItem(draftKey);
+                      setComment({ key: draftKey, draft: { text: "" } });
+                    }}
+                  >
+                    Discard draft
+                  </button>
+                )}
                 <button disabled={busy || !comment.text.trim()}>
                   {comment.requestId ? "Check comment" : "Post comment"}
                 </button>

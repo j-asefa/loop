@@ -101,7 +101,7 @@ export const beadRoutes = {
     body: z.object({
       storeId: StoreId,
       generation: RequestId,
-      action: z.enum(["resume", "release"]),
+      action: z.enum(["resume", "release", "recover"]),
     }),
     response: Assignment,
   }),

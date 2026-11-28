@@ -228,7 +228,7 @@ export class BeadsPreconditionFailed extends Error {
 }
 
 type BeadsGuard =
-  | { ready: string }
+  | { ready: { bead: string; generation: string } }
   | { current: { id: string; status: string; assignee: string | null } };
 
 export class BeadsStore {
@@ -262,9 +262,21 @@ export class BeadsStore {
     return this.json(["--readonly", ...args]);
   }
 
+  async settleClaim(bead: string, generation: string): Promise<unknown> {
+    return this.json(
+      [],
+      ["--settle-claim", JSON.stringify({ bead, generation })],
+    );
+  }
+
   async write(args: readonly string[], guard?: BeadsGuard): Promise<unknown> {
+    const check = guard
+      ? "ready" in guard
+        ? ["--ready", JSON.stringify(guard.ready)]
+        : ["--current", JSON.stringify(guard.current)]
+      : [];
     try {
-      return JSON.parse(await this.execute(args, guard)) as unknown;
+      return JSON.parse(await this.execute(args, check)) as unknown;
     } catch (error) {
       if (error instanceof BeadsNotStarted) throw error;
       const reason = error instanceof BeadsUnavailable ? error.cause : error;
@@ -283,9 +295,12 @@ export class BeadsStore {
     }
   }
 
-  private async json(args: readonly string[]): Promise<unknown> {
+  private async json(
+    args: readonly string[],
+    check?: readonly string[],
+  ): Promise<unknown> {
     try {
-      return JSON.parse(await this.execute(args)) as unknown;
+      return JSON.parse(await this.execute(args, check)) as unknown;
     } catch (cause) {
       if (cause instanceof BeadsUnavailable) throw cause;
       throw new BeadsUnavailable({ cause });
@@ -294,7 +309,10 @@ export class BeadsStore {
 
   // The callers supply structured arguments. The lock survives the Loop
   // process exiting because bd inherits the descriptor via exec.
-  private async execute(args: readonly string[], guard?: BeadsGuard) {
+  private async execute(
+    args: readonly string[],
+    check: readonly string[] = [],
+  ) {
     let binary: string;
     try {
       await access(lock);
@@ -302,11 +320,6 @@ export class BeadsStore {
     } catch (cause) {
       throw new BeadsNotStarted({ cause });
     }
-    const check = guard
-      ? "ready" in guard
-        ? ["--ready", guard.ready]
-        : ["--current", JSON.stringify(guard.current)]
-      : [];
     try {
       const { stdout } = await exec(
         "python3",
@@ -327,7 +340,10 @@ export class BeadsStore {
         cause !== null &&
         (("code" in cause &&
           ["ENOENT", "ENOTDIR", "EACCES"].includes(String(cause.code))) ||
-          ("stderr" in cause && cause.stderr === "LOOP_BEADS_NOT_STARTED\n"))
+          ("stderr" in cause &&
+            ["LOOP_BEADS_NOT_STARTED\n", "LOOP_BEADS_FENCED_CLAIM\n"].includes(
+              String(cause.stderr),
+            )))
       )
         throw new BeadsNotStarted({ cause });
       throw new BeadsUnavailable({ cause });

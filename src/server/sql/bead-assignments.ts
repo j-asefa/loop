@@ -90,3 +90,14 @@ export function transition(
     ).changes === 1
   );
 }
+
+const reset = statement(
+  "UPDATE bead_assignments SET generation=?,state='prepared' WHERE owner_id=? AND request_id=? AND generation=? AND state='claiming'",
+);
+export function resetFencedClaim(
+  db: Database.Database,
+  row: BeadAssignment,
+  replacement: string,
+) {
+  reset(db).run(replacement, row.owner_id, row.request_id, row.generation);
+}

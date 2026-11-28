@@ -3,6 +3,7 @@ import { BeadsUnavailable } from "../beads-runtime.js";
 import { BeadId } from "../shared/bead-routes.js";
 import { db } from "./db.js";
 import { ownedRun, Problem } from "./domain.js";
+import { canUseMemorySearch } from "./memory.js";
 import { requestHash } from "./request-receipts.js";
 import type { Run } from "./row-schemas.js";
 import {
@@ -49,6 +50,9 @@ const command = z.discriminatedUnion("action", [
 ]);
 
 function runWorkScope(run: Run) {
+  // Work exposes similarly private context and mutations. A shared prompt
+  // or Fleet-mail conversation cannot exercise that authority.
+  if (!canUseMemorySearch(run)) return undefined;
   const project = foldersQueries.projectFor(db, {
     owner: run.owner_id,
     folder: run.payload.folderId ?? null,

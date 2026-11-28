@@ -2,9 +2,9 @@ import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import type { AddressInfo } from "node:net";
 import { promisify } from "node:util";
-import { afterAll, expect, it } from "vitest";
+import { afterAll, expect, it, vi } from "vitest";
 import { testDirectory } from "./helpers/test-workspace.js";
-import { BeadsStore } from "../src/beads-runtime.js";
+import { BeadsNotStarted, BeadsStore } from "../src/beads-runtime.js";
 
 const data = testDirectory();
 const realBeads = process.env.LOOP_TEST_BEADS_ROOT;
@@ -156,7 +156,7 @@ it.skipIf(!realBeads)(
   "starts one run for a contested bead and unlocks its dependent only after explicit close",
   async () => {
     const { seal } = await import("../src/server/secrets.js");
-    const { createAgent } = await import("../src/server/domain.js");
+    const { createAgent, ownedRun } = await import("../src/server/domain.js");
     const { seedConnection, seedMessage } = await import("./helpers/seed.js");
     const { claim, transition } = await import("../src/server/queue.js");
     const project = await createProject("Assignment");
@@ -192,6 +192,15 @@ it.skipIf(!realBeads)(
     };
     const blocker = await create("Blocker");
     const target = await create("Target");
+    expect(
+      (
+        await request(route + "/" + target + "/dependencies", "POST", {
+          storeId,
+          requestId: randomUUID(),
+          blocker: "loop-absent",
+        })
+      ).status,
+    ).toBe(404);
     expect(
       (
         await request(route + "/" + target + "/dependencies", "POST", {
@@ -249,6 +258,23 @@ it.skipIf(!realBeads)(
 
     const run = claim("beads-fixture")!;
     expect(run.conversation_id).toBe(winner.conversationId);
+    const { projectWorkAvailable, invokeProjectWork } =
+      await import("../src/server/bead-tools.js");
+    const leasedRun = ownedRun(run.id, owner);
+    expect(projectWorkAvailable(leasedRun)).toBe(true);
+    expect(
+      await invokeProjectWork(leasedRun, "read", {
+        action: "read",
+        bead: blocker,
+      }),
+    ).toMatchObject({ id: blocker });
+    await expect(
+      invokeProjectWork(leasedRun, "close-another", {
+        action: "close",
+        bead: target,
+        reason: "Wrong bead",
+      }),
+    ).rejects.toThrow(/only close its own/);
     const answer = "Work finished. https://github.com/example/repo/pull/42";
     const messageId = id();
     seedMessage(db, {
@@ -376,6 +402,22 @@ it.skipIf(!realBeads)(
     const resumedRun = claim("beads-fixture")!;
     expect(resumedRun.conversation_id).toBe(resumed.body.conversationId);
     expect(transition(resumedRun, "cancelled")).toBe(true);
+    const refused = vi
+      .spyOn(BeadsStore.prototype, "write")
+      .mockRejectedValueOnce(new BeadsNotStarted());
+    try {
+      const refusedRelease = await request(resume, "POST", {
+        storeId,
+        generation,
+        action: "release",
+      });
+      expect(refusedRelease.body).toMatchObject({
+        state: "started",
+        canRelease: true,
+      });
+    } finally {
+      refused.mockRestore();
+    }
     expect(
       (
         await request(resume, "POST", {
@@ -386,6 +428,64 @@ it.skipIf(!realBeads)(
       ).body.state,
     ).toBe("released");
     expect((await request(route + "/" + recovery)).body.status).toBe("ready");
+
+    const unsent = randomUUID();
+    const oldGeneration = randomUUID();
+    prepare(db, {
+      owner_id: owner,
+      store_id: storeId,
+      bead_id: recovery,
+      request_id: unsent,
+      generation: oldGeneration,
+      agent_id: agents[0].id,
+      created_at: now(),
+    });
+    expect(move(db, byRequest(db, owner, unsent)!, "claiming")).toBe(true);
+    expect((await request(route + "/" + recovery)).body.assignment.state).toBe(
+      "claiming",
+    );
+    const fenced = (
+      await request(resume, "POST", {
+        storeId,
+        generation: oldGeneration,
+        action: "recover",
+      })
+    ).body;
+    expect(fenced).toMatchObject({
+      state: "prepared",
+      requestId: unsent,
+      canResume: true,
+    });
+    expect(fenced.generation).not.toBe(oldGeneration);
+    await expect(
+      store.write(
+        [
+          "--actor",
+          "loop-start-" + oldGeneration,
+          "update",
+          recovery,
+          "--claim",
+        ],
+        { ready: { bead: recovery, generation: oldGeneration } },
+      ),
+    ).rejects.toBeInstanceOf(BeadsNotStarted);
+    expect(claim("beads-fixture")).toBeUndefined();
+
+    const { submit } = await import("../src/server/agent-runtime.js");
+    const shared = submit(owner, {
+      agentId: agents[0].id,
+      folderId: project,
+      input: "Shared test input",
+      idempotencyKey: randomUUID(),
+      shared: true,
+    });
+    const sharedRun = claim("beads-fixture")!;
+    expect(sharedRun.id).toBe(shared.id);
+    const leasedSharedRun = ownedRun(sharedRun.id, owner);
+    expect(projectWorkAvailable(leasedSharedRun)).toBe(false);
+    await expect(
+      invokeProjectWork(leasedSharedRun, "list", { action: "list" }),
+    ).rejects.toThrow(/disabled/);
   },
   100_000,
 );

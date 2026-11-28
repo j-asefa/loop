@@ -53,7 +53,7 @@ run in one SQLite transaction.
 | --- | --- | --- |
 | ∅ | prepared | Work on this reserves the request and generation; tx |
 | prepared | claiming | First start or explicit resume records intent before invoking Beads; sql |
-| claiming | prepared | The launcher proves Beads never started; sql |
+| claiming | prepared | A launcher refusal or locked fence lets the same request resume with a fresh generation; sql |
 | claiming | refused | The ready or claim precondition failed before mutation; sql |
 | claiming | claimed | The Beads assignee and status match the request; sql |
 | claimed | started | Explicit launch inserts the linked run and binds its identity; tx |
@@ -62,7 +62,8 @@ run in one SQLite transaction.
 | releasing | released | The Beads release marker matches the generation; sql |
 | releasing | claimed / started | The launcher proves the release was never sent; sql |
 
-Recovery reads in `claiming` and `releasing` never repeat mutations.
+Recovery in `claiming` fences a delayed command under the Beads lock before
+offering a resume. Recovery in `releasing` reads the original release marker.
 Completing a linked run leaves the bead open until explicitly closed.
 Assignment records retain their run and result links after release.
 

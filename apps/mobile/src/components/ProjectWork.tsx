@@ -28,12 +28,13 @@ import type {
   BeadWorkState,
   BeadWriteStatus,
 } from "../../../../src/shared/bead-schemas";
-import { randomUuid, type LoopClient } from "../api/client";
+import { LoopApiError, randomUuid, type LoopClient } from "../api/client";
 import {
   clearDraft,
   loadDraftEntry,
   saveDraft,
   saveDraftAndFlush,
+  settlePendingReplyDraft,
 } from "../drafts";
 import type { LoopTheme } from "../theme";
 import { RichContent } from "./RichContent";
@@ -121,7 +122,30 @@ export function ProjectWork({
     target?.sourceMessageId ? target.title || "" : "",
   );
   const [description, setDescription] = useState("");
-  const createRequest = useRef("");
+  const [createPending, setCreatePending] = useState(false);
+  const createScope = work?.enabled
+    ? JSON.stringify(["bead-create", project, work.storeId])
+    : "";
+  useEffect(() => {
+    if (!createScope) return;
+    let active = true;
+    void loadDraftEntry(client.localDataScope, createScope)
+      .then((entry) => {
+        if (!active || !entry?.pendingKey) return;
+        const saved = JSON.parse(entry.text);
+        setTitle(saved.title);
+        setDescription(saved.description);
+        setSourceMessage(saved.sourceMessageId);
+        setCreatePending(true);
+        setAdding(true);
+      })
+      .catch((error: Error) => {
+        if (active) setError(error.message);
+      });
+    return () => {
+      active = false;
+    };
+  }, [client, createScope]);
   const refresh = useCallback(async () => {
     try {
       const next = await client.projectWork(project);
@@ -227,10 +251,8 @@ export function ProjectWork({
                 placeholderTextColor={theme.muted}
                 value={title}
                 maxLength={256}
-                onChangeText={(text) => {
-                  createRequest.current = "";
-                  setTitle(text);
-                }}
+                editable={!createPending && !busy}
+                onChangeText={setTitle}
                 style={[
                   styles.input,
                   { color: theme.text, borderColor: theme.line },
@@ -243,10 +265,8 @@ export function ProjectWork({
                 value={description}
                 multiline
                 maxLength={16000}
-                onChangeText={(text) => {
-                  createRequest.current = "";
-                  setDescription(text);
-                }}
+                editable={!createPending && !busy}
+                onChangeText={setDescription}
                 style={[
                   styles.input,
                   { color: theme.text, borderColor: theme.line },
@@ -255,21 +275,44 @@ export function ProjectWork({
               <WorkButton
                 theme={theme}
                 label={
-                  sourceMessage ? "Create bead from result" : "Create bead"
+                  createPending
+                    ? "Check new bead"
+                    : sourceMessage
+                      ? "Create bead from result"
+                      : "Create bead"
                 }
                 disabled={busy || !title.trim()}
                 onPress={() =>
                   void mutate(async () => {
-                    createRequest.current ||= randomUuid();
+                    const pending = await loadDraftEntry(
+                      client.localDataScope,
+                      createScope,
+                    );
+                    const draft = pending?.pendingKey
+                      ? (JSON.parse(pending.text) as {
+                          title: string;
+                          description: string;
+                          sourceMessageId?: string;
+                        })
+                      : { title, description, sourceMessageId: sourceMessage };
+                    const requestId = pending?.pendingKey || randomUuid();
+                    await saveDraftAndFlush(
+                      client.localDataScope,
+                      createScope,
+                      JSON.stringify(draft),
+                      { key: requestId },
+                    );
+                    setCreatePending(true);
                     const result = await client.createProjectBead(project, {
+                      ...draft,
                       storeId: work.storeId,
-                      requestId: createRequest.current,
-                      title,
-                      description,
-                      sourceMessageId: sourceMessage,
+                      requestId,
                     });
+                    if (result.status !== "unknown") {
+                      clearDraft(client.localDataScope, createScope);
+                      setCreatePending(false);
+                    }
                     checkWrite(result);
-                    createRequest.current = "";
                     setAdding(false);
                     setSourceMessage(undefined);
                     setTitle("");
@@ -279,6 +322,17 @@ export function ProjectWork({
                   })
                 }
               />
+              {createPending && (
+                <WorkButton
+                  theme={theme}
+                  label="Discard new bead draft"
+                  disabled={busy}
+                  onPress={() => {
+                    clearDraft(client.localDataScope, createScope);
+                    setCreatePending(false);
+                  }}
+                />
+              )}
             </View>
           )}
           {visible.length === 0 ? (
@@ -603,11 +657,16 @@ function WorkDetail({
                 }}
                 style={[inputStyle, styles.selectionInput]}
               />
+              {excerpt.length > 4000 ? (
+                <Text style={{ color: theme.muted }}>
+                  Select up to 4,000 characters.
+                </Text>
+              ) : null}
               <View style={styles.row}>
                 <WorkButton
                   theme={theme}
                   label="Use selection"
-                  disabled={!excerpt.trim()}
+                  disabled={!excerpt.trim() || excerpt.length > 4000}
                   onPress={() => {
                     updateDraft({ ...draft, excerpt: excerpt.trim() });
                     setSelecting(false);
@@ -695,17 +754,25 @@ function WorkDetail({
                       ?.name || "project agent")}
               </Text>
               <View style={styles.row}>
-                {(["resume", "release"] as const)
+                {(["resume", "release", "recover"] as const)
                   .filter((action) =>
                     action === "resume"
                       ? detail.assignment!.canResume
-                      : detail.assignment!.canRelease,
+                      : action === "release"
+                        ? detail.assignment!.canRelease
+                        : !!detail.assignment!.recovery,
                   )
                   .map((action) => (
                     <WorkButton
                       key={action}
                       theme={theme}
-                      label={action === "resume" ? "Resume start" : "Release"}
+                      label={
+                        action === "resume"
+                          ? "Resume start"
+                          : action === "release"
+                            ? "Release"
+                            : "Check recovery"
+                      }
                       disabled={busy}
                       onPress={() =>
                         void write(async () => {
@@ -837,6 +904,17 @@ function WorkDetail({
                 editable={!draft.requestId && !busy}
                 onChangeText={(text) => updateDraft({ ...draft, text })}
               />
+              {draft.requestId && (
+                <WorkButton
+                  theme={theme}
+                  label="Discard draft"
+                  disabled={busy}
+                  onPress={() => {
+                    clearDraft(client.localDataScope, scope);
+                    setDraft({ text: "" });
+                  }}
+                />
+              )}
               <WorkButton
                 theme={theme}
                 label={draft.requestId ? "Check comment" : "Post comment"}
@@ -859,14 +937,37 @@ function WorkDetail({
                       { key: attempt.draft.requestId },
                     );
                     setDraft(attempt.draft);
-                    const result = await client.commentOnBead(
-                      attempt.target.projectId,
-                      attempt.target.beadId,
-                      { storeId: attempt.target.storeId, ...attempt.draft },
-                    );
-                    checkWrite(result);
-                    clearDraft(client.localDataScope, attempt.scope);
-                    setDraft({ text: "" });
+                    const unlock = () => {
+                      const editable = {
+                        ...attempt.draft,
+                        requestId: undefined,
+                      };
+                      const outcome = settlePendingReplyDraft(
+                        client.localDataScope,
+                        attempt.scope,
+                        attempt.draft.requestId,
+                        { text: JSON.stringify(editable) },
+                      );
+                      if (outcome === "settled") setDraft(editable);
+                    };
+                    try {
+                      const result = await client.commentOnBead(
+                        attempt.target.projectId,
+                        attempt.target.beadId,
+                        { storeId: attempt.target.storeId, ...attempt.draft },
+                      );
+                      if (result.status === "refused") unlock();
+                      checkWrite(result);
+                      clearDraft(client.localDataScope, attempt.scope);
+                      setDraft({ text: "" });
+                    } catch (error) {
+                      if (
+                        error instanceof LoopApiError &&
+                        [400, 404, 409, 422].includes(error.status)
+                      )
+                        unlock();
+                      throw error;
+                    }
                   })
                 }
               />
