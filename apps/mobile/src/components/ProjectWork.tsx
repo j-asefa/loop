@@ -23,6 +23,7 @@ import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowLeft } from "lucide-react-native";
 import type {
+  BeadCloseDraft,
   BeadDetail,
   BeadWorkItem,
   BeadWorkState,
@@ -552,7 +553,7 @@ function WorkDetail({
   const [draft, setDraft] = useState<BeadDraft>({ text: "" });
   const [loaded, setLoaded] = useState(false);
   const [reason, setReason] = useState<string | null>(null);
-  const closeRequest = useRef("");
+  const [closeDraft, setCloseDraft] = useState<BeadCloseDraft>();
   const refresh = useCallback(async () => {
     const result = await client.projectBead(project, bead);
     setDetail(result);
@@ -572,11 +573,15 @@ function WorkDetail({
         beadId: bead,
       })
     : "";
+  const closeScope = scope && "bead-close:" + scope;
   useEffect(() => {
     if (!scope) return;
     let live = true;
-    void loadDraftEntry(client.localDataScope, scope)
-      .then((entry) => {
+    void Promise.all([
+      loadDraftEntry(client.localDataScope, scope),
+      loadDraftEntry(client.localDataScope, closeScope),
+    ])
+      .then(([entry, close]) => {
         if (!live) return;
         if (entry) {
           const saved = JSON.parse(entry.text);
@@ -586,6 +591,20 @@ function WorkDetail({
             requestId: entry.pendingKey,
           });
         }
+        if (close?.pendingKey) {
+          const saved = JSON.parse(close.text) as Partial<BeadCloseDraft>;
+          if (
+            typeof saved.reason === "string" &&
+            (saved.generation === null || typeof saved.generation === "string")
+          ) {
+            setCloseDraft({
+              reason: saved.reason,
+              generation: saved.generation,
+              requestId: close.pendingKey,
+            });
+            setReason(saved.reason);
+          }
+        }
         setLoaded(true);
       })
       .catch((error: Error) => {
@@ -594,7 +613,7 @@ function WorkDetail({
     return () => {
       live = false;
     };
-  }, [client, scope]);
+  }, [client, scope, closeScope]);
 
   function updateDraft(next: BeadDraft) {
     setDraft(next);
@@ -839,7 +858,8 @@ function WorkDetail({
                 </View>
               </>
             )}
-          {detail.status !== "closed" &&
+          {loaded &&
+            (detail.status !== "closed" || closeDraft) &&
             (reason === null ? (
               <WorkButton
                 theme={theme}
@@ -856,26 +876,52 @@ function WorkDetail({
                   placeholderTextColor={theme.muted}
                   maxLength={2000}
                   style={inputStyle}
-                  onChangeText={(value) => {
-                    closeRequest.current = "";
-                    setReason(value);
-                  }}
+                  editable={!closeDraft}
+                  onChangeText={setReason}
                 />
                 <WorkButton
                   theme={theme}
-                  label="Confirm close"
+                  label={closeDraft ? "Check close" : "Confirm close"}
                   disabled={busy || !reason.trim()}
                   onPress={() =>
                     void write(async () => {
-                      closeRequest.current ||= randomUuid();
-                      checkWrite(
-                        await client.closeBead(project, bead, {
-                          storeId: detail.storeId,
-                          generation: detail.assignment?.generation ?? null,
-                          requestId: closeRequest.current,
-                          reason,
-                        }),
+                      const draft = closeDraft ?? {
+                        requestId: randomUuid(),
+                        generation: detail.assignment?.generation ?? null,
+                        reason,
+                      };
+                      await saveDraftAndFlush(
+                        client.localDataScope,
+                        closeScope,
+                        JSON.stringify(draft),
+                        { key: draft.requestId },
                       );
+                      setCloseDraft(draft);
+                      const settle = () => {
+                        if (
+                          settlePendingReplyDraft(
+                            client.localDataScope,
+                            closeScope,
+                            draft.requestId,
+                          ) === "settled"
+                        )
+                          setCloseDraft(undefined);
+                      };
+                      try {
+                        const result = await client.closeBead(project, bead, {
+                          storeId: detail.storeId,
+                          ...draft,
+                        });
+                        if (result.status !== "unknown") settle();
+                        checkWrite(result);
+                      } catch (error) {
+                        if (
+                          error instanceof LoopApiError &&
+                          [400, 404, 409, 422].includes(error.status)
+                        )
+                          settle();
+                        throw error;
+                      }
                     })
                   }
                 />

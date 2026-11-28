@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { CloseDraft, type BeadCloseDraft } from "../shared/bead-schemas";
 import type {
   BeadDetail,
   BeadWorkItem,
@@ -40,9 +41,17 @@ function storedDraft(key: string): {
 export function ProjectWork({ project }: { project: ProjectId }) {
   const source = executionSourceId();
   const [nav] = useState(() => new URLSearchParams(location.search));
+  const selectionKey = JSON.stringify([
+    "loop-work-selection",
+    viewOwner(),
+    source,
+    project,
+  ]);
   const [work, setWork] = useState<BeadWorkState>();
   const [filter, setFilter] = useState<BeadWorkItem["status"]>("ready");
-  const [selected, setSelected] = useState(nav.get("bead") || "");
+  const [selected, setSelected] = useState(
+    () => nav.get("bead") || sessionStorage.getItem(selectionKey) || "",
+  );
   const [detail, setDetail] = useState<BeadDetail>();
   const [agents, setAgents] = useState<{ id: string; name: string }[]>([]);
   const [agent, setAgent] = useState("");
@@ -51,6 +60,10 @@ export function ProjectWork({ project }: { project: ProjectId }) {
   const [description, setDescription] = useState("");
   const [reason, setReason] = useState("");
   const [closing, setClosing] = useState(false);
+  const [pendingClose, setPendingClose] = useState<{
+    key: string;
+    draft: BeadCloseDraft;
+  }>();
   const [revision, refresh] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -63,7 +76,6 @@ export function ProjectWork({ project }: { project: ProjectId }) {
     nav.get("beadFromMessage") || undefined,
   );
   const passage = useRef<HTMLDivElement>(null);
-  const closeRequest = useRef("");
   const bead = detail?.id === selected ? detail : undefined;
   const draftKey = bead
     ? JSON.stringify([
@@ -75,6 +87,9 @@ export function ProjectWork({ project }: { project: ProjectId }) {
         bead.id,
       ])
     : "";
+  const closeKey = draftKey && "loop-bead-close:" + draftKey;
+  const closeDraft =
+    pendingClose?.key === closeKey ? pendingClose.draft : undefined;
 
   const comment =
     commentState?.key === draftKey ? commentState.draft : { text: "" };
@@ -87,6 +102,16 @@ export function ProjectWork({ project }: { project: ProjectId }) {
         work.storeId,
       ])
     : "";
+
+  useEffect(() => {
+    const target = nav.get("bead");
+    if (!target) return;
+    const url = new URL(location.href);
+    if (url.searchParams.get("bead") !== target) return;
+    sessionStorage.setItem(selectionKey, target);
+    url.searchParams.delete("bead");
+    history.replaceState(history.state, "", url);
+  }, [nav, selectionKey]);
 
   useEffect(() => {
     if (!createKey) return;
@@ -154,8 +179,21 @@ export function ProjectWork({ project }: { project: ProjectId }) {
     setReason("");
     setClosing(false);
     setAgent("");
-    closeRequest.current = "";
-  }, [draftKey]);
+    if (!closeKey) return;
+    try {
+      const saved = localStorage.getItem(closeKey);
+      if (saved) {
+        const parsed = CloseDraft.safeParse(JSON.parse(saved));
+        if (parsed.success) {
+          setPendingClose({ key: closeKey, draft: parsed.data });
+          setReason(parsed.data.reason);
+          setClosing(true);
+        }
+      }
+    } catch {
+      setError("The saved close request could not be opened.");
+    }
+  }, [draftKey, closeKey]);
 
   function handle(operation: () => Promise<void>) {
     if (busy) return;
@@ -171,6 +209,10 @@ export function ProjectWork({ project }: { project: ProjectId }) {
       throw new Error("Outcome unknown. Check again using the same request.");
     if (result.status === "refused")
       throw new Error("Work changed or is unavailable. Refresh and try again.");
+  }
+  function selectBead(id: string) {
+    setSelected(id);
+    sessionStorage.setItem(selectionKey, id);
   }
   function saveComment(next: typeof comment) {
     if (!draftKey) return;
@@ -282,7 +324,7 @@ export function ProjectWork({ project }: { project: ProjectId }) {
                     setCreatePending(false);
                   }
                   checkWrite(result);
-                  setSelected(result.beadId);
+                  selectBead(result.beadId);
                   setAdding(false);
                   setTitle("");
                   setDescription("");
@@ -348,7 +390,7 @@ export function ProjectWork({ project }: { project: ProjectId }) {
                   <button
                     aria-current={selected === item.id}
                     className="text-button"
-                    onClick={() => setSelected(item.id)}
+                    onClick={() => selectBead(item.id)}
                   >
                     {item.title}
                   </button>
@@ -373,7 +415,7 @@ export function ProjectWork({ project }: { project: ProjectId }) {
                     <button
                       key={id}
                       className="text-button"
-                      onClick={() => setSelected(id)}
+                      onClick={() => selectBead(id)}
                     >
                       {id}
                     </button>
@@ -516,27 +558,56 @@ export function ProjectWork({ project }: { project: ProjectId }) {
                   Close bead
                 </button>
               )}
-              {closing && bead.status !== "closed" && (
+              {closing && (bead.status !== "closed" || closeDraft) && (
                 <form
                   onSubmit={(event) => {
                     event.preventDefault();
                     handle(async () => {
-                      closeRequest.current ||= crypto.randomUUID();
-                      checkWrite(
-                        await callRoute(
+                      const draft = closeDraft ?? {
+                        requestId: crypto.randomUUID(),
+                        reason,
+                        generation: bead.assignment?.generation ?? null,
+                      };
+                      localStorage.setItem(closeKey, JSON.stringify(draft));
+                      setPendingClose({ key: closeKey, draft });
+                      const settle = () => {
+                        const saved = localStorage.getItem(closeKey);
+                        if (
+                          saved &&
+                          CloseDraft.safeParse(JSON.parse(saved)).data
+                            ?.requestId === draft.requestId
+                        )
+                          localStorage.removeItem(closeKey);
+                        setPendingClose((current) =>
+                          current?.key === closeKey &&
+                          current.draft.requestId === draft.requestId
+                            ? undefined
+                            : current,
+                        );
+                      };
+                      try {
+                        const result = await callRoute(
                           workspaceApi.projectBeadClose,
                           {
                             params: { project, bead: bead.id },
-                            body: {
-                              storeId: bead.storeId,
-                              requestId: closeRequest.current,
-                              reason,
-                              generation: bead.assignment?.generation ?? null,
-                            },
+                            body: { storeId: bead.storeId, ...draft },
                           },
                           source,
-                        ),
-                      );
+                        );
+                        if (result.status !== "unknown") settle();
+                        checkWrite(result);
+                      } catch (error) {
+                        const response = error as {
+                          status?: number;
+                          executionOutcome?: string;
+                        };
+                        if (
+                          [400, 404, 409, 422].includes(response.status || 0) &&
+                          response.executionOutcome !== "unknown"
+                        )
+                          settle();
+                        throw error;
+                      }
                     });
                   }}
                 >
@@ -545,13 +616,11 @@ export function ProjectWork({ project }: { project: ProjectId }) {
                     required
                     value={reason}
                     maxLength={2000}
-                    onChange={(event) => {
-                      closeRequest.current = "";
-                      setReason(event.target.value);
-                    }}
+                    readOnly={!!closeDraft}
+                    onChange={(event) => setReason(event.target.value)}
                   />
                   <button disabled={busy || !reason.trim()}>
-                    Confirm close
+                    {closeDraft ? "Check close" : "Confirm close"}
                   </button>
                 </form>
               )}

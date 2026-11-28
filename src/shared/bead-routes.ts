@@ -11,6 +11,7 @@ import {
   WorkDetail,
   Create,
   Comment,
+  CloseDraft,
   WriteStatus,
 } from "./bead-schemas.js";
 export { BeadId } from "./bead-schemas.js";
@@ -111,12 +112,7 @@ export const beadRoutes = {
     method: "POST",
     path: "/projects/:project/work/:bead/close",
     params: beadParams,
-    body: z.object({
-      storeId: StoreId,
-      requestId: RequestId,
-      generation: RequestId.nullable(),
-      reason: z.string().trim().min(1).max(2000),
-    }),
+    body: z.object({ storeId: StoreId, ...CloseDraft.shape }),
     response: WriteStatus,
   }),
   projectBeadDependency: endpoint({

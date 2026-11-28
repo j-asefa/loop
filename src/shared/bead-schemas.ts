@@ -6,6 +6,12 @@ export const BeadId = z
   .max(128);
 export const StoreId = z.string().regex(/^[a-f0-9]{64}$/);
 export const RequestId = z.uuid();
+export const CloseDraft = z.object({
+  requestId: RequestId,
+  generation: RequestId.nullable(),
+  reason: z.string().trim().min(1).max(2000),
+});
+export type BeadCloseDraft = z.infer<typeof CloseDraft>;
 const Status = z.enum(["ready", "in_progress", "blocked", "closed"]);
 const WorkItem = z.object({
   id: BeadId,

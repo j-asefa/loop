@@ -110,7 +110,10 @@ export function Projects({
   };
   useEffect(() => {
     const requested = requestedTab.current;
+    if (requested && !selected) return;
     consumeRequestedTab();
+    if (requested === "work")
+      sessionStorage.setItem("loop-project-tab:" + selected, requested);
     setPage(
       projectTab(
         requested ||
