@@ -17,6 +17,9 @@ const stateSql = `state_base AS MATERIALIZED (
  SELECT c.id,c.owner_id,c.title,c.agent_id,c.execution_connection_id,c.team_id,c.origin,c.project_id,
   COALESCE((SELECT r.id FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id
     AND r.state IN ('running','pausing','paused','awaiting_approval') ORDER BY +r.created_at DESC,r.rowid DESC LIMIT 1),
+    (SELECT r.id FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id
+      AND NOT (r.state='cancelled' AND EXISTS(SELECT 1 FROM review_continuations rc WHERE rc.owner_id=r.owner_id AND rc.run_id=r.id))
+      ORDER BY r.created_at DESC,r.rowid DESC LIMIT 1),
     (SELECT r.id FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id ORDER BY r.created_at DESC,r.rowid DESC LIMIT 1)) feed_run_id,
   (SELECT count(*) FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id AND r.state='queued' AND NOT ${INTERNAL_QUEUED_RUN_SQL("r")}) feed_queued,
   (SELECT r.id FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id AND r.state='completed' ORDER BY r.updated_at DESC,r.rowid DESC LIMIT 1) feed_done_run_id,
@@ -68,6 +71,15 @@ const INTERNAL_SEALED_RESULT_SQL = (
 ) => `(
   ${internalThreadExpr}=1
   OR COALESCE(json_extract(${resAlias}.stimulus,'$.automationKind'),'') IN ${MAIL_AUTOMATION_KINDS_SQL}
+  OR (${resAlias}.run_id IS NOT NULL AND EXISTS(
+    SELECT 1 FROM review_continuations rc
+    JOIN runs pr ON pr.id=rc.parent_run_id AND pr.owner_id=rc.owner_id
+    WHERE rc.owner_id=@owner AND rc.run_id=${resAlias}.run_id
+      AND (
+        json_extract(pr.payload,'$.mailId') IS NOT NULL
+        OR EXISTS(SELECT 1 FROM agent_mail m WHERE m.owner_id=pr.owner_id AND ((m.run_id=pr.id AND m.steering_id IS NULL) OR m.requeued_run_id=pr.id))
+      )
+  ))
   OR (${resAlias}.run_id IS NOT NULL AND EXISTS(
     SELECT 1 FROM review_continuations rc
     JOIN runs next_run ON next_run.id=rc.run_id AND next_run.owner_id=rc.owner_id

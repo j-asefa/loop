@@ -235,6 +235,20 @@ it("auto-cancels pending review continuations when loop_review_status returns a 
     ).state,
   ).toBe("cancelled");
 
+  // Completing the parent turn after auto-cancelling its continuation must leave
+  // the thread in completed state (not cancelled) in All / Outcomes
+  finishTurn(owner, parentId, convId, "Handled review inline.");
+  const allThread = feed(owner, { filter: "all" }).items.find(
+    (item) => item.conversation_id === convId,
+  );
+  expect(allThread?.run?.id).toBe(parentId);
+  expect(allThread?.run?.state).toBe("completed");
+  expect(
+    feed(owner, { filter: "outcomes" }).items.some(
+      (item) => item.conversation_id === convId,
+    ),
+  ).toBe(true);
+
   // An already-dispatched continuation (with native_dispatch) is never auto-cancelled
   const conv2 = id();
   seedConversation(db, {
@@ -1104,6 +1118,39 @@ it("keeps a mail-only conversation hidden even when a mail turn requests a code 
     ),
   ).toBe(false);
   expect(feed(owner, { filter: "done" }).summary.done_unread).toBe(0);
+
+  // Even if the owner later joins that conversation with a direct prompt, the
+  // older mail-parented review continuation result must stay hidden from Done
+  const ownerJoinRun = id();
+  seedRun(db, {
+    id: ownerJoinRun,
+    owner_id: owner,
+    agent_id: helper.id,
+    conversation_id: mailConv,
+    input: "Thanks, summarize for me",
+    state: "running",
+    idempotency_key: ownerJoinRun,
+    payload: JSON.stringify({ connectionId }),
+    created_at: now() + 50,
+    updated_at: now() + 50,
+  });
+  seedMessage(db, {
+    id: id(),
+    owner_id: owner,
+    conversation_id: mailConv,
+    run_id: ownerJoinRun,
+    role: "user",
+    content: "Thanks, summarize for me",
+    metadata: writeMessageMetadata({ personal: true }),
+    created_at: now() + 50,
+  });
+  finishTurn(owner, ownerJoinRun, mailConv, "Owner-requested summary.");
+  const afterOwnerJoin = listDoneCards(owner).filter(
+    (entry) => entry.card.source.conversation_id === mailConv,
+  );
+  expect(afterOwnerJoin.map((entry) => entry.card.content)).toEqual([
+    "Owner-requested summary.",
+  ]);
 });
 
 it("does not auto-cancel a paused continuation when loop_review_status is read", () => {
