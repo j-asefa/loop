@@ -76,6 +76,9 @@ type FeedScreenProps = {
   loadingMore?: boolean;
   theme: LoopTheme;
   scrollRef?: React.RefObject<React.ComponentRef<typeof ScrollView> | null>;
+  agentsScrollRef?: React.RefObject<React.ComponentRef<
+    typeof ScrollView
+  > | null>;
   onRefresh: () => void;
   onLoadMore?: () => void;
   onOpenPairing: () => void;
@@ -123,6 +126,7 @@ export function FeedScreen({
   loadingMore = false,
   theme,
   scrollRef,
+  agentsScrollRef,
   onRefresh,
   onLoadMore,
   onOpenPairing,
@@ -346,6 +350,7 @@ export function FeedScreen({
             YOUR AGENTS
           </Text>
           <ScrollView
+            ref={agentsScrollRef}
             horizontal
             scrollsToTop={false}
             showsHorizontalScrollIndicator={false}

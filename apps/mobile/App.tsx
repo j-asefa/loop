@@ -202,6 +202,8 @@ function LoopShell() {
   const [appTab, setAppTab] = useState<AppTab>("feed");
   const selectedTabRef = useRef(appTab);
   const feedScrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
+  const feedAgentsScrollRef =
+    useRef<React.ComponentRef<typeof ScrollView>>(null);
   const lastFeedTapRef = useRef(0);
   useLayoutEffect(() => {
     selectedTabRef.current = appTab;
@@ -1659,15 +1661,17 @@ function LoopShell() {
 
   const selectBottomTab = (tab: AppTab) => {
     haptics.selection();
-    if (tab === "feed" && appTab === "feed") {
+    if (tab === "feed") {
       const now = Date.now();
-      if (now - lastFeedTapRef.current < 450) {
+      if (appTab === "feed" && now - lastFeedTapRef.current < 450) {
         feedScrollRef.current?.scrollTo({ y: 0, animated: true });
+        feedAgentsScrollRef.current?.scrollTo({ x: 0, animated: true });
       }
       lastFeedTapRef.current = now;
-      return;
+    } else {
+      lastFeedTapRef.current = 0;
     }
-    setAppTab(tab);
+    if (tab !== appTab) setAppTab(tab);
   };
 
   const handleOpenFile = useCallback(
@@ -1809,6 +1813,7 @@ function LoopShell() {
         loadingMore={loadingMoreFeed}
         theme={theme}
         scrollRef={feedScrollRef}
+        agentsScrollRef={feedAgentsScrollRef}
         onRefresh={() => {
           if (client) void loadWorkspace({ silent: false });
           else {
