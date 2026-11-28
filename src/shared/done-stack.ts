@@ -25,9 +25,12 @@ export type StackedCardEntry<TItem> = {
  * Collapses multiple standalone Done cards from the same (source, conversation)
  * into a single visual stack ordered by its newest card (index 0).
  * User-curated Saved Groups remain distinct unstacked rows.
+ * When unreadFirst is enabled, stacks with any unread card come first,
+ * preserving the order of stacks within each group.
  */
 export function stackDoneCards<TItem>(
   rows: readonly StackableCardRow<TItem>[],
+  { unreadFirst = false }: { unreadFirst?: boolean } = {},
 ): StackedCardEntry<TItem>[] {
   const result: StackedCardEntry<TItem>[] = [];
   const stacksByConversation = new Map<string, StackedCardEntry<TItem>>();
@@ -60,6 +63,11 @@ export function stackDoneCards<TItem>(
     result.push(entry);
   }
 
+  if (unreadFirst) {
+    result.sort(
+      (a, b) => Number(b.unreadCount > 0) - Number(a.unreadCount > 0),
+    );
+  }
   return result;
 }
 
