@@ -84,6 +84,10 @@ export function ProjectWork({ project }: { project: ProjectId }) {
   const [sourceMessageId, setSourceMessageId] = useState(incomingMessage);
   const passage = useRef<HTMLDivElement>(null);
   const bead = detail?.id === selected ? detail : undefined;
+  const canClose =
+    bead &&
+    bead.status !== "closed" &&
+    (!bead.assignment || bead.assignment.state === "started");
   const draftKey = bead
     ? JSON.stringify([
         "loop-bead-comment",
@@ -574,12 +578,12 @@ export function ProjectWork({ project }: { project: ProjectId }) {
                     </button>
                   </div>
                 )}
-              {bead.status !== "closed" && (
+              {canClose && (
                 <button disabled={busy} onClick={() => setClosing(!closing)}>
                   Close bead
                 </button>
               )}
-              {closing && (bead.status !== "closed" || closeDraft) && (
+              {closing && (canClose || closeDraft) && (
                 <form
                   onSubmit={(event) => {
                     event.preventDefault();

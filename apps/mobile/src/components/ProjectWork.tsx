@@ -640,6 +640,10 @@ function WorkDetail({
     styles.input,
     { color: theme.text, borderColor: theme.line },
   ];
+  const canClose =
+    detail &&
+    detail.status !== "closed" &&
+    (!detail.assignment || detail.assignment.state === "started");
   return (
     <ScrollView
       style={styles.flex}
@@ -870,7 +874,7 @@ function WorkDetail({
               </>
             )}
           {loaded &&
-            (detail.status !== "closed" || closeDraft) &&
+            (canClose || closeDraft) &&
             (reason === null ? (
               <WorkButton
                 theme={theme}

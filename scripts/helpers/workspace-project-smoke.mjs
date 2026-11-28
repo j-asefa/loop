@@ -192,6 +192,7 @@ export async function workspaceProjectSmoke(page, fixture, _engine, capture) {
     "Agents",
     "Activity",
     "Files",
+    "Work",
   ]);
   await expect(
     tabs.getByRole("button", { name: "Threads", exact: true }),

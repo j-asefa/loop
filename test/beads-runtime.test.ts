@@ -2,10 +2,12 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
 import {
+  copyFile,
   mkdir,
   mkdtemp,
   readFile,
   readdir,
+  rename,
   rm,
   stat,
   symlink,
@@ -71,6 +73,39 @@ it("keeps the per-store lock after exec and releases it when the worker dies", a
     expect(await waiterExit).toEqual([0, null]);
   } finally {
     for (const child of children) child.kill("SIGKILL");
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+it("refuses to execute a file replaced after its identity was verified", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "loop-beads-identity-"));
+  try {
+    const binary = join(directory, "bd");
+    const replacement = join(directory, "replacement");
+    await Promise.all([
+      copyFile("/usr/bin/true", binary),
+      copyFile("/usr/bin/false", replacement),
+    ]);
+    const { dev, ino, size, mtimeNs, ctimeNs } = await stat(binary, {
+      bigint: true,
+    });
+    const stamp = [dev, ino, size, mtimeNs, ctimeNs].join(":");
+    const command = () =>
+      spawn("python3", [lock, "--verify", stamp, binary], {
+        cwd: directory,
+        stdio: ["ignore", "ignore", "pipe"],
+      });
+    expect(await once(command(), "close")).toEqual([0, null]);
+
+    await rename(replacement, binary);
+    const child = command();
+    let error = "";
+    child.stderr!.on("data", (chunk) => {
+      error += chunk;
+    });
+    expect(await once(child, "close")).toEqual([1, null]);
+    expect(error).toBe("LOOP_BEADS_NOT_STARTED\n");
+  } finally {
     await rm(directory, { recursive: true, force: true });
   }
 });
@@ -198,6 +233,7 @@ it("repairs damaged cache entries and preserves an unexpected directory", async 
   const content = "verified candidate";
   const expected = createHash("sha256").update(content).digest("hex");
   try {
+    vi.stubEnv("LOOP_BAKED_BEADS", "");
     await mkdir(cache, { recursive: true });
     await writeFile(destination, "unreadable helper", { mode: 0 });
     await writeFile(candidate, content, { mode: 0o700 });
@@ -251,6 +287,41 @@ it("repairs damaged cache entries and preserves an unexpected directory", async 
     ).toBe("keep this");
   } finally {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+it("publishes a verified replacement when permissions make a valid inode unusable", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "loop-beads-owner-mode-"));
+  try {
+    const content = "verified candidate";
+    const expected = createHash("sha256").update(content).digest("hex");
+    const destination = join(directory, "bd");
+    const candidate = join(directory, "candidate");
+    await writeFile(destination, content, { mode: 0o744 });
+    await writeFile(candidate, content, { mode: 0o700 });
+    const replacement = (await stat(candidate)).ino;
+    // Model the OS refusing X_OK despite the cached file's owner execute bit.
+    // Both verification and publication operate on real files.
+    const publication = [
+      "import runpy, sys",
+      "from unittest.mock import patch",
+      "publish = runpy.run_path(sys.argv[1])['publish']",
+      "with patch('os.access', return_value=False):",
+      "    publish(*sys.argv[2:])",
+    ].join("\n");
+    const child = spawn(
+      "python3",
+      ["-I", "-c", publication, lock, candidate, destination, expected],
+      {
+        cwd: directory,
+        stdio: "ignore",
+      },
+    );
+    expect(await once(child, "close")).toEqual([0, null]);
+    expect((await stat(destination)).ino).toBe(replacement);
+  } finally {
     await rm(directory, { recursive: true, force: true });
   }
 });

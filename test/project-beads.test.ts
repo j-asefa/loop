@@ -6,6 +6,7 @@ import { afterAll, expect, it, vi } from "vitest";
 import { testDirectory } from "./helpers/test-workspace.js";
 import {
   BeadsNotStarted,
+  BeadsPreconditionFailed,
   BeadsStore,
   BeadsUnavailable,
   BeadsWriteUnknown,
@@ -484,6 +485,16 @@ it.skipIf(!realBeads)(
       },
     );
     expect(claim("beads-fixture")).toBeUndefined();
+    expect(
+      (
+        await request(route + "/" + recovery + "/close", "POST", {
+          storeId,
+          requestId: randomUUID(),
+          generation,
+          reason: "Pending claim",
+        })
+      ).status,
+    ).toBe(409);
     const resumed = await request(resume, "POST", {
       storeId,
       generation,
@@ -667,10 +678,28 @@ it.skipIf(!realBeads)(
             status: "open",
             assignee: null,
             marker,
+            release: null,
           },
         },
       ),
     ).rejects.toBeInstanceOf(BeadsNotStarted);
+    await store.write([
+      "update",
+      interruptedClose,
+      "--set-metadata",
+      "loop_release=" + randomUUID(),
+    ]);
+    await expect(
+      store.write(["close", interruptedClose, "--reason", "Stale close"], {
+        current: {
+          id: interruptedClose,
+          status: "open",
+          assignee: null,
+          marker: randomUUID(),
+          release: null,
+        },
+      }),
+    ).rejects.toBeInstanceOf(BeadsPreconditionFailed);
     expect(
       (
         await request(interruptedCloseRoute, "POST", {
@@ -735,4 +764,85 @@ it.skipIf(!realBeads)(
     }
   },
   100_000,
+);
+
+it.skipIf(!realBeads)(
+  "fences interrupted creates, comments and dependencies before allowing a new attempt",
+  async () => {
+    const project = await createProject("Fenced writes");
+    const route = "/projects/" + project + "/work";
+    const { storeId } = (await request(route, "PUT", {})).body;
+    const create = async (title: string) =>
+      (
+        await request(route, "POST", {
+          storeId,
+          requestId: randomUUID(),
+          title,
+        })
+      ).body.beadId as string;
+    const target = await create("Target");
+    const blocker = await create("Blocker");
+    const newBead = "loop-" + randomUUID().replaceAll("-", "");
+    const writes = [
+      {
+        operation: "create",
+        path: route,
+        bead: newBead,
+        input: { title: "Interrupted create", description: "" },
+        args: ["create", "--id", newBead, "--title", "Interrupted create"],
+      },
+      {
+        operation: "comment",
+        path: route + "/" + target + "/comments",
+        bead: target,
+        input: { text: "Interrupted comment" },
+        args: ["comments", "add", target, "--", "Interrupted comment"],
+      },
+      {
+        operation: "dependency",
+        path: route + "/" + target + "/dependencies",
+        bead: target,
+        input: { blocker },
+        args: ["dep", "add", target, blocker, "--type", "blocks"],
+      },
+    ] as const;
+    const receipts = await import("../src/server/sql/bead-write-receipts.js");
+    const { requestHash } = await import("../src/server/request-receipts.js");
+    const store = new BeadsStore(data, {
+      ownerId: owner,
+      profile: "companion",
+      projectId: project,
+    });
+    for (const { operation, path, bead, input: fields, args } of writes) {
+      const requestId = randomUUID();
+      const input = { storeId, requestId, ...fields };
+      const marker = randomUUID();
+      receipts.reserve(db, {
+        owner_id: owner,
+        store_id: storeId,
+        request_id: requestId,
+        operation,
+        request_hash: requestHash({
+          operation,
+          input,
+          target: operation === "create" ? null : bead,
+        }),
+        bead_id: bead,
+        correlation_id: marker,
+        source_result_id: null,
+      });
+      expect((await request(path, "POST", input)).body).toEqual({
+        status: "refused",
+        beadId: bead,
+      });
+      expect(receipts.byRequest(db, owner, requestId)).toBeUndefined();
+      await expect(
+        store.write(args, { attempt: marker }),
+      ).rejects.toBeInstanceOf(BeadsNotStarted);
+      expect((await request(path, "POST", input)).body.status).toBe(
+        "committed",
+      );
+    }
+  },
+  45_000,
 );

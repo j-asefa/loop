@@ -200,10 +200,7 @@ async function mutate(
   sourceResultId: string | null,
   perform: (marker: string) => Promise<boolean>,
   reconcile: (storedBead: string, marker: string) => Promise<boolean>,
-  recover?: (
-    storedBead: string,
-    marker: string,
-  ) => Promise<"committed" | "refused">,
+  blocker?: string,
 ): Promise<BeadStatus> {
   const hash = requestHash({
     operation,
@@ -221,17 +218,18 @@ async function mutate(
   });
   const prior = receiptsQueries.byRequest(db, owner, input.requestId);
   if (prior?.request_hash === hash && prior.completed_at === null) {
-    // Recovery either observes the reserved external identity or fences an
-    // unsent close under the same store lock. It never repeats the write.
-    const status = recover
-      ? await recover(prior.bead_id, prior.correlation_id).catch(
-          () => "unknown" as const,
-        )
-      : (await reconcile(prior.bead_id, prior.correlation_id).catch(
-            () => false,
-          ))
-        ? "committed"
-        : "unknown";
+    // Observe the reserved external identity or fence the old launcher under
+    // the same store lock. A failed observation leaves the receipt pending.
+    const result = await store
+      .settleWrite({
+        operation,
+        bead: prior.bead_id,
+        marker: prior.correlation_id,
+        blocker,
+      })
+      .catch(() => undefined);
+    const status =
+      result === "committed" || result === "refused" ? result : "unknown";
     if (status === "committed")
       receiptsQueries.finish(
         db,
@@ -332,17 +330,20 @@ export function createProjectBead(
     "create",
     beadId,
     source ?? null,
-    async () =>
+    async (attempt) =>
       nativeIssue.parse(
-        await store.write([
-          "create",
-          "--id",
-          beadId,
-          "--title",
-          body.title,
-          "--description",
-          body.description,
-        ]),
+        await store.write(
+          [
+            "create",
+            "--id",
+            beadId,
+            "--title",
+            body.title,
+            "--description",
+            body.description,
+          ],
+          { attempt },
+        ),
       ).id === beadId,
     async (id) => (await issue(store, id)).id === id,
   );
@@ -379,15 +380,10 @@ export async function commentOnBead(
     async (marker) => {
       const annotated = text + "\n\n<!-- loop-comment:" + marker + " -->";
       const written = nativeComment.parse(
-        await store.write([
-          "comments",
-          "add",
-          bead,
-          "--author",
-          author,
-          "--",
-          annotated,
-        ]),
+        await store.write(
+          ["comments", "add", bead, "--author", author, "--", annotated],
+          { attempt: marker },
+        ),
       );
       return written.text.match(commentMarker)?.[1] === marker;
     },
@@ -439,13 +435,17 @@ export async function linkBeadDependency(
     "dependency",
     bead,
     null,
-    async () => {
+    async (attempt) => {
       if (alreadyLinked === undefined) throw new BeadsPreconditionFailed();
       if (alreadyLinked) return true;
-      await store.write(["dep", "add", bead, body.blocker, "--type", "blocks"]);
+      await store.write(
+        ["dep", "add", bead, body.blocker, "--type", "blocks"],
+        { attempt },
+      );
       return false;
     },
     dependencyStored,
+    body.blocker,
   );
 }
 
@@ -461,6 +461,11 @@ export async function closeProjectBead(
   const previous = receiptsQueries.byRequest(db, owner, body.requestId);
   if (!previous && (active?.generation ?? null) !== body.generation)
     throw new Problem(409, "The assignment changed. Reopen the bead.");
+  if (!previous && active && active.state !== "started" && !assignedRun)
+    throw new Problem(
+      409,
+      "Resolve or release the pending assignment before closing this bead.",
+    );
   if (
     assignedRun &&
     (active?.run_id !== assignedRun || active.state !== "started")
@@ -487,9 +492,7 @@ export async function closeProjectBead(
       const assignment = assignmentsQueries.active(db, owner, store.id, bead);
       if (
         (assignment?.generation ?? null) !== body.generation ||
-        (assignment &&
-          assignment.state !== "started" &&
-          assignment.state !== "claimed")
+        (assignment && assignment.state !== "started")
       )
         throw new BeadsPreconditionFailed();
       if (
@@ -512,16 +515,13 @@ export async function closeProjectBead(
             status: current.status,
             assignee: current.assignee || null,
             marker,
+            release: current.metadata?.loop_release ?? null,
           },
         },
       );
       return false;
     },
     recorded,
-    async (id, marker) =>
-      z
-        .enum(["committed", "refused"])
-        .parse(await store.settleClose(id, marker)),
   );
 }
 
