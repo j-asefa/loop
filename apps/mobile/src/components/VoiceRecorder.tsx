@@ -237,8 +237,10 @@ export function VoiceRecorderButton({
     if (!startRequest || handledStartRequestRef.current === startRequest)
       return;
     handledStartRequestRef.current = startRequest;
+    // Settle on every outcome, including an unmount mid-start, so the
+    // parent never keeps a stale request that a later mount would replay.
     void startRecording().finally(() => {
-      if (mountedRef.current) onStartRequestSettledRef.current?.();
+      onStartRequestSettledRef.current?.();
     });
   }, [startRequest, startRecording]);
 

@@ -3898,9 +3898,11 @@ describe("reply composer controls", () => {
       "utf8",
     );
     expect(recorder).toMatch(
-      /handledStartRequestRef\.current === startRequest\)\s*return;\s*handledStartRequestRef\.current = startRequest;\s*void startRecording\(\)\.finally\(/,
+      /handledStartRequestRef\.current === startRequest\)\s*return;\s*handledStartRequestRef\.current = startRequest;[\s\S]*?void startRecording\(\)\.finally\(/,
     );
-    expect(recorder).toContain("onStartRequestSettledRef.current?.()");
+    expect(recorder).toMatch(
+      /void startRecording\(\)\.finally\(\(\) => \{\s*onStartRequestSettledRef\.current\?\.\(\);\s*\}\);/,
+    );
   });
 
   it("holds the carousel on the current card while a composer sheet is open", () => {
