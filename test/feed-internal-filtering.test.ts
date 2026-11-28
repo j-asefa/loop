@@ -594,6 +594,15 @@ it("hides agent-to-agent mail from Done, All, Queued, Outcomes and unread while 
     }),
     created_at: now(),
   });
+
+  // While the internal mail reply is still queued, the owner's conversation
+  // must stay in Outcomes and display the owner's completed turn, not the queued mail run.
+  const humanWhileQueued = feed(owner, { filter: "outcomes" }).items.find(
+    (item) => item.conversation_id === humanConv,
+  );
+  expect(humanWhileQueued?.run?.id).toBe(humanRun);
+  expect(humanWhileQueued?.last_message?.content).toBe("Done coordinating.");
+
   finishTurn(owner, mailReplyRun, humanConv, "Noted helper result.");
 
   // Human conversation stays visible in All & Outcomes showing the owner's turn
@@ -1405,8 +1414,8 @@ it("keeps multi-hop mail-parented review continuations hidden even after the own
     state: "running",
     idempotency_key: ownerJoinRun,
     payload: JSON.stringify({ connectionId }),
-    created_at: now() + 50,
-    updated_at: now() + 50,
+    created_at: now(),
+    updated_at: now(),
   });
   seedMessage(db, {
     id: id(),
@@ -1416,11 +1425,11 @@ it("keeps multi-hop mail-parented review continuations hidden even after the own
     role: "user",
     content: "Give me the final summary",
     metadata: writeMessageMetadata({ personal: true }),
-    created_at: now() + 50,
+    created_at: now(),
   });
   finishTurn(owner, ownerJoinRun, mailConv, "Owner-requested final summary.");
 
-  // Only the owner's turn appears in Done and done_unread; rc2 stays hidden
+  // Only the owner's turn appears in Done, done_unread, All, and Outcomes; rc2 stays hidden
   const doneInMailConv = listDoneCards(owner).filter(
     (entry) => entry.card.source.conversation_id === mailConv,
   );
@@ -1428,6 +1437,41 @@ it("keeps multi-hop mail-parented review continuations hidden even after the own
     "Owner-requested final summary.",
   ]);
   expect(feed(owner, { filter: "done" }).summary.done_unread).toBe(1);
+
+  // Even if another mail-origin continuation later completes in this mixed thread,
+  // All and Outcomes must still display the owner's turn rather than the mail continuation.
+  const req3 = requestReview(ownedRun(rc2.run_id, owner), "mh-rev-3", {
+    teamId: reviewTeam.id,
+    scope: "uncommitted",
+    base: "main",
+    depth: "auto",
+    wait: false,
+  });
+  const rev3 = (req3 as { report: { reviewId: string } }).report.reviewId;
+  const rc3 = db
+    .prepare(
+      "SELECT rc.run_id, cr.run_id lead_run_id FROM review_continuations rc JOIN code_reviews cr ON cr.id=rc.review_id WHERE rc.review_id=?",
+    )
+    .get(rev3) as { run_id: string; lead_run_id: string };
+  db.prepare(
+    "UPDATE runs SET state='completed', result='Clean round 3' WHERE id=?",
+  ).run(rc3.lead_run_id);
+  finishTurn(owner, rc3.run_id, mailConv, "Round 3 mail-origin review clean.");
+
+  const mixedAll = feed(owner, { filter: "all" }).items.find(
+    (item) => item.conversation_id === mailConv,
+  );
+  expect(mixedAll?.run?.id).toBe(ownerJoinRun);
+  expect(mixedAll?.last_message?.content).toBe(
+    "Owner-requested final summary.",
+  );
+  const mixedOutcomes = feed(owner, { filter: "outcomes" }).items.find(
+    (item) => item.conversation_id === mailConv,
+  );
+  expect(mixedOutcomes?.run?.id).toBe(ownerJoinRun);
+  expect(mixedOutcomes?.last_message?.content).toBe(
+    "Owner-requested final summary.",
+  );
 });
 
 it("excludes hidden internal mail and internal queued runs from category search", async () => {

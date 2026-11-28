@@ -13,6 +13,25 @@ import type { FeedRow } from "./feed-card-display.js";
 const INTERNAL_MAIL_RUN_SQL = (r: string) =>
   `(json_extract(${r}.payload,'$.mailId') IS NOT NULL OR EXISTS(SELECT 1 FROM agent_mail m WHERE m.owner_id=${r}.owner_id AND ((m.run_id=${r}.id AND m.steering_id IS NULL) OR m.requeued_run_id=${r}.id)))`;
 
+const MAIL_ORIGIN_CONTINUATION_SQL = (runIdExpr: string) => `EXISTS(
+  WITH RECURSIVE ancestor(run_id, depth) AS (
+    SELECT rc.parent_run_id, 1
+    FROM review_continuations rc
+    WHERE rc.owner_id=@owner AND rc.run_id=${runIdExpr}
+    UNION ALL
+    SELECT rc.parent_run_id, a.depth+1
+    FROM ancestor a
+    JOIN review_continuations rc ON rc.owner_id=@owner AND rc.run_id=a.run_id
+    WHERE a.depth<32
+  )
+  SELECT 1 FROM ancestor a
+  JOIN runs pr ON pr.id=a.run_id AND pr.owner_id=@owner
+  WHERE ${INTERNAL_MAIL_RUN_SQL("pr")}
+)`;
+
+const HIDDEN_COMPLETED_RUN_SQL = (r: string) =>
+  `(${INTERNAL_MAIL_RUN_SQL(r)} OR ${MAIL_ORIGIN_CONTINUATION_SQL(`${r}.id`)})`;
+
 // These are write-side source reads, always limited to a single affected
 // conversation. The permanent test oracle derives state from raw history
 // independently of these source reads and never consults feed_cards.
@@ -22,13 +41,14 @@ const stateSql = `state_base AS MATERIALIZED (
     AND r.state IN ('running','pausing','paused','awaiting_approval') ORDER BY +r.created_at DESC,r.rowid DESC LIMIT 1),
     (SELECT r.id FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id
       AND NOT (r.state='cancelled' AND EXISTS(SELECT 1 FROM review_continuations rc WHERE rc.owner_id=r.owner_id AND rc.run_id=r.id))
-      AND NOT (r.state='completed' AND ${INTERNAL_MAIL_RUN_SQL("r")})
+      AND NOT (r.state='queued' AND ${INTERNAL_QUEUED_RUN_SQL("r")})
+      AND NOT (r.state='completed' AND ${HIDDEN_COMPLETED_RUN_SQL("r")})
       ORDER BY r.created_at DESC,r.rowid DESC LIMIT 1),
     (SELECT r.id FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id ORDER BY r.created_at DESC,r.rowid DESC LIMIT 1)) feed_run_id,
   (SELECT count(*) FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id AND r.state='queued' AND NOT ${INTERNAL_QUEUED_RUN_SQL("r")}) feed_queued,
-  COALESCE((SELECT r.id FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id AND r.state='completed' AND NOT ${INTERNAL_MAIL_RUN_SQL("r")} ORDER BY r.updated_at DESC,r.rowid DESC LIMIT 1),
+  COALESCE((SELECT r.id FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id AND r.state='completed' AND NOT ${HIDDEN_COMPLETED_RUN_SQL("r")} ORDER BY r.updated_at DESC,r.rowid DESC LIMIT 1),
     (SELECT r.id FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id AND r.state='completed' ORDER BY r.updated_at DESC,r.rowid DESC LIMIT 1)) feed_done_run_id,
-  COALESCE((SELECT r.updated_at FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id AND r.state='completed' AND NOT ${INTERNAL_MAIL_RUN_SQL("r")} ORDER BY r.updated_at DESC,r.rowid DESC LIMIT 1),
+  COALESCE((SELECT r.updated_at FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id AND r.state='completed' AND NOT ${HIDDEN_COMPLETED_RUN_SQL("r")} ORDER BY r.updated_at DESC,r.rowid DESC LIMIT 1),
     (SELECT r.updated_at FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id AND r.state='completed' ORDER BY r.updated_at DESC,r.rowid DESC LIMIT 1)) feed_done_at,
   max(c.created_at,COALESCE((SELECT max(m.created_at) FROM messages m WHERE m.owner_id=c.owner_id AND m.conversation_id=c.id),0),
     COALESCE((SELECT max(r.updated_at) FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id),0)) feed_last_activity_at,
@@ -77,21 +97,7 @@ const INTERNAL_SEALED_RESULT_SQL = (
 ) => `(
   ${internalThreadExpr}=1
   OR COALESCE(json_extract(${resAlias}.stimulus,'$.automationKind'),'') IN ${MAIL_AUTOMATION_KINDS_SQL}
-  OR (${resAlias}.run_id IS NOT NULL AND EXISTS(
-    WITH RECURSIVE ancestor(run_id, depth) AS (
-      SELECT rc.parent_run_id, 1
-      FROM review_continuations rc
-      WHERE rc.owner_id=@owner AND rc.run_id=${resAlias}.run_id
-      UNION ALL
-      SELECT rc.parent_run_id, a.depth+1
-      FROM ancestor a
-      JOIN review_continuations rc ON rc.owner_id=@owner AND rc.run_id=a.run_id
-      WHERE a.depth<32
-    )
-    SELECT 1 FROM ancestor a
-    JOIN runs pr ON pr.id=a.run_id AND pr.owner_id=@owner
-    WHERE ${INTERNAL_MAIL_RUN_SQL("pr")}
-  ))
+  OR (${resAlias}.run_id IS NOT NULL AND ${MAIL_ORIGIN_CONTINUATION_SQL(`${resAlias}.run_id`)})
   OR (${resAlias}.run_id IS NOT NULL AND EXISTS(
     SELECT 1 FROM review_continuations rc
     JOIN runs next_run ON next_run.id=rc.run_id AND next_run.owner_id=rc.owner_id
@@ -145,7 +151,7 @@ picked AS MATERIALIZED (
         LEFT JOIN runs mr ON mr.id=m.run_id AND mr.owner_id=m.owner_id
         WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id
           AND k.expanded_done=0
-          AND NOT COALESCE(mr.state='completed' AND ${INTERNAL_MAIL_RUN_SQL("mr")},0)
+          AND NOT COALESCE((mr.state='queued' AND ${INTERNAL_QUEUED_RUN_SQL("mr")}) OR (mr.state='completed' AND ${HIDDEN_COMPLETED_RUN_SQL("mr")}),0)
         ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1),
       (SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id
         AND k.expanded_done=0
