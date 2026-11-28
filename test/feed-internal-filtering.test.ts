@@ -40,6 +40,7 @@ const { threadDetails } = await import("../src/server/feed-card-details");
 const { listAgentThreads } = await import("../src/server/agent-thread-feed");
 const { projectFeed } = await import("../src/server/feed-projector");
 const { sendMail } = await import("../src/server/agent-mail");
+const { search } = await import("../src/server/search");
 
 const listDoneCards = (
   owner: string,
@@ -134,8 +135,9 @@ function finishTurn(
   db.prepare(
     "UPDATE runs SET state='running', worker_id='fixture-worker' WHERE id=? AND owner_id=?",
   ).run(runId, owner);
+  const assistantMsgId = id();
   seedMessage(db, {
-    id: id(),
+    id: assistantMsgId,
     owner_id: owner,
     conversation_id: conversationId,
     run_id: runId,
@@ -150,6 +152,7 @@ function finishTurn(
     owner,
   );
   transition({ id: runId, owner_id: owner }, "completed");
+  return assistantMsgId;
 }
 
 it("auto-cancels pending review continuations when loop_review_status returns a finished review", () => {
@@ -1221,4 +1224,331 @@ it("keeps an owner-started code review lead visible in Queued while hiding its d
     started.conversationId,
   ]);
   expect(queued.summary.queued).toBe(1);
+});
+
+it("keeps multi-hop mail-parented review continuations hidden even after the owner joins the conversation", () => {
+  const owner = "mail-multihop-rev-" + id().slice(0, 6);
+  const { connectionId, builder, helper, folder, reviewTeam } =
+    setupWorkspace(owner);
+  const humanConv = id();
+  seedConversation(db, {
+    id: humanConv,
+    owner_id: owner,
+    agent_id: builder.id,
+    title: "Builder root",
+    project_id: folder.id,
+    created_at: now(),
+  });
+  const humanRun = id();
+  seedRun(db, {
+    id: humanRun,
+    owner_id: owner,
+    agent_id: builder.id,
+    conversation_id: humanConv,
+    input: "Ask helper to run multi-round review",
+    state: "running",
+    idempotency_key: humanRun,
+    payload: JSON.stringify({ connectionId, folderId: folder.id }),
+    created_at: now(),
+    updated_at: now(),
+  });
+  seedMessage(db, {
+    id: id(),
+    owner_id: owner,
+    conversation_id: humanConv,
+    run_id: humanRun,
+    role: "user",
+    content: "Ask helper to run multi-round review",
+    metadata: writeMessageMetadata({ personal: true }),
+    created_at: now(),
+  });
+
+  const sent = sendMail(ownedRun(humanRun, owner), "multihop-mail-call", {
+    to: helper.id,
+    body: "Run multi-round review",
+    interrupt: false,
+    fileIds: [],
+  });
+  const mailRow = db
+    .prepare(
+      "SELECT run_id, recipient_conversation_id FROM agent_mail WHERE owner_id=? AND id=?",
+    )
+    .get(owner, sent.messageId) as {
+    run_id: string;
+    recipient_conversation_id: string;
+  };
+  const mailConv = mailRow.recipient_conversation_id;
+  const mailRun = mailRow.run_id;
+
+  db.prepare(
+    "UPDATE runs SET state='running', payload=? WHERE id=? AND owner_id=?",
+  ).run(
+    JSON.stringify({
+      agentId: helper.id,
+      name: helper.name,
+      provider: "openai",
+      model: "fixture",
+      instructions: "",
+      connectionId,
+      folderId: folder.id,
+      mailId: sent.messageId,
+    }),
+    mailRun,
+    owner,
+  );
+
+  // Round 1 review requested from mailRun -> rc1
+  const req1 = requestReview(ownedRun(mailRun, owner), "mh-rev-1", {
+    teamId: reviewTeam.id,
+    scope: "uncommitted",
+    base: "main",
+    depth: "auto",
+    wait: false,
+  });
+  const rev1 = (req1 as { report: { reviewId: string } }).report.reviewId;
+  const rc1 = db
+    .prepare(
+      "SELECT rc.run_id, cr.run_id lead_run_id FROM review_continuations rc JOIN code_reviews cr ON cr.id=rc.review_id WHERE rc.review_id=?",
+    )
+    .get(rev1) as { run_id: string; lead_run_id: string };
+  finishTurn(owner, mailRun, mailConv, "Mail turn requested review 1.");
+
+  // Round 2 review requested from rc1 -> rc2 (2 hops from mailRun, no mailId on rc1/rc2 payload)
+  db.prepare(
+    "UPDATE runs SET state='completed', result='Round 1 findings' WHERE id=?",
+  ).run(rc1.lead_run_id);
+  db.prepare("UPDATE runs SET state='running' WHERE id=?").run(rc1.run_id);
+  const req2 = requestReview(ownedRun(rc1.run_id, owner), "mh-rev-2", {
+    teamId: reviewTeam.id,
+    scope: "uncommitted",
+    base: "main",
+    depth: "auto",
+    wait: false,
+  });
+  const rev2 = (req2 as { report: { reviewId: string } }).report.reviewId;
+  const rc2 = db
+    .prepare(
+      "SELECT rc.run_id, cr.run_id lead_run_id FROM review_continuations rc JOIN code_reviews cr ON cr.id=rc.review_id WHERE rc.review_id=?",
+    )
+    .get(rev2) as { run_id: string; lead_run_id: string };
+  finishTurn(owner, rc1.run_id, mailConv, "Round 1 fixed, requested review 2.");
+
+  db.prepare(
+    "UPDATE runs SET state='completed', result='Clean round 2' WHERE id=?",
+  ).run(rc2.lead_run_id);
+  finishTurn(owner, rc2.run_id, mailConv, "Round 2 mail-origin review clean.");
+
+  // Owner later joins mailConv, flipping internal_thread to 0
+  const ownerJoinRun = id();
+  seedRun(db, {
+    id: ownerJoinRun,
+    owner_id: owner,
+    agent_id: helper.id,
+    conversation_id: mailConv,
+    input: "Give me the final summary",
+    state: "running",
+    idempotency_key: ownerJoinRun,
+    payload: JSON.stringify({ connectionId }),
+    created_at: now() + 50,
+    updated_at: now() + 50,
+  });
+  seedMessage(db, {
+    id: id(),
+    owner_id: owner,
+    conversation_id: mailConv,
+    run_id: ownerJoinRun,
+    role: "user",
+    content: "Give me the final summary",
+    metadata: writeMessageMetadata({ personal: true }),
+    created_at: now() + 50,
+  });
+  finishTurn(owner, ownerJoinRun, mailConv, "Owner-requested final summary.");
+
+  // Only the owner's turn appears in Done and done_unread; rc2 stays hidden
+  const doneInMailConv = listDoneCards(owner).filter(
+    (entry) => entry.card.source.conversation_id === mailConv,
+  );
+  expect(doneInMailConv.map((entry) => entry.card.content)).toEqual([
+    "Owner-requested final summary.",
+  ]);
+  expect(feed(owner, { filter: "done" }).summary.done_unread).toBe(1);
+});
+
+it("excludes hidden internal mail and internal queued runs from category search", async () => {
+  const owner = "search-hide-internal-" + id().slice(0, 6);
+  const { connectionId, builder, helper, folder, reviewTeam, runPayload } =
+    setupWorkspace(owner);
+  const needle = "internalfilterneedle" + id().slice(0, 6);
+
+  // 1. Human conversation with an owner turn, an internal agent_result turn,
+  //    a real owner queued follow-up, and a queued review continuation
+  const humanConv = id();
+  seedConversation(db, {
+    id: humanConv,
+    owner_id: owner,
+    agent_id: builder.id,
+    title: "Human search thread",
+    project_id: folder.id,
+    created_at: now(),
+  });
+  const ownerRun = id();
+  seedRun(db, {
+    id: ownerRun,
+    owner_id: owner,
+    agent_id: builder.id,
+    conversation_id: humanConv,
+    input: `${needle} owner prompt`,
+    state: "running",
+    idempotency_key: ownerRun,
+    payload: runPayload(folder.id),
+    created_at: now(),
+    updated_at: now(),
+  });
+  const ownerPromptMsgId = id();
+  seedMessage(db, {
+    id: ownerPromptMsgId,
+    owner_id: owner,
+    conversation_id: humanConv,
+    run_id: ownerRun,
+    role: "user",
+    content: `${needle} owner prompt`,
+    metadata: writeMessageMetadata({ personal: true }),
+    created_at: now(),
+  });
+  const req = requestReview(ownedRun(ownerRun, owner), "search-rev-1", {
+    teamId: reviewTeam.id,
+    scope: "uncommitted",
+    base: "main",
+    depth: "auto",
+    wait: false,
+  });
+  const revId = (req as { report: { reviewId: string } }).report.reviewId;
+  const rc = db
+    .prepare("SELECT run_id FROM review_continuations WHERE review_id=?")
+    .get(revId) as { run_id: string };
+  // Give the queued review continuation a searchable prompt containing the needle
+  db.prepare(
+    "UPDATE messages SET content=? WHERE owner_id=? AND run_id=? AND role='user'",
+  ).run(`${needle} queued review continuation`, owner, rc.run_id);
+
+  // Send pure agent-to-agent mail to helper with the needle
+  const sent = sendMail(ownedRun(ownerRun, owner), "search-mail-1", {
+    to: helper.id,
+    body: `${needle} pure mail body`,
+    interrupt: false,
+    fileIds: [],
+  });
+  const mailRow = db
+    .prepare(
+      "SELECT id, run_id, recipient_conversation_id FROM agent_mail WHERE owner_id=? AND id=?",
+    )
+    .get(owner, sent.messageId) as {
+    id: string;
+    run_id: string;
+    recipient_conversation_id: string;
+  };
+  const pureMailAnswerId = finishTurn(
+    owner,
+    mailRow.run_id,
+    mailRow.recipient_conversation_id,
+    `${needle} pure mail answer`,
+  );
+  const ownerAnswerId = finishTurn(
+    owner,
+    ownerRun,
+    humanConv,
+    `${needle} owner answer`,
+  );
+
+  // Internal agent_result turn inside the human conversation
+  const mailReplyRun = id();
+  seedRun(db, {
+    id: mailReplyRun,
+    owner_id: owner,
+    agent_id: builder.id,
+    conversation_id: humanConv,
+    input: `${needle} internal mail reply`,
+    state: "queued",
+    idempotency_key: mailReplyRun,
+    payload: JSON.stringify({ connectionId, mailId: mailRow.id }),
+    created_at: now() + 10,
+    updated_at: now() + 10,
+  });
+  seedMessage(db, {
+    id: id(),
+    owner_id: owner,
+    conversation_id: humanConv,
+    run_id: mailReplyRun,
+    role: "user",
+    content: `${needle} internal mail reply`,
+    metadata: writeMessageMetadata({
+      personal: false,
+      automation: {
+        kind: "agent_result",
+        mailId: mailRow.id,
+        threadId: "th-search",
+        fromAgentId: helper.id,
+        fromName: helper.name,
+      },
+    }),
+    created_at: now() + 10,
+  });
+  const hiddenMailAnswerId = finishTurn(
+    owner,
+    mailReplyRun,
+    humanConv,
+    `${needle} hidden mail answer`,
+  );
+
+  // Owner also queues a direct follow-up in humanConv alongside the queued review continuation
+  const ownerQueuedRun = id();
+  seedRun(db, {
+    id: ownerQueuedRun,
+    owner_id: owner,
+    agent_id: builder.id,
+    conversation_id: humanConv,
+    input: `${needle} owner queued followup`,
+    state: "queued",
+    idempotency_key: ownerQueuedRun,
+    payload: runPayload(folder.id),
+    created_at: now() + 20,
+    updated_at: now() + 20,
+  });
+  const ownerQueuedMsgId = id();
+  seedMessage(db, {
+    id: ownerQueuedMsgId,
+    owner_id: owner,
+    conversation_id: humanConv,
+    run_id: ownerQueuedRun,
+    role: "user",
+    content: `${needle} owner queued followup`,
+    metadata: writeMessageMetadata({ personal: true }),
+    created_at: now() + 20,
+  });
+
+  // Trigger projection before querying search
+  db.transaction(() => {
+    projectFeed(db, () => {});
+  }).immediate();
+
+  const threadsHits = await search(owner, needle, { category: "threads" });
+  expect(
+    threadsHits.items.every(
+      (item) => item.conversation_id !== mailRow.recipient_conversation_id,
+    ),
+  ).toBe(true);
+  expect(
+    threadsHits.items.some((item) => item.conversation_id === humanConv),
+  ).toBe(true);
+
+  const doneHits = await search(owner, needle, { category: "done" });
+  const doneMsgIds = doneHits.items.map((item) => item.message_id).sort();
+  expect(doneMsgIds).toEqual([ownerPromptMsgId, ownerAnswerId].sort());
+  expect(doneMsgIds).not.toContain(pureMailAnswerId);
+  expect(doneMsgIds).not.toContain(hiddenMailAnswerId);
+
+  const queuedHits = await search(owner, needle, { category: "queued" });
+  expect(queuedHits.items.map((item) => item.message_id)).toEqual([
+    ownerQueuedMsgId,
+  ]);
 });
