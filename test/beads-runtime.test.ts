@@ -153,7 +153,7 @@ it("keeps the first verified binary when independent installers publish together
   }
 });
 
-it("replaces an unreadable helper or a FIFO without opening it for a blocking read", async () => {
+it("repairs damaged cache entries and preserves an unexpected directory", async () => {
   const directory = await mkdtemp(join(tmpdir(), "loop-beads-damaged-cache-"));
   const cache = join(directory, "beads-runtime", beadsRelease);
   const destination = join(cache, "bd");
@@ -192,6 +192,20 @@ it("replaces an unreadable helper or a FIFO without opening it for a blocking re
     await writeFile(candidate, content, { mode: 0o700 });
     expect(await publish()).toEqual([0, null]);
     expect(await readFile(destination, "utf8")).toBe(content);
+
+    await rm(destination);
+    await mkdir(destination);
+    await writeFile(join(destination, "existing.txt"), "keep this");
+    await writeFile(candidate, content, { mode: 0o700 });
+    expect(await publish()).toEqual([0, null]);
+    expect(await readFile(destination, "utf8")).toBe(content);
+    const rejected = (await readdir(cache)).find((name) =>
+      name.startsWith(".rejected-bd-"),
+    );
+    expect(rejected).toBeDefined();
+    expect(
+      await readFile(join(cache, rejected!, "bd", "existing.txt"), "utf8"),
+    ).toBe("keep this");
   } finally {
     vi.unstubAllGlobals();
     await rm(directory, { recursive: true, force: true });

@@ -4,6 +4,7 @@ import hashlib
 import os
 import stat
 import sys
+import tempfile
 import time
 
 
@@ -45,6 +46,11 @@ def publish(source, destination, expected):
         if not os.stat(destination).st_mode & 0o100:
             os.chmod(destination, 0o700)
     elif source:
+        if os.path.isdir(destination) and not os.path.islink(destination):
+            # Preserve unexpected directory contents. A file cannot replace a
+            # directory, so move it aside under the same publication lock.
+            rejected = tempfile.mkdtemp(prefix=".rejected-bd-", dir=os.path.dirname(destination))
+            os.rename(destination, os.path.join(rejected, "bd"))
         os.replace(source, destination)
     else:
         sys.exit("LOOP_BEADS_NOT_STARTED")
@@ -62,7 +68,7 @@ def run():
             "BEADS_DIR": os.path.join(os.getcwd(), ".beads"),
             "GIT_CONFIG_NOSYSTEM": "1",
             "GIT_CONFIG_GLOBAL": "/dev/null",
-        "GIT_CEILING_DIRECTORIES": os.path.dirname(os.getcwd()),
+            "GIT_CEILING_DIRECTORIES": os.path.dirname(os.getcwd()),
             "GIT_CONFIG_COUNT": "1",
             "GIT_CONFIG_KEY_0": "core.hooksPath",
             "GIT_CONFIG_VALUE_0": "/dev/null",
