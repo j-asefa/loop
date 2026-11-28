@@ -1377,12 +1377,10 @@ it("durably queues one review follow-up outside teams, waits for both turns and 
     feed("alice", { filter: "queued" }).items.some(
       (item) => item.conversation_id === parent.conversation_id,
     ),
-  ).toBe(true);
+  ).toBe(false);
   expect(
     threadDetails(db, "alice", parent.conversation_id!).queued_runs,
-  ).toContainEqual(
-    expect.objectContaining({ id: record.run_id, can_edit: false }),
-  );
+  ).not.toContainEqual(expect.objectContaining({ id: record.run_id }));
   const { editQueuedRun } =
     await import("../src/server/mobile-return/queued-runs");
   expect(() =>

@@ -33,7 +33,7 @@ import type { ReviewSnapshot } from "./review-snapshot.js";
 import { inheritEffect } from "./effect-authority.js";
 
 import type { Run } from "./queue.js";
-import { enqueue } from "./queue.js";
+import { enqueue, transition } from "./queue.js";
 import * as continuationQueries from "./sql/review-continuations.js";
 import * as messagesQueries from "./sql/messages.js";
 import { AgentSnapshot } from "./row-schemas.js";
@@ -523,6 +523,27 @@ function agentReviewReport(
   }
   const status = reviewStatus(run.owner_id, reviewId);
   const lead = ownedRun(record.run_id, run.owner_id);
+  // Once an agent retrieves a finished review's report in the same
+  // conversation, any undispatched automatic continuation for that review is
+  // redundant and should not fire as a stale follow-up turn later.
+  if (run.agent_id && run.conversation_id) {
+    const agentId = run.agent_id;
+    const conversationId = run.conversation_id;
+    db.transaction(() => {
+      for (const pending of continuationQueries.pendingForReview(db, {
+        owner: run.owner_id,
+        reviewId,
+        agentId,
+        conversationId,
+        parentRunId: run.id,
+      })) {
+        transition(pending, "cancelled", {
+          reason:
+            "Review outcome was already retrieved via loop_review_status; no automatic follow-up needed.",
+        });
+      }
+    }).immediate();
+  }
   return {
     failed: status.state !== "completed",
     report: {

@@ -1,6 +1,7 @@
 import type { FeedCategory } from "../../shared/feed-categories.js";
 import { traceArtifactSql } from "./artifacts.js";
 import { idleFeedThreadSql } from "./feed-cards.js";
+import { INTERNAL_QUEUED_RUN_SQL } from "./runs.js";
 import type Database from "better-sqlite3";
 import { z } from "zod";
 import { QueryRecords } from "../query-records.js";
@@ -95,7 +96,7 @@ function searchCategorySql(category: FeedCategory, agent: boolean) {
   const visible = agent ? "1" : "NOT t.hide_results";
   const thread = `t.owner_id=d.owner_id AND t.conversation_id=d.conversation_id AND t.kind='thread'`;
   if (category === "threads")
-    return `EXISTS(SELECT 1 FROM feed_cards t WHERE ${thread} AND NOT t.snoozed AND ${visible})`;
+    return `EXISTS(SELECT 1 FROM feed_cards t WHERE ${thread} AND NOT t.snoozed AND NOT t.hide_internal AND ${visible})`;
 
   // Documents retain their own run/message identity. A conversation can have
   // completed results, current work and queued follow-ups at the same time.
@@ -115,7 +116,7 @@ function searchCategorySql(category: FeedCategory, agent: boolean) {
     return `EXISTS(SELECT 1 FROM (${source}) s
       JOIN feed_cards p ON p.owner_id=d.owner_id AND p.conversation_id=d.conversation_id
       JOIN feed_cards t ON ${thread}
-      WHERE NOT p.hidden AND ${visible} AND ${notReply} AND (
+      WHERE NOT p.hidden AND NOT p.hide_internal AND ${visible} AND ${notReply} AND (
         (p.kind='result' AND (p.card_key='run:'||s.run_id OR p.card_key='message:'||s.message_id))
         OR (p.kind='idle' AND ${idleFeedThreadSql("t", "?")}
           AND NOT EXISTS(SELECT 1 FROM feed_cards r WHERE r.owner_id=p.owner_id AND r.conversation_id=p.conversation_id AND r.kind='result'))))`;
@@ -123,7 +124,7 @@ function searchCategorySql(category: FeedCategory, agent: boolean) {
   return `EXISTS(SELECT 1 FROM (${source}) s
     JOIN feed_cards t ON ${thread}
     JOIN runs r ON r.id=s.run_id AND r.owner_id=d.owner_id AND r.conversation_id=d.conversation_id
-    WHERE ${notReply} AND ${category === "working" ? "t.working=1 AND r.id=json_extract(t.payload,'$.row.run_id')" : "t.queued=1 AND r.state='queued'"})`;
+    WHERE ${notReply} AND ${category === "working" ? "t.working=1 AND r.id=json_extract(t.payload,'$.row.run_id')" : `t.queued=1 AND r.state='queued' AND NOT ${INTERNAL_QUEUED_RUN_SQL("r")}`})`;
 }
 const indexCountsStatement =
   statement(`SELECT count(*) AS total,coalesce(sum(CASE WHEN e.model=? THEN 1 ELSE 0 END),0) AS indexed

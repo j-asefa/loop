@@ -45,6 +45,19 @@ function threadDisplayRow(row: SourceRow): SourceRow {
   };
 }
 
+const hideInternalPresent = new WeakSet<Database.Database>();
+function hasHideInternalColumn(db: Database.Database) {
+  if (hideInternalPresent.has(db)) return true;
+  const present =
+    db
+      .prepare(
+        "SELECT 1 FROM pragma_table_info('feed_cards') WHERE name='hide_internal'",
+      )
+      .get() !== undefined;
+  if (present) hideInternalPresent.add(db);
+  return present;
+}
+
 /** Called inside the producer's outer transaction, including migration backfill.
  * A thread update does not visit its historical result rows. Result identities
  * are selected by the write's dirty keys; metadata fanout explicitly uses '*'.
@@ -59,6 +72,7 @@ export function projectFeed(db: Database.Database, emit: Emit) {
     .all() as Dirty[];
   if (!dirty.length) return;
   db.prepare("DELETE FROM feed_card_dirty").run();
+  const withHideInternal = hasHideInternalColumn(db);
   const groups = new Map<
     string,
     { owner: string; conversation: string; keys: Set<string> }
@@ -77,11 +91,15 @@ export function projectFeed(db: Database.Database, emit: Emit) {
       );
     group.keys.add(row.card_key);
   }
-  const insert =
-    db.prepare(`INSERT INTO feed_cards(owner_id,conversation_id,kind,card_key,folder_id,agent_id,team_id,sort_at,
+  const insert = db.prepare(
+    withHideInternal
+      ? `INSERT INTO feed_cards(owner_id,conversation_id,kind,card_key,folder_id,agent_id,team_id,sort_at,
+    needs_run,approval_until,working,queued,snoozed,completed,hidden,hide_results,hide_internal,payload,unread)
+    VALUES(@owner,@conversation,@kind,@key,@folder_id,@agent_id,@team_id,@sort_at,@needs_run,@approval_until,@working,@queued,@snoozed,@completed,@hidden,@hide_results,@hide_internal,@payload,@unread)`
+      : `INSERT INTO feed_cards(owner_id,conversation_id,kind,card_key,folder_id,agent_id,team_id,sort_at,
     needs_run,approval_until,working,queued,snoozed,completed,hidden,hide_results,payload,unread)
-    VALUES(@owner,@conversation,@kind,@key,@folder_id,@agent_id,@team_id,@sort_at,@needs_run,@approval_until,@working,@queued,@snoozed,@completed,@hidden,@hide_results,@payload,@unread)
-`);
+    VALUES(@owner,@conversation,@kind,@key,@folder_id,@agent_id,@team_id,@sort_at,@needs_run,@approval_until,@working,@queued,@snoozed,@completed,@hidden,@hide_results,@payload,@unread)`,
+  );
   for (const { owner, conversation, keys } of groups.values()) {
     const subject = { kind: "collection" as const, id: "feed" };
     const remove = (kind: CardKind, key: string) => {
@@ -136,6 +154,7 @@ export function projectFeed(db: Database.Database, emit: Emit) {
         completed: r.is_done,
         hidden: r.hidden,
         hide_results: r.hide_results,
+        ...(withHideInternal ? { hide_internal: r.hide_internal } : {}),
         payload: JSON.stringify(stored),
 
         // Only a result is read; its read time stays in done_card_reads.
@@ -212,23 +231,57 @@ export function projectFeed(db: Database.Database, emit: Emit) {
         });
       }
     }
+    const previousThreadInternal = withHideInternal
+      ? (
+          db
+            .prepare(
+              "SELECT hide_internal FROM feed_cards WHERE owner_id=? AND conversation_id=? AND kind='thread' LIMIT 1",
+            )
+            .get(owner, conversation) as { hide_internal: number } | undefined
+        )?.hide_internal
+      : undefined;
     save("thread", {
       row: threadDisplayRow(row),
       detail: detail(row.card_run),
       thread,
     });
-    // A reminder change can lift or drop any of the conversation's results
-    // (there are few), so it re-projects them all.
-    const selected =
-      keys.has("*") || keys.has("later")
+    // A reminder change (or a thread flipping between internal-mail-only and
+    // user-visible) can affect any of the conversation's results, so re-project
+    // all of them.
+    let selected =
+      keys.has("*") ||
+      keys.has("later") ||
+      (previousThreadInternal !== undefined &&
+        previousThreadInternal !== row.hide_internal)
         ? null
         : [...keys].filter(
             (key) => key.startsWith("run:") || key.startsWith("message:"),
           );
-    // While a surfaced reminder lifts this conversation's newest result, a
-    // result write may make another result the newest: re-project the two
-    // top result cards too, so the lifted one drops back. Without such a
-    // reminder, writes never touch historical result cards.
+    // Completing, failing, or cancelling a review continuation can supersede or
+    // restore its parent run's result card in the same conversation, so widen
+    // only when a dirty key actually touches a review_continuations run.
+    if (selected?.length) {
+      const dirtyRunIds = selected
+        .filter((key) => key.startsWith("run:"))
+        .map((key) => key.slice(4));
+      if (
+        dirtyRunIds.length &&
+        db
+          .prepare(
+            `SELECT 1 FROM review_continuations rc
+             WHERE rc.owner_id=?
+               AND (rc.run_id IN (SELECT value FROM json_each(?))
+                 OR rc.parent_run_id IN (SELECT value FROM json_each(?)))
+             LIMIT 1`,
+          )
+          .get(owner, JSON.stringify(dirtyRunIds), JSON.stringify(dirtyRunIds))
+      ) {
+        selected = null;
+      }
+    }
+    // While a surfaced reminder lifts this conversation's newest visible result,
+    // a result write may make another visible result the newest: re-project the
+    // top visible result cards too, so the lifted one drops back.
     if (
       selected?.length &&
       db
@@ -239,7 +292,7 @@ export function projectFeed(db: Database.Database, emit: Emit) {
     )
       for (const { card_key } of db
         .prepare(
-          "SELECT card_key FROM feed_cards WHERE owner_id=? AND conversation_id=? AND kind='result' ORDER BY sort_at DESC,card_key DESC LIMIT 2",
+          `SELECT card_key FROM feed_cards WHERE owner_id=? AND conversation_id=? AND kind='result'${withHideInternal ? " AND hide_internal=0" : ""} ORDER BY sort_at DESC,card_key DESC LIMIT 2`,
         )
         .all(owner, conversation) as { card_key: string }[])
         if (!selected.includes(card_key)) selected.push(card_key);
