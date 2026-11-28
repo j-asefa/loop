@@ -45,7 +45,7 @@ if (rootArg) {
   } catch (error) {
     // An ordinary CLI failure is distinguishable from the injected hard kill.
     assert.match(error.cause?.stderr ?? "", /already claimed/);
-    process.exit(1);
+    process.exit(17);
   }
   // This is the Loop-side crash window: bd exited after committing, and
   // the caller has yet to save a receipt or dispatch any agent work.
@@ -86,7 +86,7 @@ if (rootArg) {
         .length,
       1,
     );
-    assert.equal(claims.filter(([code]) => code === 1).length, 1);
+    assert.equal(claims.filter(([code]) => code === 17).length, 1);
     const restarted = new BeadsStore(root, scope);
     const [claim] = await restarted.read(["show", contested]);
     const winningRequest =

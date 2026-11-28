@@ -226,6 +226,11 @@ real harnesses merely to populate Provider connections.
 
 ## Manual verification
 
+Run `npm run smoke:beads` to exercise the pinned Beads CLI with a disposable
+embedded Dolt store. It uses the platform release archive, launches competing
+workers and kills a worker after the claim or comment commits. It checks
+recovery from the CLI and leaves the development workspace data untouched.
+
 The [CI workflow](../.github/workflows/ci.yml) runs on pull requests, pushes to
 `main` and manual dispatch, using Node 24 and Python 3.12 on Ubuntu runners. The
 `check` job installs with `npm ci` and runs `npm run check` on a clean source

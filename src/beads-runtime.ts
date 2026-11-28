@@ -93,7 +93,13 @@ async function verifyOrInstall(path: string) {
     return previous.binary;
   const binary = await install(path);
   const stamp = await executableStamp(binary);
-  if (!stamp) throw new Error("Beads is not executable");
+  const expected = builds[`${process.platform}-${process.arch}`]![3];
+  if (
+    !stamp ||
+    (await digest(binary)) !== expected ||
+    (await executableStamp(binary)) !== stamp
+  )
+    throw new Error("Beads executable changed during verification");
   verified.set(path, { binary, stamp });
   return binary;
 }
@@ -187,6 +193,9 @@ export class BeadsWriteUnknown extends Error {
   }
 }
 
+/** Installer or launcher failed before the executable could mutate its store. */
+export class BeadsNotStarted extends BeadsUnavailable {}
+
 export class BeadsStore {
   readonly id: string;
   private readonly directory: string;
@@ -222,6 +231,7 @@ export class BeadsStore {
     try {
       return await this.json(args);
     } catch (error) {
+      if (error instanceof BeadsNotStarted) throw error;
       // The caller owns the durable receipt and must inspect Beads for its
       // operation identity before doing anything with an uncertain write.
       throw new BeadsWriteUnknown({
@@ -242,24 +252,18 @@ export class BeadsStore {
   // The callers supply structured arguments. The lock survives the Loop
   // process exiting because bd inherits the descriptor via exec.
   private async execute(args: readonly string[]) {
+    let binary: string;
     try {
-      const binary = await beadsBinary(this.root);
+      binary = await beadsBinary(this.root);
+    } catch (cause) {
+      throw new BeadsNotStarted({ cause });
+    }
+    try {
       const { stdout } = await exec(
-        "/usr/bin/env",
-        ["python3", lock, binary, "--sandbox", "--json", ...args],
+        "python3",
+        ["-I", lock, binary, "--sandbox", "--json", ...args],
         {
           cwd: this.directory,
-          env: {
-            PATH: "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin",
-            HOME: this.directory,
-            BEADS_DIR: join(this.directory, ".beads"),
-            GIT_CONFIG_NOSYSTEM: "1",
-            GIT_CONFIG_GLOBAL: "/dev/null",
-            GIT_CONFIG_COUNT: "1",
-            GIT_CONFIG_KEY_0: "core.hooksPath",
-            GIT_CONFIG_VALUE_0: "/dev/null",
-            CI: "true",
-          },
           timeout: 45_000,
           killSignal: "SIGKILL",
           maxBuffer: 8 * 1024 * 1024,
@@ -267,6 +271,13 @@ export class BeadsStore {
       );
       return stdout;
     } catch (cause) {
+      if (
+        typeof cause === "object" &&
+        cause !== null &&
+        (("code" in cause && cause.code === "ENOENT") ||
+          ("stderr" in cause && cause.stderr === "LOOP_BEADS_NOT_STARTED\n"))
+      )
+        throw new BeadsNotStarted({ cause });
       throw new BeadsUnavailable({ cause });
     }
   }
