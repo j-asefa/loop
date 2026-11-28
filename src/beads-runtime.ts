@@ -84,8 +84,9 @@ async function extract(archive: string, entry: string, destination: string) {
   ]);
 }
 
-const installations = new Map<string, Promise<string>>();
-const verified = new Map<string, { binary: string; stamp: string }>();
+type VerifiedBinary = { binary: string; stamp: string };
+const installations = new Map<string, Promise<VerifiedBinary>>();
+const verified = new Map<string, VerifiedBinary>();
 const launchers = new Map<string | undefined, Promise<void>>();
 
 function checkLauncher() {
@@ -118,6 +119,10 @@ async function executableStamp(binary: string) {
 
 /** Resolve the pinned desktop or preinstalled companion executable. */
 export function beadsBinary(root: string): Promise<string> {
+  return verifiedBinary(root).then(({ binary }) => binary);
+}
+
+function verifiedBinary(root: string): Promise<VerifiedBinary> {
   const path = resolve(root, "beads-runtime", beadsRelease, "bd");
   const active = installations.get(path);
   if (active) return active;
@@ -133,7 +138,7 @@ export function beadsBinary(root: string): Promise<string> {
 async function verifyOrInstall(path: string) {
   const previous = verified.get(path);
   if (previous && (await executableStamp(previous.binary)) === previous.stamp)
-    return previous.binary;
+    return previous;
   const binary = await install(path);
   const stamp = await executableStamp(binary);
   const expected = builds[`${process.platform}-${process.arch}`]![3];
@@ -143,8 +148,9 @@ async function verifyOrInstall(path: string) {
     (await executableStamp(binary)) !== stamp
   )
     throw new Error("Beads executable changed during verification");
-  verified.set(path, { binary, stamp });
-  return binary;
+  const entry = { binary, stamp };
+  verified.set(path, entry);
+  return entry;
 }
 
 async function publishBinary(
@@ -346,18 +352,27 @@ export class BeadsStore {
   // The callers supply structured arguments. The lock survives the Loop
   // process exiting because bd inherits the descriptor via exec.
   private async execute(args: readonly string[]) {
-    let binary: string;
+    let pin: VerifiedBinary;
     try {
       await access(lock);
       await checkLauncher();
-      binary = await beadsBinary(this.root);
+      pin = await verifiedBinary(this.root);
     } catch (cause) {
       throw new BeadsNotStarted({ cause });
     }
     try {
       const { stdout } = await exec(
         "python3",
-        ["-I", lock, binary, "--sandbox", "--json", ...args],
+        [
+          "-I",
+          lock,
+          "--verify",
+          pin.stamp,
+          pin.binary,
+          "--sandbox",
+          "--json",
+          ...args,
+        ],
         {
           cwd: this.directory,
           // This bounds the entire child process. Lock admission ends after

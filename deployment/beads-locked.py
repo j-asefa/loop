@@ -9,7 +9,9 @@ import time
 
 
 def acquire():
-    fd = os.open(".loop-beads.lock", os.O_CREAT | os.O_RDWR, 0o600)
+    fd = os.open(".loop-beads.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    if not stat.S_ISREG(os.fstat(fd).st_mode):
+        sys.exit("LOOP_BEADS_NOT_STARTED")
     deadline = time.monotonic() + 15
     while True:
         try:
@@ -61,13 +63,47 @@ def publish(source, destination, expected):
     os.replace(source, destination)
 
 
+def file_stamp(info):
+    if not stat.S_ISREG(info.st_mode):
+        return None
+    return ":".join(str(value) for value in (
+        info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns,
+    ))
+
+
+def open_verified(path, expected):
+    executable = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    if file_stamp(os.fstat(executable)) != expected:
+        sys.exit("LOOP_BEADS_NOT_STARTED")
+    return executable
+
+
+def executable_target(path, expected, executable):
+    if executable is None:
+        return path
+    if file_stamp(os.fstat(executable)) != expected:
+        sys.exit("LOOP_BEADS_NOT_STARTED")
+    if os.execve in os.supports_fd:
+        return executable
+    # macOS execve takes a pathname. Recheck it at the launch boundary.
+    if file_stamp(os.stat(path, follow_symlinks=False)) != expected:
+        sys.exit("LOOP_BEADS_NOT_STARTED")
+    return path
+
+
 def run():
     fd = acquire()
-    if sys.argv[1] == "--install":
-        publish(*sys.argv[2:])
+    args = sys.argv[1:]
+    if args[0] == "--install":
+        publish(*args[1:])
         return
+    expected = executable = None
+    if args[0] == "--verify":
+        expected = args[1]
+        args = args[2:]
+        executable = open_verified(args[0], expected)
     os.set_inheritable(fd, True)
-    os.execve(sys.argv[1], sys.argv[1:], {
+    os.execve(executable_target(args[0], expected, executable), args, {
             "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin",
             "HOME": os.getcwd(),
             "BEADS_DIR": os.path.join(os.getcwd(), ".beads"),

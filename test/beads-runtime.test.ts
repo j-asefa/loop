@@ -2,10 +2,12 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
 import {
+  copyFile,
   mkdir,
   mkdtemp,
   readFile,
   readdir,
+  rename,
   rm,
   stat,
   symlink,
@@ -71,6 +73,39 @@ it("keeps the per-store lock after exec and releases it when the worker dies", a
     expect(await waiterExit).toEqual([0, null]);
   } finally {
     for (const child of children) child.kill("SIGKILL");
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+it("refuses to execute a file replaced after its identity was verified", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "loop-beads-identity-"));
+  try {
+    const binary = join(directory, "bd");
+    const replacement = join(directory, "replacement");
+    await Promise.all([
+      copyFile("/usr/bin/true", binary),
+      copyFile("/usr/bin/false", replacement),
+    ]);
+    const { dev, ino, size, mtimeNs, ctimeNs } = await stat(binary, {
+      bigint: true,
+    });
+    const stamp = [dev, ino, size, mtimeNs, ctimeNs].join(":");
+    const command = () =>
+      spawn("python3", [lock, "--verify", stamp, binary], {
+        cwd: directory,
+        stdio: ["ignore", "ignore", "pipe"],
+      });
+    expect(await once(command(), "close")).toEqual([0, null]);
+
+    await rename(replacement, binary);
+    const child = command();
+    let error = "";
+    child.stderr!.on("data", (chunk) => {
+      error += chunk;
+    });
+    expect(await once(child, "close")).toEqual([1, null]);
+    expect(error).toBe("LOOP_BEADS_NOT_STARTED\n");
+  } finally {
     await rm(directory, { recursive: true, force: true });
   }
 });
