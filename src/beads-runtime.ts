@@ -183,6 +183,14 @@ async function install(path: string) {
     await chmod(binary, 0o700);
     await publishBinary(path, binary, executableHash);
     return path;
+  } catch (error) {
+    // A second companion process may have finished while our download failed.
+    if (
+      (await executableStamp(path)) &&
+      (await digest(path).catch(() => undefined)) === executableHash
+    )
+      return path;
+    throw error;
   } finally {
     await rm(staging, { recursive: true, force: true });
   }
