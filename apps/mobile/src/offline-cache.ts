@@ -56,6 +56,41 @@ export function saveWorkspaceCache(
   }
 }
 
+/** Inspects the current workspace's cached snapshot size and card count. */
+export async function inspectWorkspaceCache(
+  origin: string | null | undefined,
+): Promise<{
+  exists: boolean;
+  bytes: number;
+  savedAt: number | null;
+  cardCount: number;
+}> {
+  if (!origin) {
+    return { exists: false, bytes: 0, savedAt: null, cardCount: 0 };
+  }
+  const bucket = draftWorkspaceBucket(origin);
+  try {
+    const file = cacheFileForBucket(bucket);
+    if (!file.exists) {
+      return { exists: false, bytes: 0, savedAt: null, cardCount: 0 };
+    }
+    const raw = await file.text();
+    const parsed = parseWorkspaceCache(raw);
+    const bytes =
+      typeof file.size === "number" && Number.isFinite(file.size)
+        ? file.size
+        : raw.length;
+    return {
+      exists: true,
+      bytes,
+      savedAt: parsed?.cachedAt ?? null,
+      cardCount: parsed?.cards.length ?? 0,
+    };
+  } catch {
+    return { exists: false, bytes: 0, savedAt: null, cardCount: 0 };
+  }
+}
+
 /** Purge cached workspace snapshot on sign-out or session expiry. */
 export function clearWorkspaceCache(origin: string | null | undefined): void {
   if (!origin) return;

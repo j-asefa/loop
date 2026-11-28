@@ -7,24 +7,19 @@ import {
   RefreshControl,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   View,
 } from "react-native";
 import {
   AlarmClock,
   ArrowUpRight,
-  Bell,
   BookmarkCheck,
   CalendarClock,
   Check,
   FileText,
-  Link2,
-  LogOut,
-  Moon,
   RotateCcw,
   Rss,
-  Sun,
+  Settings,
   Trash2,
 } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -34,7 +29,6 @@ import {
   isPreviewableImageMime,
   type PublishedFileItem,
 } from "../api/files";
-import type { SocketStatus } from "../api/socket";
 import type {
   ApiLaterItem,
   ApiPersonalProfile,
@@ -45,18 +39,11 @@ import type {
 } from "../api/types";
 import { relativeTime, type NativeResultCard } from "../fixtures";
 import { haptics } from "../haptics";
-import {
-  getNotificationPermissionStatus,
-  requestNotificationPermission,
-  type NotificationPermissionState,
-  type NotificationPrefs,
-} from "../notifications";
 import { formatScheduledTime } from "../schedule-utils";
 import type { LoopTheme } from "../theme";
 import { AgentAvatar, ProfileCoverBanner } from "./RichContent";
 
-type ProfileSection =
-  "saved" | "reminders" | "scheduled" | "files" | "social" | "alerts";
+type ProfileSection = "saved" | "reminders" | "scheduled" | "files" | "social";
 
 const SECTIONS: Array<{ id: ProfileSection; label: string }> = [
   { id: "saved", label: "Saved" },
@@ -64,58 +51,34 @@ const SECTIONS: Array<{ id: ProfileSection; label: string }> = [
   { id: "scheduled", label: "Scheduled" },
   { id: "files", label: "Files" },
   { id: "social", label: "Social" },
-  { id: "alerts", label: "Alerts" },
 ];
 
 export function ProfileScreen({
   client,
   session,
-  socketStatus,
   localCards,
   theme,
-  onToggleTheme,
-  onOpenPairing,
-  onSignOut,
+  hasConnectionAttention = false,
+  onOpenSettings,
   onOpenConversation,
   onOpenFile,
-  notificationPrefs,
-  notificationPrefsLoaded = true,
-  onChangeNotificationPrefs,
 }: {
   client: LoopClient | null;
   session: PairedSession | null;
-  socketStatus: SocketStatus;
   localCards: NativeResultCard[];
   theme: LoopTheme;
-  onToggleTheme: () => void;
-  onOpenPairing: () => void;
-  onSignOut: () => void;
+  hasConnectionAttention?: boolean;
+  onOpenSettings: () => void;
   onOpenConversation: (input: {
     conversationId: string;
     title: string;
     agentName: string;
   }) => void;
   onOpenFile?: (file: PublishedFileItem) => void;
-  notificationPrefs?: NotificationPrefs;
-  notificationPrefsLoaded?: boolean;
-  onChangeNotificationPrefs?: (next: NotificationPrefs) => void;
 }) {
   const insets = useSafeAreaInsets();
   const [section, setSection] = useState<ProfileSection>("saved");
   const [loading, setLoading] = useState(false);
-  const [notifPermission, setNotifPermission] =
-    useState<NotificationPermissionState>("undetermined");
-
-  useEffect(() => {
-    if (section !== "alerts") return;
-    let cancelled = false;
-    void getNotificationPermissionStatus().then((status) => {
-      if (!cancelled) setNotifPermission(status);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [section]);
 
   const [saved, setSaved] = useState<ApiSavedEntry[]>([]);
   const [reminders, setReminders] = useState<ApiLaterItem[]>([]);
@@ -292,13 +255,6 @@ export function ProfileScreen({
     }
   }, [client, localCards, loadSection]);
 
-  const statusColor =
-    socketStatus === "live"
-      ? theme.green
-      : socketStatus === "connecting" || socketStatus === "reconnecting"
-        ? theme.brass
-        : theme.muted;
-
   const displayName =
     profile?.name?.trim() || session?.deviceName || "Your profile";
   const coverKey = profile?.handle || profile?.name || "atlas";
@@ -322,9 +278,11 @@ export function ProfileScreen({
             height={92 + Math.max(insets.top, 20)}
           />
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Open Settings"
             onPress={() => {
-              haptics.selection();
-              onToggleTheme();
+              haptics.light();
+              onOpenSettings();
             }}
             style={[
               styles.iconBtn,
@@ -337,11 +295,15 @@ export function ProfileScreen({
               },
             ]}
           >
-            {theme.isDark ? (
-              <Sun size={16} color={theme.brassText} />
-            ) : (
-              <Moon size={16} color="#f5f5f2" />
-            )}
+            <Settings size={16} color="#f5f5f2" />
+            {hasConnectionAttention ? (
+              <View
+                style={[
+                  styles.settingsAttentionDot,
+                  { backgroundColor: theme.brass },
+                ]}
+              />
+            ) : null}
           </Pressable>
         </View>
 
@@ -399,67 +361,6 @@ export function ProfileScreen({
               )}
             </View>
           )}
-
-          {/* Workspace Connection Card */}
-          <View
-            style={[
-              styles.workspaceCard,
-              { backgroundColor: theme.surface, borderColor: theme.line },
-            ]}
-          >
-            <View style={styles.wsLeft}>
-              <View style={styles.wsStatusRow}>
-                <View
-                  style={[styles.statusDot, { backgroundColor: statusColor }]}
-                />
-                <Text style={[styles.wsTitle, { color: theme.text }]}>
-                  {session
-                    ? session.origin.replace(/^https?:\/\//, "")
-                    : "Offline Demo Deck"}
-                </Text>
-              </View>
-              <Text style={[styles.wsSub, { color: theme.muted }]}>
-                {session
-                  ? `${session.deviceName} · ${socketStatus}`
-                  : "Pair with `loop pair` to connect your live agents"}
-              </Text>
-            </View>
-
-            <View style={styles.wsActions}>
-              <Pressable
-                onPress={() => {
-                  haptics.light();
-                  onOpenPairing();
-                }}
-                style={[
-                  styles.wsBtn,
-                  {
-                    backgroundColor: theme.attention,
-                    borderColor: theme.attentionLine,
-                  },
-                ]}
-              >
-                <Link2 size={14} color={theme.brassText} />
-                <Text style={[styles.wsBtnText, { color: theme.brassText }]}>
-                  {session ? "Switch" : "Pair"}
-                </Text>
-              </Pressable>
-              {session && (
-                <Pressable
-                  onPress={() => {
-                    haptics.warning();
-                    onSignOut();
-                  }}
-                  style={[
-                    styles.wsIconBtn,
-                    { backgroundColor: theme.soft, borderColor: theme.line },
-                  ]}
-                >
-                  <LogOut size={14} color={theme.orange} />
-                </Pressable>
-              )}
-            </View>
-          </View>
 
           <ScrollView
             horizontal
@@ -1075,192 +976,6 @@ export function ProfileScreen({
               </Pressable>
             ))
           ))}
-
-        {section === "alerts" && (
-          <View style={styles.alertsWrap}>
-            <View
-              style={[
-                styles.card,
-                { backgroundColor: theme.surface, borderColor: theme.line },
-              ]}
-            >
-              <View style={styles.cardTop}>
-                <View style={styles.rowLeft}>
-                  <Bell size={15} color={theme.brassText} />
-                  <Text style={[styles.cardTitle, { color: theme.text }]}>
-                    Device alerts
-                  </Text>
-                </View>
-                <View
-                  style={[
-                    styles.stateBadge,
-                    {
-                      backgroundColor:
-                        notifPermission === "granted"
-                          ? theme.attention
-                          : theme.soft,
-                      borderColor:
-                        notifPermission === "granted"
-                          ? theme.attentionLine
-                          : theme.line,
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.stateBadgeText,
-                      {
-                        color:
-                          notifPermission === "granted"
-                            ? theme.brassText
-                            : theme.muted,
-                      },
-                    ]}
-                  >
-                    {notifPermission === "granted"
-                      ? "Allowed"
-                      : notifPermission === "denied"
-                        ? "Blocked"
-                        : notifPermission === "unavailable"
-                          ? "Unavailable"
-                          : "Not enabled"}
-                  </Text>
-                </View>
-              </View>
-              <Text style={[styles.cardSub, { color: theme.muted }]}>
-                Receive local alerts while Loop is open or connected when agents
-                need approval, finish work, or send a reply. Tapping an alert
-                opens its conversation.
-              </Text>
-              {notifPermission !== "granted" &&
-              notifPermission !== "unavailable" ? (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={
-                    notifPermission === "denied"
-                      ? "Open system notification settings"
-                      : "Enable notifications"
-                  }
-                  onPress={() => {
-                    haptics.light();
-                    if (notifPermission === "denied") {
-                      void Linking.openSettings().catch(() => {});
-                    } else {
-                      void requestNotificationPermission().then((next) =>
-                        setNotifPermission(next),
-                      );
-                    }
-                  }}
-                  style={[
-                    styles.wsBtn,
-                    {
-                      alignSelf: "flex-start",
-                      marginTop: 6,
-                      backgroundColor: theme.attention,
-                      borderColor: theme.attentionLine,
-                    },
-                  ]}
-                >
-                  <Bell size={14} color={theme.brassText} />
-                  <Text style={[styles.wsBtnText, { color: theme.brassText }]}>
-                    {notifPermission === "denied"
-                      ? "Open Settings"
-                      : "Enable notifications"}
-                  </Text>
-                </Pressable>
-              ) : null}
-            </View>
-
-            {notificationPrefs && onChangeNotificationPrefs ? (
-              <View
-                style={[
-                  styles.card,
-                  { backgroundColor: theme.surface, borderColor: theme.line },
-                ]}
-              >
-                <Text style={[styles.metaText, { color: theme.muted }]}>
-                  {session
-                    ? `WORKSPACE ALERTS · ${session.origin.replace(/^https?:\/\//, "")}`
-                    : "WORKSPACE ALERTS"}
-                </Text>
-                {(
-                  [
-                    {
-                      key: "enabled" as const,
-                      label: "Enable alerts for this workspace",
-                      sub: "Master switch for live notifications",
-                    },
-                    {
-                      key: "needsYou" as const,
-                      label: "Approvals & decisions",
-                      sub: "Tool approvals and agent questions",
-                    },
-                    {
-                      key: "completed" as const,
-                      label: "Completed results",
-                      sub: "New finished cards in your feed",
-                    },
-                    {
-                      key: "replies" as const,
-                      label: "Agent replies",
-                      sub: "Direct replies waiting in your inbox",
-                    },
-                  ] as const
-                ).map((row) => {
-                  const disabled =
-                    !notificationPrefsLoaded ||
-                    (row.key !== "enabled" && !notificationPrefs.enabled);
-                  return (
-                    <View
-                      key={row.key}
-                      style={[
-                        styles.alertToggleRow,
-                        {
-                          borderTopColor: theme.line,
-                          opacity: disabled ? 0.5 : 1,
-                        },
-                      ]}
-                    >
-                      <View style={{ flex: 1 }}>
-                        <Text
-                          style={[
-                            styles.alertToggleTitle,
-                            { color: theme.text },
-                          ]}
-                        >
-                          {row.label}
-                        </Text>
-                        <Text
-                          style={[
-                            styles.alertToggleSub,
-                            { color: theme.muted },
-                          ]}
-                        >
-                          {row.sub}
-                        </Text>
-                      </View>
-                      <Switch
-                        disabled={disabled}
-                        value={notificationPrefs[row.key]}
-                        onValueChange={(val) => {
-                          haptics.selection();
-                          onChangeNotificationPrefs({
-                            ...notificationPrefs,
-                            [row.key]: val,
-                          });
-                        }}
-                        trackColor={{
-                          false: theme.line,
-                          true: theme.brass,
-                        }}
-                      />
-                    </View>
-                  );
-                })}
-              </View>
-            ) : null}
-          </View>
-        )}
       </ScrollView>
     </View>
   );
@@ -1321,62 +1036,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  workspaceCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 10,
-    padding: 12,
-    borderRadius: 16,
-    borderWidth: 1,
-  },
-  wsLeft: {
-    flex: 1,
-    gap: 2,
-  },
-  wsStatusRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-  },
-  statusDot: {
+  settingsAttentionDot: {
+    position: "absolute",
+    top: 5,
+    right: 5,
     width: 8,
     height: 8,
     borderRadius: 4,
-  },
-  wsTitle: {
-    fontSize: 14,
-    fontWeight: "700",
-    flexShrink: 1,
-  },
-  wsSub: {
-    fontSize: 12,
-  },
-  wsActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  wsBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 11,
-    paddingVertical: 7,
-    borderRadius: 999,
-    borderWidth: 1,
-  },
-  wsBtnText: {
-    fontSize: 12.5,
-    fontWeight: "700",
-  },
-  wsIconBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
+    borderWidth: 1.5,
+    borderColor: "rgba(20, 20, 18, 0.9)",
   },
   secRow: {
     gap: 6,
@@ -1480,25 +1148,5 @@ const styles = StyleSheet.create({
   failedReason: {
     fontSize: 12.5,
     lineHeight: 17,
-  },
-  alertsWrap: {
-    gap: 12,
-  },
-  alertToggleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-    paddingTop: 10,
-    marginTop: 6,
-    borderTopWidth: StyleSheet.hairlineWidth,
-  },
-  alertToggleTitle: {
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  alertToggleSub: {
-    fontSize: 12,
-    marginTop: 2,
   },
 });

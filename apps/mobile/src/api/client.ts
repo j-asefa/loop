@@ -10,16 +10,23 @@ import {
 } from "./pairing-url";
 import type {
   ApiAgent,
+  ApiAgentUpdate,
   ApiApproval,
   ApiArtifactDetail,
   ApiBootstrap,
+  ApiConnectionRefresh,
   ApiConversationPage,
   ApiDoneCardPage,
   ApiFeedItem,
   ApiFeedPage,
   ApiLaterItem,
+  ApiMcpApprovalMode,
+  ApiMcpConnection,
+  ApiMcpPreferences,
+  ApiMemoryStatus,
   ApiMessage,
   ApiNativeDecision,
+  ApiPermissionMode,
   ApiPersonalFile,
   ApiPersonalProfile,
   ApiPersonalPrompt,
@@ -28,7 +35,9 @@ import type {
   ApiRunFile,
   ApiSavedEntry,
   ApiScheduledSend,
+  ApiSearchPreferences,
   ApiSearchResponse,
+  ApiSearchStatus,
   ApiSharePreview,
   ApiSnippet,
   ApiSocialStory,
@@ -610,6 +619,64 @@ export class LoopClient {
       `/api/agents/${encodeURIComponent(agentId)}`,
       selection,
     );
+  }
+
+  updateAgent(agentId: string, patch: ApiAgentUpdate): Promise<ApiAgent> {
+    return this.request(
+      "PATCH",
+      `/api/agents/${encodeURIComponent(agentId)}`,
+      patch,
+    );
+  }
+
+  refreshConnection(id: string): Promise<ApiConnectionRefresh> {
+    return this.request(
+      "POST",
+      `/api/connections/${encodeURIComponent(id)}/refresh`,
+      {},
+      RUN_REQUEST_TIMEOUT_MS,
+    );
+  }
+
+  mcpList(): Promise<ApiMcpConnection[]> {
+    return this.request<ApiMcpConnection[]>("GET", "/api/mcp");
+  }
+
+  mcpPreferences(): Promise<ApiMcpPreferences> {
+    return this.request<ApiMcpPreferences>("GET", "/api/mcp/preferences");
+  }
+
+  updateMcpPreferences(patch: {
+    approvalMode?: ApiMcpApprovalMode;
+    agentPermissionMode?: ApiPermissionMode;
+  }): Promise<ApiMcpPreferences & { resumed: number }> {
+    return this.request("PUT", "/api/mcp/preferences", patch);
+  }
+
+  memoryStatus(): Promise<ApiMemoryStatus> {
+    return this.request<ApiMemoryStatus>("GET", "/api/memory");
+  }
+
+  updateMemoryPolicy(
+    scope: string,
+    enabled: boolean,
+  ): Promise<{ ok: boolean }> {
+    return this.request("PUT", "/api/memory/policy", { scope, enabled });
+  }
+
+  searchStatus(): Promise<ApiSearchStatus> {
+    return this.request<ApiSearchStatus>("GET", "/api/search/status");
+  }
+
+  searchPreferences(): Promise<ApiSearchPreferences> {
+    return this.request<ApiSearchPreferences>("GET", "/api/preferences");
+  }
+
+  updateSearchPreferences(input: {
+    embeddingEnabled: boolean;
+    connectionId: string | null;
+  }): Promise<{ ok: boolean }> {
+    return this.request("POST", "/api/preferences", input);
   }
 
   submitRun(input: {

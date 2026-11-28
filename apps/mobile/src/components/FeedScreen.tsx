@@ -82,6 +82,7 @@ type FeedScreenProps = {
   onRefresh: () => void;
   onLoadMore?: () => void;
   onOpenPairing: () => void;
+  onOpenSettings?: () => void;
   onOpenAgent: (agent: ApiAgent, workingRun?: AgentRunSummary) => void;
   onOpenAgentByName: (
     agentId: string | null | undefined,
@@ -130,6 +131,7 @@ export function FeedScreen({
   onRefresh,
   onLoadMore,
   onOpenPairing,
+  onOpenSettings,
   onOpenAgent,
   onOpenAgentByName,
   onNewAgent,
@@ -250,9 +252,16 @@ export function FeedScreen({
           </View>
 
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={
+              isLive && onOpenSettings
+                ? `Open Settings for ${environmentName || "connected workspace"}`
+                : "Pair live workspace"
+            }
             onPress={() => {
               haptics.light();
-              onOpenPairing();
+              if (isLive && onOpenSettings) onOpenSettings();
+              else onOpenPairing();
             }}
             style={({ pressed }) => [
               styles.connPill,
