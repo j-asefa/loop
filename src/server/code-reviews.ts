@@ -535,7 +535,7 @@ function agentReviewReport(
         reviewId,
         agentId,
         conversationId,
-        excludeRunId: run.id,
+        parentRunId: run.id,
       })) {
         transition(pending, "cancelled", {
           reason:

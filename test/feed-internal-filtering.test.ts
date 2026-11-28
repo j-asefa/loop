@@ -222,10 +222,38 @@ it("auto-cancels pending review continuations when loop_review_status returns a 
     ).state,
   ).toBe("queued");
 
-  // Complete the review lead run, then read loop_review_status from the parent run
+  // Complete the review lead run. A DIFFERENT running turn in the same
+  // conversation reading loop_review_status must NOT cancel parentId's continuation.
   db.prepare(
     "UPDATE runs SET state='completed', result='Clean snapshot' WHERE id=?",
   ).run(rc.lead_run_id);
+  const siblingTurn = id();
+  seedRun(db, {
+    id: siblingTurn,
+    owner_id: owner,
+    agent_id: builder.id,
+    conversation_id: convId,
+    input: "Unrelated turn",
+    state: "running",
+    idempotency_key: siblingTurn,
+    payload: runPayload(folder.id),
+    created_at: now() + 5,
+    updated_at: now() + 5,
+  });
+  requestedReviewStatus(ownedRun(siblingTurn, owner), reviewId);
+  expect(
+    (
+      db.prepare("SELECT state FROM runs WHERE id=?").get(rc.run_id) as {
+        state: string;
+      }
+    ).state,
+  ).toBe("queued");
+  db.prepare("DELETE FROM runs WHERE id=? AND owner_id=?").run(
+    siblingTurn,
+    owner,
+  );
+
+  // Reading loop_review_status from the original parent run auto-cancels the continuation
   const finished = requestedReviewStatus(ownedRun(parentId, owner), reviewId);
   expect((finished.report as { state: string }).state).toBe("completed");
 
@@ -568,12 +596,18 @@ it("hides agent-to-agent mail from Done, All, Queued, Outcomes and unread while 
   });
   finishTurn(owner, mailReplyRun, humanConv, "Noted helper result.");
 
-  // Human conversation stays visible in All, and ONLY the human turn's Done card shows in Done & unread
-  expect(
-    feed(owner, { filter: "all" }).items.some(
-      (item) => item.conversation_id === humanConv,
-    ),
-  ).toBe(true);
+  // Human conversation stays visible in All & Outcomes showing the owner's turn
+  // (not the hidden trailing mail run), and ONLY the owner's Done card shows in Done & unread
+  const humanInAll = feed(owner, { filter: "all" }).items.find(
+    (item) => item.conversation_id === humanConv,
+  );
+  expect(humanInAll?.run?.id).toBe(humanRun);
+  expect(humanInAll?.last_message?.content).toBe("Done coordinating.");
+  const humanInOutcomes = feed(owner, { filter: "outcomes" }).items.find(
+    (item) => item.conversation_id === humanConv,
+  );
+  expect(humanInOutcomes?.run?.id).toBe(humanRun);
+  expect(humanInOutcomes?.last_message?.content).toBe("Done coordinating.");
   const humanDone = listDoneCards(owner).filter(
     (entry) => entry.card.source.conversation_id === humanConv,
   );
@@ -582,14 +616,14 @@ it("hides agent-to-agent mail from Done, All, Queued, Outcomes and unread while 
   expect(feed(owner, { filter: "done" }).summary.done_unread).toBe(1);
 });
 
-it("migration 168 preserves historical rows and backfills hide_internal and filtered queued counts on upgrade", () => {
+it("migration 169 preserves historical rows and backfills hide_internal and filtered queued counts on upgrade", () => {
   const mem = new Database(":memory:");
   try {
     const files = readdirSync("migrations")
       .filter((file) => /^\d+.*\.sql$/.test(file))
       .sort();
     for (const file of files) {
-      if (file.startsWith("168-")) break;
+      if (file.startsWith("169-")) break;
       mem.exec(readFileSync(join("migrations", file), "utf8"));
     }
 
@@ -674,11 +708,11 @@ it("migration 168 preserves historical rows and backfills hide_internal and filt
       )
       .run(owner, t + 1);
 
-    // Apply migration 168 and run projectFeed in the upgrade transaction
+    // Apply migration 169 and run projectFeed in the upgrade transaction
     mem
       .transaction(() => {
         mem.exec(
-          readFileSync("migrations/168-feed-hide-internal-mail.sql", "utf8"),
+          readFileSync("migrations/169-feed-hide-internal-mail.sql", "utf8"),
         );
         projectFeed(mem, () => {});
       })
@@ -850,6 +884,28 @@ it("resurfaces prior continuation result in Done if the next continuation fails 
   expect(listDoneCards(owner)).toEqual([]);
 
   // Turn 3 fails without sealing a result -> Turn 2 must resurface immediately
+  // First verify that if the connection disconnects while Turn 3 is queued,
+  // Turn 2 resurfaces instead of leaving the conversation absent from Done.
+  const connId = (
+    JSON.parse(
+      (
+        db.prepare("SELECT payload FROM runs WHERE id=?").get(rc2.run_id) as {
+          payload: string;
+        }
+      ).payload,
+    ) as { connectionId: string }
+  ).connectionId;
+  db.prepare(
+    "UPDATE connections SET status='disconnected' WHERE id=? AND owner_id=?",
+  ).run(connId, owner);
+  expect(listDoneCards(owner).map((entry) => entry.card.content)).toEqual([
+    "Fixed and requested review 2.",
+  ]);
+  db.prepare(
+    "UPDATE connections SET status='connected' WHERE id=? AND owner_id=?",
+  ).run(connId, owner);
+  expect(listDoneCards(owner)).toEqual([]);
+
   db.prepare("UPDATE runs SET state='running' WHERE id=?").run(rc2.run_id);
   transition({ id: rc2.run_id, owner_id: owner }, "failed", {
     message: "Provider failure",

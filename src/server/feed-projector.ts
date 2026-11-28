@@ -45,6 +45,19 @@ function threadDisplayRow(row: SourceRow): SourceRow {
   };
 }
 
+const hideInternalPresent = new WeakSet<Database.Database>();
+function hasHideInternalColumn(db: Database.Database) {
+  if (hideInternalPresent.has(db)) return true;
+  const present =
+    db
+      .prepare(
+        "SELECT 1 FROM pragma_table_info('feed_cards') WHERE name='hide_internal'",
+      )
+      .get() !== undefined;
+  if (present) hideInternalPresent.add(db);
+  return present;
+}
+
 /** Called inside the producer's outer transaction, including migration backfill.
  * A thread update does not visit its historical result rows. Result identities
  * are selected by the write's dirty keys; metadata fanout explicitly uses '*'.
@@ -59,6 +72,7 @@ export function projectFeed(db: Database.Database, emit: Emit) {
     .all() as Dirty[];
   if (!dirty.length) return;
   db.prepare("DELETE FROM feed_card_dirty").run();
+  const withHideInternal = hasHideInternalColumn(db);
   const groups = new Map<
     string,
     { owner: string; conversation: string; keys: Set<string> }
@@ -77,11 +91,15 @@ export function projectFeed(db: Database.Database, emit: Emit) {
       );
     group.keys.add(row.card_key);
   }
-  const insert =
-    db.prepare(`INSERT INTO feed_cards(owner_id,conversation_id,kind,card_key,folder_id,agent_id,team_id,sort_at,
+  const insert = db.prepare(
+    withHideInternal
+      ? `INSERT INTO feed_cards(owner_id,conversation_id,kind,card_key,folder_id,agent_id,team_id,sort_at,
     needs_run,approval_until,working,queued,snoozed,completed,hidden,hide_results,hide_internal,payload,unread)
-    VALUES(@owner,@conversation,@kind,@key,@folder_id,@agent_id,@team_id,@sort_at,@needs_run,@approval_until,@working,@queued,@snoozed,@completed,@hidden,@hide_results,@hide_internal,@payload,@unread)
-`);
+    VALUES(@owner,@conversation,@kind,@key,@folder_id,@agent_id,@team_id,@sort_at,@needs_run,@approval_until,@working,@queued,@snoozed,@completed,@hidden,@hide_results,@hide_internal,@payload,@unread)`
+      : `INSERT INTO feed_cards(owner_id,conversation_id,kind,card_key,folder_id,agent_id,team_id,sort_at,
+    needs_run,approval_until,working,queued,snoozed,completed,hidden,hide_results,payload,unread)
+    VALUES(@owner,@conversation,@kind,@key,@folder_id,@agent_id,@team_id,@sort_at,@needs_run,@approval_until,@working,@queued,@snoozed,@completed,@hidden,@hide_results,@payload,@unread)`,
+  );
   for (const { owner, conversation, keys } of groups.values()) {
     const subject = { kind: "collection" as const, id: "feed" };
     const remove = (kind: CardKind, key: string) => {
@@ -136,7 +154,7 @@ export function projectFeed(db: Database.Database, emit: Emit) {
         completed: r.is_done,
         hidden: r.hidden,
         hide_results: r.hide_results,
-        hide_internal: r.hide_internal,
+        ...(withHideInternal ? { hide_internal: r.hide_internal } : {}),
         payload: JSON.stringify(stored),
 
         // Only a result is read; its read time stays in done_card_reads.
@@ -213,13 +231,15 @@ export function projectFeed(db: Database.Database, emit: Emit) {
         });
       }
     }
-    const previousThreadInternal = (
-      db
-        .prepare(
-          "SELECT hide_internal FROM feed_cards WHERE owner_id=? AND conversation_id=? AND kind='thread' LIMIT 1",
-        )
-        .get(owner, conversation) as { hide_internal: number } | undefined
-    )?.hide_internal;
+    const previousThreadInternal = withHideInternal
+      ? (
+          db
+            .prepare(
+              "SELECT hide_internal FROM feed_cards WHERE owner_id=? AND conversation_id=? AND kind='thread' LIMIT 1",
+            )
+            .get(owner, conversation) as { hide_internal: number } | undefined
+        )?.hide_internal
+      : undefined;
     save("thread", {
       row: threadDisplayRow(row),
       detail: detail(row.card_run),
@@ -272,7 +292,7 @@ export function projectFeed(db: Database.Database, emit: Emit) {
     )
       for (const { card_key } of db
         .prepare(
-          "SELECT card_key FROM feed_cards WHERE owner_id=? AND conversation_id=? AND kind='result' AND hide_internal=0 ORDER BY sort_at DESC,card_key DESC LIMIT 2",
+          `SELECT card_key FROM feed_cards WHERE owner_id=? AND conversation_id=? AND kind='result'${withHideInternal ? " AND hide_internal=0" : ""} ORDER BY sort_at DESC,card_key DESC LIMIT 2`,
         )
         .all(owner, conversation) as { card_key: string }[])
         if (!selected.includes(card_key)) selected.push(card_key);

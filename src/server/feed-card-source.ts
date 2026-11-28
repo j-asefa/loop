@@ -10,6 +10,9 @@ import { INTERNAL_QUEUED_RUN_SQL } from "./sql/runs.js";
 import { ResultDefectKindSchema } from "../shared/result.js";
 import type { FeedRow } from "./feed-card-display.js";
 
+const INTERNAL_MAIL_RUN_SQL = (r: string) =>
+  `(json_extract(${r}.payload,'$.mailId') IS NOT NULL OR EXISTS(SELECT 1 FROM agent_mail m WHERE m.owner_id=${r}.owner_id AND ((m.run_id=${r}.id AND m.steering_id IS NULL) OR m.requeued_run_id=${r}.id)))`;
+
 // These are write-side source reads, always limited to a single affected
 // conversation. The permanent test oracle derives state from raw history
 // independently of these source reads and never consults feed_cards.
@@ -19,11 +22,14 @@ const stateSql = `state_base AS MATERIALIZED (
     AND r.state IN ('running','pausing','paused','awaiting_approval') ORDER BY +r.created_at DESC,r.rowid DESC LIMIT 1),
     (SELECT r.id FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id
       AND NOT (r.state='cancelled' AND EXISTS(SELECT 1 FROM review_continuations rc WHERE rc.owner_id=r.owner_id AND rc.run_id=r.id))
+      AND NOT (r.state='completed' AND ${INTERNAL_MAIL_RUN_SQL("r")})
       ORDER BY r.created_at DESC,r.rowid DESC LIMIT 1),
     (SELECT r.id FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id ORDER BY r.created_at DESC,r.rowid DESC LIMIT 1)) feed_run_id,
   (SELECT count(*) FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id AND r.state='queued' AND NOT ${INTERNAL_QUEUED_RUN_SQL("r")}) feed_queued,
-  (SELECT r.id FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id AND r.state='completed' ORDER BY r.updated_at DESC,r.rowid DESC LIMIT 1) feed_done_run_id,
-  (SELECT r.updated_at FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id AND r.state='completed' ORDER BY r.updated_at DESC,r.rowid DESC LIMIT 1) feed_done_at,
+  COALESCE((SELECT r.id FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id AND r.state='completed' AND NOT ${INTERNAL_MAIL_RUN_SQL("r")} ORDER BY r.updated_at DESC,r.rowid DESC LIMIT 1),
+    (SELECT r.id FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id AND r.state='completed' ORDER BY r.updated_at DESC,r.rowid DESC LIMIT 1)) feed_done_run_id,
+  COALESCE((SELECT r.updated_at FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id AND r.state='completed' AND NOT ${INTERNAL_MAIL_RUN_SQL("r")} ORDER BY r.updated_at DESC,r.rowid DESC LIMIT 1),
+    (SELECT r.updated_at FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id AND r.state='completed' ORDER BY r.updated_at DESC,r.rowid DESC LIMIT 1)) feed_done_at,
   max(c.created_at,COALESCE((SELECT max(m.created_at) FROM messages m WHERE m.owner_id=c.owner_id AND m.conversation_id=c.id),0),
     COALESCE((SELECT max(r.updated_at) FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id),0)) feed_last_activity_at,
   (SELECT m.id FROM messages m WHERE m.owner_id=c.owner_id AND m.conversation_id=c.id ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1) feed_last_message_id,
@@ -55,8 +61,8 @@ const MAIL_AUTOMATION_KINDS_SQL =
   "('agent_message','agent_result','agent_ping')";
 const INTERNAL_THREAD_AUTOMATION_KINDS_SQL =
   "('agent_message','agent_result','agent_ping','review_continuation')";
-const ACTIVE_CONTINUATION_STATES_SQL =
-  "('queued','running','pausing','paused','awaiting_approval','waiting_children')";
+const RUNNING_CONTINUATION_STATES_SQL =
+  "('running','pausing','paused','awaiting_approval','waiting_children')";
 /**
  * Predicate matching sealed results that should stay hidden from Done, unread
  * counts, and Done reminder promotion: internal agent-to-agent mail results,
@@ -84,8 +90,7 @@ const INTERNAL_SEALED_RESULT_SQL = (
     )
     SELECT 1 FROM ancestor a
     JOIN runs pr ON pr.id=a.run_id AND pr.owner_id=@owner
-    WHERE json_extract(pr.payload,'$.mailId') IS NOT NULL
-      OR EXISTS(SELECT 1 FROM agent_mail m WHERE m.owner_id=pr.owner_id AND ((m.run_id=pr.id AND m.steering_id IS NULL) OR m.requeued_run_id=pr.id))
+    WHERE ${INTERNAL_MAIL_RUN_SQL("pr")}
   ))
   OR (${resAlias}.run_id IS NOT NULL AND EXISTS(
     SELECT 1 FROM review_continuations rc
@@ -94,7 +99,18 @@ const INTERNAL_SEALED_RESULT_SQL = (
       AND (
         (
           COALESCE(json_extract(${resAlias}.stimulus,'$.automationKind'),'')='review_continuation'
-          AND next_run.state IN ${ACTIVE_CONTINUATION_STATES_SQL}
+          AND (
+            next_run.state IN ${RUNNING_CONTINUATION_STATES_SQL}
+            OR (
+              next_run.state='queued'
+              AND EXISTS(
+                SELECT 1 FROM agents na
+                JOIN connections nc ON nc.id=json_extract(next_run.payload,'$.connectionId') AND nc.owner_id=next_run.owner_id
+                WHERE na.id=next_run.agent_id AND na.owner_id=next_run.owner_id
+                  AND na.retired_at IS NULL AND nc.status='connected'
+              )
+            )
+          )
         )
         OR EXISTS(
           SELECT 1 FROM results next_res
@@ -123,9 +139,18 @@ picked AS MATERIALIZED (
     ${doneOnly ? "NULL" : `(SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id AND m.run_id=k.card_run ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1)`} card_any_id,
     -- Expanded Done selects its answer explicitly. An idle thread without a
     -- result has no preview, rather than showing its prompt or commentary.
-    (SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id
-      AND k.expanded_done=0
-      ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1) thread_latest_id,
+    -- In mixed threads, prefer messages outside completed internal-mail runs.
+    COALESCE(
+      (SELECT m.id FROM messages m
+        LEFT JOIN runs mr ON mr.id=m.run_id AND mr.owner_id=m.owner_id
+        WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id
+          AND k.expanded_done=0
+          AND NOT COALESCE(mr.state='completed' AND ${INTERNAL_MAIL_RUN_SQL("mr")},0)
+        ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1),
+      (SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id
+        AND k.expanded_done=0
+        ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1)
+    ) thread_latest_id,
     CASE WHEN r.id IS NOT NULL THEN (SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id AND m.run_id=r.id AND m.role='user' AND json_extract(m.metadata,'$.automation.kind') IS NOT NULL ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1) END trigger_id,
     CASE WHEN @mode='done' THEN 0 ELSE (SELECT count(*) FROM approvals a JOIN runs ar ON ar.id=a.run_id AND ar.owner_id=a.owner_id
       WHERE a.owner_id=@owner AND ar.conversation_id=k.conversation_id AND ar.state='awaiting_approval' AND a.state='pending' AND a.expires_at>@now) END pending_approvals,

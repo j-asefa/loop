@@ -53,6 +53,20 @@ CREATE TRIGGER project_feed_agent_mail_delete BEFORE DELETE ON agent_mail BEGIN
     WHERE OLD.owner_id IS NOT NULL AND OLD.recipient_conversation_id IS NOT NULL;
 END;
 
+CREATE TRIGGER project_feed_agent_retired_continuations AFTER UPDATE OF retired_at ON agents WHEN OLD.retired_at IS NOT NEW.retired_at BEGIN
+  INSERT OR IGNORE INTO feed_card_dirty(owner_id,conversation_id,card_key)
+    SELECT r.owner_id,r.conversation_id,'*' FROM review_continuations rc
+    JOIN runs r ON r.id=rc.run_id AND r.owner_id=rc.owner_id
+    WHERE rc.owner_id=NEW.owner_id AND r.agent_id=NEW.id AND r.state='queued' AND r.conversation_id IS NOT NULL;
+END;
+
+CREATE TRIGGER project_feed_connection_status_continuations AFTER UPDATE OF status ON connections WHEN OLD.status IS NOT NEW.status BEGIN
+  INSERT OR IGNORE INTO feed_card_dirty(owner_id,conversation_id,card_key)
+    SELECT r.owner_id,r.conversation_id,'*' FROM review_continuations rc
+    JOIN runs r ON r.id=rc.run_id AND r.owner_id=rc.owner_id
+    WHERE rc.owner_id=NEW.owner_id AND json_extract(r.payload,'$.connectionId')=NEW.id AND r.state='queued' AND r.conversation_id IS NOT NULL;
+END;
+
 -- Re-project existing feed cards on upgrade so hide_internal and filtered
 -- queued counts reflect historical mail and review-continuation records.
 INSERT OR IGNORE INTO feed_card_dirty(owner_id,conversation_id,card_key)

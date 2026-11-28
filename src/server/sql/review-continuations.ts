@@ -79,11 +79,12 @@ const pendingForReviewStatement = statement(`SELECT r.id,r.owner_id
  JOIN runs r ON r.id=rc.run_id AND r.owner_id=rc.owner_id
  WHERE rc.owner_id=@owner
    AND rc.review_id=@reviewId
+   AND rc.parent_run_id=@parentRunId
    AND r.agent_id=@agentId
    AND r.conversation_id=@conversationId
-   AND r.id<>@excludeRunId
+   AND r.id<>@parentRunId
    AND r.state='queued'
-   AND EXISTS(SELECT 1 FROM runs caller WHERE caller.id=@excludeRunId AND caller.owner_id=@owner AND caller.state IN ('running','pausing'))
+   AND EXISTS(SELECT 1 FROM runs caller WHERE caller.id=@parentRunId AND caller.owner_id=@owner AND caller.state IN ('running','pausing'))
    AND NOT EXISTS(SELECT 1 FROM native_dispatch d WHERE d.run_id=r.id)
    AND NOT EXISTS(SELECT 1 FROM agent_checkpoints c WHERE c.run_id=r.id)
    AND NOT EXISTS(SELECT 1 FROM messages m WHERE m.owner_id=r.owner_id AND m.run_id=r.id AND m.role='assistant')`);
@@ -94,7 +95,7 @@ export function pendingForReview(
     reviewId: string;
     agentId: string;
     conversationId: string;
-    excludeRunId: string;
+    parentRunId: string;
   },
 ) {
   return pendingForReviewStatement(db)
