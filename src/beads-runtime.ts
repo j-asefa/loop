@@ -1,7 +1,16 @@
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { chmod, mkdir, mkdtemp, rename, rm, stat } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  link,
+  mkdir,
+  mkdtemp,
+  rename,
+  rm,
+  stat,
+} from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Readable, Transform } from "node:stream";
@@ -47,7 +56,7 @@ async function digest(path: string) {
 }
 
 async function extract(archive: string, entry: string, destination: string) {
-  const child = spawn("/usr/bin/tar", ["-xOzf", archive, entry], {
+  const child = spawn("tar", ["-xOzf", archive, entry], {
     stdio: ["ignore", "pipe", "ignore"],
     timeout: 60_000,
     killSignal: "SIGKILL",
@@ -156,7 +165,22 @@ async function install(path: string) {
     if ((await digest(binary)) !== executableHash)
       throw new Error("Beads executable integrity check failed");
     await chmod(binary, 0o700);
-    await rename(binary, path);
+    try {
+      // Preserve the inode of an already verified executable when another
+      // process installs the same release concurrently.
+      await link(binary, path);
+    } catch (error) {
+      if (!(
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        error.code === "EEXIST"
+      ))
+        throw error;
+      if ((await digest(path).catch(() => undefined)) !== executableHash)
+        await rename(binary, path);
+      else if (!(await executableStamp(path))) await chmod(path, 0o700);
+    }
     return path;
   } finally {
     await rm(staging, { recursive: true, force: true });
@@ -254,6 +278,7 @@ export class BeadsStore {
   private async execute(args: readonly string[]) {
     let binary: string;
     try {
+      await access(lock);
       binary = await beadsBinary(this.root);
     } catch (cause) {
       throw new BeadsNotStarted({ cause });

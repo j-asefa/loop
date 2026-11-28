@@ -80,7 +80,7 @@ completion writes keep their normal timeout ([busy-wait.ts](../src/server/busy-w
 ### Managed Beads storage
 
 The companion's pinned Beads runtime supports Linux and macOS on x64 and
-arm64. Desktop use requires Python 3 and access to the upstream release for
+arm64. Desktop use requires Python 3, Git, tar and access to the upstream release for
 the first download of a new pin. The companion image includes both. Loop
 verifies the executable and keeps the embedded Dolt stores in
 `beads-stores/` under the workspace data directory. The scope is independent

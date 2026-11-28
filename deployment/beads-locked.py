@@ -19,8 +19,7 @@ def run():
             break
 
     os.set_inheritable(fd, True)
-    try:
-        os.execve(sys.argv[1], sys.argv[1:], {
+    os.execve(sys.argv[1], sys.argv[1:], {
             "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin",
             "HOME": os.getcwd(),
             "BEADS_DIR": os.path.join(os.getcwd(), ".beads"),
@@ -30,10 +29,11 @@ def run():
             "GIT_CONFIG_KEY_0": "core.hooksPath",
             "GIT_CONFIG_VALUE_0": "/dev/null",
             "CI": "true",
-        })
-    except OSError:
-        sys.exit("LOOP_BEADS_NOT_STARTED")
+    })
 
 
 if __name__ == "__main__":
-    run()
+    try:
+        run()
+    except OSError:
+        sys.exit("LOOP_BEADS_NOT_STARTED")

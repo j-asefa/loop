@@ -84,3 +84,22 @@ it("rejects an invalid archive and refuses to use a tampered baked binary", asyn
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+it("marks lock-open failures before executing the helper", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "loop-beads-lock-failure-"));
+  try {
+    await mkdir(join(directory, ".loop-beads.lock"));
+    const child = spawn("python3", [lock, "/bin/false"], {
+      cwd: directory,
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    let error = "";
+    child.stderr!.on("data", (chunk) => {
+      error += chunk;
+    });
+    expect(await once(child, "close")).toEqual([1, null]);
+    expect(error).toBe("LOOP_BEADS_NOT_STARTED\n");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
