@@ -1,5 +1,6 @@
 import type { ApiApproval, ApiNativeDecision } from "./api/types";
 import type { NativeResultCard } from "./fixtures";
+import { readNativeDecision } from "./native-decision";
 
 export type NotificationPrefs = {
   enabled: boolean;
@@ -210,21 +211,19 @@ export function detectNotificationEvents(
         if (d.state !== "pending" || !d.id || previous.decisionIds.has(d.id)) {
           continue;
         }
+        const view = readNativeDecision(d);
         const titleText = sanitizeNotificationLine(
-          d.title || "Decision needed",
+          `${view.title} · @${view.agentName}`,
           64,
         );
-        const bodyText = sanitizeNotificationLine(
-          d.question || d.prompt || "An agent is waiting for your input.",
-          120,
-        );
+        const bodyText = sanitizeNotificationLine(view.detail, 120);
         pushEvent({
           id: `decision:${d.id}`,
           kind: "decision",
           title: titleText || "Decision needed",
           body: bodyText || "An agent is waiting for your input.",
           conversationId: d.conversation_id,
-          agentName: "agent",
+          agentName: view.agentName,
         });
       }
     }

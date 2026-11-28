@@ -16,7 +16,6 @@ import Animated, {
   withSpring,
 } from "react-native-reanimated";
 import {
-  AlertTriangle,
   Bookmark,
   BookmarkCheck,
   Check,
@@ -43,6 +42,7 @@ import { agentModelLabel } from "../models";
 import type { AgentRunSummary } from "./AgentProfileSheet";
 import { relativeTime, type NativeResultCard } from "../fixtures";
 import { haptics } from "../haptics";
+import { NativeDecisionCard } from "./NativeDecisionCard";
 import type { LoopTheme } from "../theme";
 import {
   AgentAvatar,
@@ -83,6 +83,7 @@ type FeedScreenProps = {
   onSwipeSave: (card: NativeResultCard) => void;
   onDecideApproval: (id: string, decision: "approve" | "reject") => void;
   onAnswerDecision: (id: string, answer: Record<string, unknown>) => void;
+  onOpenDecisionThread: (conversationId: string, agentName: string) => void;
 };
 
 const WORKING_STATES = new Set(["running", "pausing", "waiting_children"]);
@@ -121,6 +122,7 @@ export function FeedScreen({
   onSwipeSave,
   onDecideApproval,
   onAnswerDecision,
+  onOpenDecisionThread,
 }: FeedScreenProps) {
   const insets = useSafeAreaInsets();
 
@@ -576,60 +578,13 @@ export function FeedScreen({
             ))}
 
             {pendingDecisions.slice(0, 2).map((dec) => (
-              <View
+              <NativeDecisionCard
                 key={dec.id}
-                style={[
-                  styles.needsCard,
-                  {
-                    backgroundColor: theme.surface,
-                    borderColor: theme.attentionLine,
-                  },
-                ]}
-              >
-                <View style={styles.cardMetaRow}>
-                  <View style={styles.rowLeft}>
-                    <AlertTriangle size={14} color={theme.brassText} />
-                    <Text style={[styles.needsAgent, { color: theme.text }]}>
-                      {dec.title || "Decision needed"}
-                    </Text>
-                  </View>
-                </View>
-                <Text style={[styles.needsBody, { color: theme.muted }]}>
-                  {dec.question || dec.prompt || "Choose an option to continue"}
-                </Text>
-                {Array.isArray(dec.options) && dec.options.length > 0 && (
-                  <View style={styles.decisionOpts}>
-                    {dec.options.map((opt, idx) => (
-                      <Pressable
-                        key={opt.id || idx}
-                        onPress={() => {
-                          haptics.success();
-                          onAnswerDecision(dec.id, {
-                            optionId: opt.id ?? opt.label,
-                            label: opt.label,
-                          });
-                        }}
-                        style={[
-                          styles.decisionPill,
-                          {
-                            backgroundColor: theme.attention,
-                            borderColor: theme.attentionLine,
-                          },
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.decisionPillText,
-                            { color: theme.brassText },
-                          ]}
-                        >
-                          {opt.label}
-                        </Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                )}
-              </View>
+                decision={dec}
+                theme={theme}
+                onAnswer={onAnswerDecision}
+                onOpenThread={onOpenDecisionThread}
+              />
             ))}
           </View>
         )}
@@ -1304,26 +1259,6 @@ const styles = StyleSheet.create({
   needsDenyText: {
     fontSize: 13.5,
     fontWeight: "600",
-  },
-  decisionOpts: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 7,
-  },
-  decisionPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 999,
-    borderWidth: 1,
-  },
-  decisionPillText: {
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  rowLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
   },
   gestureHint: {
     fontSize: 12,

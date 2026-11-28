@@ -209,18 +209,23 @@ export type ApiApproval = {
   created_at: number;
 };
 
+/** GET /api/native/decisions row (NativeDecision in src/shared/workspace-contract-schemas.ts). */
 export type ApiNativeDecision = {
   id: string;
   run_id: string;
   conversation_id: string;
-  agent_id?: string | null;
-  kind?: string;
-  title?: string;
-  prompt?: string;
-  question?: string;
-  options?: Array<{ id?: string; label: string; description?: string }>;
+  generation: string;
+  native_id: string;
+  /** JSON text of the native request; read it with readNativeDecision. */
+  request: string;
   state: string;
+  command_id: string | null;
+  digest: string | null;
   created_at: number;
+  /** Agent name. */
+  name: string | null;
+  provider: string | null;
+  input: string;
 };
 
 export type ApiSnippet = {
