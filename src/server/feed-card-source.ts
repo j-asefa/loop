@@ -50,6 +50,39 @@ export type SourceRow = FeedRow & {
 
 const MAIL_AUTOMATION_KINDS_SQL =
   "('agent_message','agent_result','agent_ping')";
+const ACTIVE_CONTINUATION_STATES_SQL =
+  "('queued','running','pausing','paused','awaiting_approval','waiting_children')";
+/**
+ * Predicate matching sealed results that should stay hidden from Done, unread
+ * counts, and Done reminder promotion: internal agent-to-agent mail results,
+ * intermediate review-continuation turns whose follow-up is still active, and
+ * parent turns superseded by a completed continuation result.
+ * Uses only sealed `res.stimulus` so steered mail on a running owner turn
+ * never misclassifies the owner's answer.
+ */
+const INTERNAL_SEALED_RESULT_SQL = (
+  resAlias: string,
+  internalThreadExpr: string,
+) => `(
+  ${internalThreadExpr}=1
+  OR COALESCE(json_extract(${resAlias}.stimulus,'$.automationKind'),'') IN ${MAIL_AUTOMATION_KINDS_SQL}
+  OR (${resAlias}.run_id IS NOT NULL AND EXISTS(
+    SELECT 1 FROM review_continuations rc
+    JOIN runs next_run ON next_run.id=rc.run_id AND next_run.owner_id=rc.owner_id
+    WHERE rc.owner_id=@owner AND rc.parent_run_id=${resAlias}.run_id
+      AND (
+        (
+          COALESCE(json_extract(${resAlias}.stimulus,'$.automationKind'),'')='review_continuation'
+          AND next_run.state IN ${ACTIVE_CONTINUATION_STATES_SQL}
+        )
+        OR EXISTS(
+          SELECT 1 FROM results next_res
+          WHERE next_res.owner_id=@owner AND next_res.run_id=next_run.id
+            AND next_res.sealed=1 AND next_res.kind IN ('run_answer','imported_answer')
+        )
+      )
+  ))
+)`;
 const assistantAnswer = (run: string) =>
   `(SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id AND m.run_id=${run} AND ${answerPredicate("m")} ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1)`;
 const cardSql = (doneOnly = false, resultMode = false) => `
@@ -131,24 +164,7 @@ SELECT k.*,
     ORDER BY df.defect) f) END result_findings,
   ${
     resultMode
-      ? `CASE
-    WHEN k.internal_thread=1 THEN 1
-    WHEN COALESCE(json_extract(res.stimulus,'$.automationKind'),json_extract(t.metadata,'$.automation.kind')) IN ${MAIL_AUTOMATION_KINDS_SQL} THEN 1
-    WHEN k.card_run IS NOT NULL AND EXISTS(
-      SELECT 1 FROM review_continuations rc
-      JOIN runs next_run ON next_run.id=rc.run_id AND next_run.owner_id=rc.owner_id
-      WHERE rc.owner_id=@owner AND rc.parent_run_id=k.card_run AND next_run.state<>'cancelled'
-        AND (
-          COALESCE(json_extract(res.stimulus,'$.automationKind'),json_extract(t.metadata,'$.automation.kind'))='review_continuation'
-          OR EXISTS(
-            SELECT 1 FROM results next_res
-            WHERE next_res.owner_id=@owner AND next_res.run_id=next_run.id
-              AND next_res.sealed=1 AND next_res.kind IN ('run_answer','imported_answer')
-          )
-        )
-    ) THEN 1
-    ELSE 0
-  END`
+      ? `CASE WHEN ${INTERNAL_SEALED_RESULT_SQL("res", "k.internal_thread")} THEN 1 ELSE 0 END`
       : "k.internal_thread"
   } hide_internal
 FROM chosen k
@@ -167,12 +183,12 @@ const selections = new WeakMap<
   Map<string, Database.Statement>
 >();
 
-// The open reminder's surfaced time, and the conversation's newest sealed
-// result (by time, then id), for the Done sort of the row in `flagged`.
+// The open reminder's surfaced time, and the conversation's newest visible
+// sealed result (by time, then id), for the Done sort of the row in `flagged`.
+// Hidden internal mail / superseded review results never absorb a due reminder.
 const REMINDED_AT =
   "(SELECT l.surfaced_at FROM later_items l WHERE l.owner_id=@owner AND l.kind='conversation' AND l.target_id=flagged.conversation_id AND l.done_at IS NULL)";
-const NEWEST_RESULT =
-  "(SELECT n.id FROM results n WHERE n.owner_id=@owner AND n.conversation_id=flagged.conversation_id AND n.sealed=1 AND n.kind IN ('run_answer','imported_answer') ORDER BY n.created_at DESC,n.id DESC LIMIT 1)";
+const NEWEST_RESULT = `(SELECT n.id FROM results n WHERE n.owner_id=@owner AND n.conversation_id=flagged.conversation_id AND n.sealed=1 AND n.kind IN ('run_answer','imported_answer') AND NOT ${INTERNAL_SEALED_RESULT_SQL("n", "flagged.internal_thread")} ORDER BY n.created_at DESC,n.id DESC LIMIT 1)`;
 export function sourceCards(
   db: Database.Database,
   owner: string,

@@ -226,25 +226,31 @@ export function projectFeed(db: Database.Database, emit: Emit) {
         : [...keys].filter(
             (key) => key.startsWith("run:") || key.startsWith("message:"),
           );
-    // Completing or cancelling a review continuation can supersede or restore
-    // its parent run's result card in the same conversation, so re-project all
-    // results for conversations that participate in review continuations.
-    if (
-      selected?.length &&
-      db
-        .prepare(
-          `SELECT 1 FROM review_continuations rc
-           JOIN runs r ON r.id=rc.run_id AND r.owner_id=rc.owner_id
-           WHERE rc.owner_id=? AND r.conversation_id=? LIMIT 1`,
-        )
-        .get(owner, conversation)
-    ) {
-      selected = null;
+    // Completing, failing, or cancelling a review continuation can supersede or
+    // restore its parent run's result card in the same conversation, so widen
+    // only when a dirty key actually touches a review_continuations run.
+    if (selected?.length) {
+      const dirtyRunIds = selected
+        .filter((key) => key.startsWith("run:"))
+        .map((key) => key.slice(4));
+      if (
+        dirtyRunIds.length &&
+        db
+          .prepare(
+            `SELECT 1 FROM review_continuations rc
+             WHERE rc.owner_id=?
+               AND (rc.run_id IN (SELECT value FROM json_each(?))
+                 OR rc.parent_run_id IN (SELECT value FROM json_each(?)))
+             LIMIT 1`,
+          )
+          .get(owner, JSON.stringify(dirtyRunIds), JSON.stringify(dirtyRunIds))
+      ) {
+        selected = null;
+      }
     }
-    // While a surfaced reminder lifts this conversation's newest result, a
-    // result write may make another result the newest: re-project the two
-    // top result cards too, so the lifted one drops back. Without such a
-    // reminder, writes never touch historical result cards.
+    // While a surfaced reminder lifts this conversation's newest visible result,
+    // a result write may make another visible result the newest: re-project the
+    // top visible result cards too, so the lifted one drops back.
     if (
       selected?.length &&
       db
@@ -255,7 +261,7 @@ export function projectFeed(db: Database.Database, emit: Emit) {
     )
       for (const { card_key } of db
         .prepare(
-          "SELECT card_key FROM feed_cards WHERE owner_id=? AND conversation_id=? AND kind='result' ORDER BY sort_at DESC,card_key DESC LIMIT 2",
+          "SELECT card_key FROM feed_cards WHERE owner_id=? AND conversation_id=? AND kind='result' AND hide_internal=0 ORDER BY sort_at DESC,card_key DESC LIMIT 2",
         )
         .all(owner, conversation) as { card_key: string }[])
         if (!selected.includes(card_key)) selected.push(card_key);

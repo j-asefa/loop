@@ -527,18 +527,22 @@ function agentReviewReport(
   // conversation, any undispatched automatic continuation for that review is
   // redundant and should not fire as a stale follow-up turn later.
   if (run.agent_id && run.conversation_id) {
-    for (const pending of continuationQueries.pendingForReview(db, {
-      owner: run.owner_id,
-      reviewId,
-      agentId: run.agent_id,
-      conversationId: run.conversation_id,
-      excludeRunId: run.id,
-    })) {
-      transition(pending, "cancelled", {
-        reason:
-          "Review outcome was already retrieved via loop_review_status; no automatic follow-up needed.",
-      });
-    }
+    const agentId = run.agent_id;
+    const conversationId = run.conversation_id;
+    db.transaction(() => {
+      for (const pending of continuationQueries.pendingForReview(db, {
+        owner: run.owner_id,
+        reviewId,
+        agentId,
+        conversationId,
+        excludeRunId: run.id,
+      })) {
+        transition(pending, "cancelled", {
+          reason:
+            "Review outcome was already retrieved via loop_review_status; no automatic follow-up needed.",
+        });
+      }
+    }).immediate();
   }
   return {
     failed: status.state !== "completed",

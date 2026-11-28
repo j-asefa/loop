@@ -7,6 +7,10 @@ ALTER TABLE feed_cards ADD COLUMN hide_internal INTEGER NOT NULL DEFAULT 0;
 DROP INDEX IF EXISTS feed_cards_unread;
 CREATE INDEX feed_cards_unread ON feed_cards(owner_id)
   WHERE kind='result' AND unread=1 AND hidden=0 AND hide_internal=0;
+CREATE INDEX IF NOT EXISTS agent_mail_recipient_conversation
+  ON agent_mail(owner_id, recipient_conversation_id)
+  WHERE recipient_conversation_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS code_reviews_run ON code_reviews(owner_id, run_id);
 
 CREATE TRIGGER project_feed_review_continuations_insert AFTER INSERT ON review_continuations BEGIN
   INSERT OR IGNORE INTO feed_card_dirty(owner_id,conversation_id,card_key)

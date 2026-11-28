@@ -695,3 +695,301 @@ it("migration 168 preserves historical rows and backfills hide_internal and filt
     mem.close();
   }
 });
+
+it("keeps an owner turn visible in Done when teammate mail is steered into it", () => {
+  const owner = "steered-owner-" + id().slice(0, 6);
+  const { connectionId, builder, helper } = setupWorkspace(owner);
+  const convId = id();
+  seedConversation(db, {
+    id: convId,
+    owner_id: owner,
+    agent_id: builder.id,
+    title: "Owner task with steered mail",
+    created_at: now(),
+  });
+  const ownerRun = id();
+  seedRun(db, {
+    id: ownerRun,
+    owner_id: owner,
+    agent_id: builder.id,
+    conversation_id: convId,
+    input: "Ship release",
+    state: "running",
+    idempotency_key: ownerRun,
+    payload: JSON.stringify({ connectionId }),
+    created_at: now(),
+    updated_at: now(),
+  });
+  seedMessage(db, {
+    id: id(),
+    owner_id: owner,
+    conversation_id: convId,
+    run_id: ownerRun,
+    role: "user",
+    content: "Ship release",
+    metadata: writeMessageMetadata({ personal: true }),
+    created_at: now(),
+  });
+  // Teammate interrupts/steers the running owner turn with agent_message metadata + steeringId
+  seedMessage(db, {
+    id: id(),
+    owner_id: owner,
+    conversation_id: convId,
+    run_id: ownerRun,
+    role: "user",
+    content: "FYI build green",
+    metadata: writeMessageMetadata({
+      personal: false,
+      steeringId: "steer-1",
+      automation: {
+        kind: "agent_message",
+        mailId: "mail-1",
+        threadId: "thread-1",
+        fromAgentId: helper.id,
+        fromName: helper.name,
+      },
+    }),
+    created_at: now() + 1,
+  });
+
+  finishTurn(owner, ownerRun, convId, "Release shipped.");
+
+  // Sealed stimulus came from the owner prompt, so the owner's answer must stay visible
+  const cards = listDoneCards(owner);
+  expect(cards).toHaveLength(1);
+  expect(cards[0].card.content).toBe("Release shipped.");
+  expect(feed(owner, { filter: "done" }).summary.done_unread).toBe(1);
+});
+
+it("resurfaces prior continuation result in Done if the next continuation fails or interrupts", () => {
+  const owner = "failed-cont-" + id().slice(0, 6);
+  const { builder, folder, reviewTeam, runPayload } = setupWorkspace(owner);
+  const convId = id();
+  seedConversation(db, {
+    id: convId,
+    owner_id: owner,
+    agent_id: builder.id,
+    title: "Failed continuation recovery",
+    project_id: folder.id,
+    created_at: now(),
+  });
+  const turn1 = id();
+  seedRun(db, {
+    id: turn1,
+    owner_id: owner,
+    agent_id: builder.id,
+    conversation_id: convId,
+    input: "Start work",
+    state: "running",
+    idempotency_key: turn1,
+    payload: runPayload(folder.id),
+    created_at: now(),
+    updated_at: now(),
+  });
+  seedMessage(db, {
+    id: id(),
+    owner_id: owner,
+    conversation_id: convId,
+    run_id: turn1,
+    role: "user",
+    content: "Start work",
+    metadata: writeMessageMetadata({ personal: true }),
+    created_at: now(),
+  });
+  const req1 = requestReview(ownedRun(turn1, owner), "frev-1", {
+    teamId: reviewTeam.id,
+    scope: "uncommitted",
+    base: "main",
+    depth: "auto",
+    wait: false,
+  });
+  const rev1 = (req1 as { report: { reviewId: string } }).report.reviewId;
+  const rc1 = db
+    .prepare(
+      "SELECT rc.run_id, cr.run_id lead_run_id FROM review_continuations rc JOIN code_reviews cr ON cr.id=rc.review_id WHERE rc.review_id=?",
+    )
+    .get(rev1) as { run_id: string; lead_run_id: string };
+  finishTurn(owner, turn1, convId, "Requested review 1.");
+
+  // Turn 2 completes and spawns Review 2 (Turn 3)
+  db.prepare("UPDATE runs SET state='completed', result='Fix' WHERE id=?").run(
+    rc1.lead_run_id,
+  );
+  db.prepare("UPDATE runs SET state='running' WHERE id=?").run(rc1.run_id);
+  const req2 = requestReview(ownedRun(rc1.run_id, owner), "frev-2", {
+    teamId: reviewTeam.id,
+    scope: "uncommitted",
+    base: "main",
+    depth: "auto",
+    wait: false,
+  });
+  const rev2 = (req2 as { report: { reviewId: string } }).report.reviewId;
+  const rc2 = db
+    .prepare(
+      "SELECT rc.run_id FROM review_continuations rc WHERE rc.review_id=?",
+    )
+    .get(rev2) as { run_id: string };
+  finishTurn(owner, rc1.run_id, convId, "Fixed and requested review 2.");
+  expect(listDoneCards(owner)).toEqual([]);
+
+  // Turn 3 fails without sealing a result -> Turn 2 must resurface immediately
+  db.prepare("UPDATE runs SET state='running' WHERE id=?").run(rc2.run_id);
+  transition({ id: rc2.run_id, owner_id: owner }, "failed", {
+    message: "Provider failure",
+  });
+  const resurfaced = listDoneCards(owner);
+  expect(resurfaced).toHaveLength(1);
+  expect(resurfaced[0].card.content).toBe("Fixed and requested review 2.");
+});
+
+it("promotes the newest visible owner result (not a hidden mail result) when a reminder comes due", () => {
+  const owner = "reminder-mail-" + id().slice(0, 6);
+  const { connectionId, builder, helper } = setupWorkspace(owner);
+  const convId = id();
+  const baseTime = now();
+  seedConversation(db, {
+    id: convId,
+    owner_id: owner,
+    agent_id: builder.id,
+    title: "Reminded conversation",
+    created_at: baseTime,
+  });
+  const humanRun = id();
+  seedRun(db, {
+    id: humanRun,
+    owner_id: owner,
+    agent_id: builder.id,
+    conversation_id: convId,
+    input: "Owner prompt",
+    state: "running",
+    idempotency_key: humanRun,
+    payload: JSON.stringify({ connectionId }),
+    created_at: baseTime,
+    updated_at: baseTime,
+  });
+  seedMessage(db, {
+    id: id(),
+    owner_id: owner,
+    conversation_id: convId,
+    run_id: humanRun,
+    role: "user",
+    content: "Owner prompt",
+    metadata: writeMessageMetadata({ personal: true }),
+    created_at: baseTime,
+  });
+  finishTurn(owner, humanRun, convId, "Owner answer.");
+
+  // A newer internal agent_result lands later in the same conversation
+  const mailRun = id();
+  seedRun(db, {
+    id: mailRun,
+    owner_id: owner,
+    agent_id: builder.id,
+    conversation_id: convId,
+    input: "Mail result",
+    state: "queued",
+    idempotency_key: mailRun,
+    payload: JSON.stringify({ connectionId, mailId: "m-rem" }),
+    created_at: baseTime + 100,
+    updated_at: baseTime + 100,
+  });
+  seedMessage(db, {
+    id: id(),
+    owner_id: owner,
+    conversation_id: convId,
+    run_id: mailRun,
+    role: "user",
+    content: "Mail result",
+    metadata: writeMessageMetadata({
+      personal: false,
+      automation: {
+        kind: "agent_result",
+        mailId: "m-rem",
+        threadId: "th-rem",
+        fromAgentId: helper.id,
+        fromName: helper.name,
+      },
+    }),
+    created_at: baseTime + 100,
+  });
+  finishTurn(owner, mailRun, convId, "Internal mail answer.");
+
+  // Surface a due reminder far in the future; it must lift the visible owner result, not the hidden mail result
+  const surfacedAt = baseTime + 500_000;
+  db.prepare(
+    `INSERT INTO later_items(id,owner_id,kind,target_id,condition,due_at,created_at,surfaced_at,snoozes)
+     VALUES(?,?,'conversation',?,'time',?,?,?,0)`,
+  ).run(id(), owner, convId, surfacedAt, baseTime, surfacedAt);
+
+  const cards = listDoneCards(owner);
+  expect(cards).toHaveLength(1);
+  expect(cards[0].card.content).toBe("Owner answer.");
+  expect(cards[0].order[0]).toBe(surfacedAt);
+});
+
+it("keeps a direct owner follow-up queued in a review conversation visible in Queued", () => {
+  const owner = "owner-review-followup-" + id().slice(0, 6);
+  const { connectionId, builder, folder, reviewTeam, runPayload } =
+    setupWorkspace(owner);
+  const convId = id();
+  seedConversation(db, {
+    id: convId,
+    owner_id: owner,
+    agent_id: builder.id,
+    title: "Task requesting review",
+    project_id: folder.id,
+    created_at: now(),
+  });
+  const parentId = id();
+  seedRun(db, {
+    id: parentId,
+    owner_id: owner,
+    agent_id: builder.id,
+    conversation_id: convId,
+    input: "Request review",
+    state: "running",
+    idempotency_key: parentId,
+    payload: runPayload(folder.id),
+    created_at: now(),
+    updated_at: now(),
+  });
+  const req = requestReview(ownedRun(parentId, owner), "own-rev-1", {
+    teamId: reviewTeam.id,
+    scope: "uncommitted",
+    base: "main",
+    depth: "auto",
+    wait: false,
+  });
+  const reviewId = (req as { report: { reviewId: string } }).report.reviewId;
+  const lead = db
+    .prepare(
+      "SELECT r.id, r.conversation_id, r.agent_id FROM code_reviews cr JOIN runs r ON r.id=cr.run_id WHERE cr.id=?",
+    )
+    .get(reviewId) as { id: string; conversation_id: string; agent_id: string };
+
+  // Review lead and independent reviewer runs are hidden from Queued
+  expect(feed(owner, { filter: "queued" }).items).toEqual([]);
+
+  // Owner sends a direct follow-up in the review conversation (even with reviewId copied on payload)
+  const ownerFollowUp = id();
+  seedRun(db, {
+    id: ownerFollowUp,
+    owner_id: owner,
+    agent_id: lead.agent_id,
+    conversation_id: lead.conversation_id,
+    input: "Please clarify finding 2",
+    state: "queued",
+    idempotency_key: ownerFollowUp,
+    payload: JSON.stringify({ connectionId, reviewId }),
+    created_at: now() + 10,
+    updated_at: now() + 10,
+  });
+  expect(
+    feed(owner, { filter: "queued" }).items.some(
+      (item) => item.conversation_id === lead.conversation_id,
+    ),
+  ).toBe(true);
+  expect(
+    threadDetails(db, owner, lead.conversation_id).queued_runs.map((r) => r.id),
+  ).toEqual([ownerFollowUp]);
+});
