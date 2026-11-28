@@ -7,12 +7,14 @@ import { answerPredicate, nonemptyAnswer } from "../feed-answers.js";
 import { CAROUSEL_PAGE_CARDS } from "../../shared/done-stack.js";
 import { STARTED_RUN_DISPLAY_STATES } from "../../shared/run-state.js";
 // Order/eligibility is maintained transactionally by migrations 065/073. Materialize
-// only the page before joining content and current run/delivery state.
+// only the page before joining content and current run/delivery state. CROSS JOIN
+// keeps the page as the outer loop: for the carousel's UNION ALL page the planner
+// otherwise scans every message behind the view (~160 ms on a 24 GB workspace).
 const projectPageSql = `SELECT m.id,m.owner_id,m.conversation_id,m.run_id,m.role,m.content,
   m.metadata,m.created_at,m.revision,m.run_state,m.run_error,m.run_checkout,m.run_verification,
   p.position,p.phase,p.ordinal
 FROM page p
-JOIN message_projection m ON m.id=p.message_id AND m.owner_id=p.owner_id
+CROSS JOIN message_projection m ON m.id=p.message_id AND m.owner_id=p.owner_id
 ORDER BY p.position DESC,p.phase DESC,p.ordinal DESC`;
 
 export const transcriptPageSql = `WITH page AS MATERIALIZED (
@@ -34,7 +36,7 @@ const carouselAnswer = `(${answerPredicate("m")} OR (
 
 // Read one extra assistant position for the cursor. Join full message bodies
 // only for the selected cards and the immediately preceding applicable prompts.
-const carouselPageStatement = statement(`WITH candidates AS MATERIALIZED (
+export const carouselPageSql = `WITH candidates AS MATERIALIZED (
   SELECT t.owner_id,t.conversation_id,t.message_id,t.position,t.phase,t.ordinal
   FROM conversation_transcript t
   JOIN messages m ON m.id=t.message_id AND m.owner_id=t.owner_id
@@ -58,7 +60,8 @@ const carouselPageStatement = statement(`WITH candidates AS MATERIALIZED (
   JOIN messages prompt ON prompt.id=p.message_id AND prompt.owner_id=p.owner_id AND prompt.role='user'
 ) SELECT projected.*, (SELECT count(*)>${CAROUSEL_PAGE_CARDS} FROM candidates) AS has_more
 FROM (${projectPageSql}) projected
-ORDER BY projected.position DESC,projected.phase DESC,projected.ordinal DESC`);
+ORDER BY projected.position DESC,projected.phase DESC,projected.ordinal DESC`;
+const carouselPageStatement = statement(carouselPageSql);
 
 const positionRow = QueryRecords.conversation_transcript
   .pick({ position: true, phase: true, ordinal: true })
