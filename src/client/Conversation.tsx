@@ -1845,7 +1845,22 @@ function ConversationView({
                           : `Replying to @${meta.replyTo.name}`}
                         {" · View quoted message"}
                       </summary>
-                      <RichText content={meta.replyTo.content} />
+                      <RichText
+                        content={
+                          meta.replyTo.truncated
+                            ? meta.replyTo.content + "…"
+                            : meta.replyTo.content
+                        }
+                      />
+                      {meta.replyTo.truncated && (
+                        <button
+                          type="button"
+                          className="text-button"
+                          onClick={() => jumpTo(meta.replyTo!.id)}
+                        >
+                          Go to quoted message
+                        </button>
+                      )}
                     </details>
                   )}
                   {showContent && (
